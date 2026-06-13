@@ -23,7 +23,7 @@ function isMissingTableError(error: { code?: string; message?: string } | null |
 
 function validateOwnerInput(input: RegisterOwnerInput): string | null {
   if (!input.name.trim()) return "Full name is required";
-  if (!MOBILE_REGEX.test(input.mobile.replace(/\s/g, ""))) {
+  if (input.mobile.trim() && !MOBILE_REGEX.test(input.mobile.replace(/\s/g, ""))) {
     return "Enter a valid 10-digit Indian mobile number";
   }
   if (!EMAIL_REGEX.test(input.email)) return "Enter a valid email address";
@@ -72,7 +72,7 @@ export async function registerOwner(
       email_confirm: false,
       user_metadata: {
         name: input.name.trim(),
-        mobile,
+        mobile: mobile || null,
         city: input.city.trim(),
         role: "owner",
       },
@@ -91,7 +91,7 @@ export async function registerOwner(
       name: input.name.trim(),
       full_name: input.name.trim(),
       email,
-      mobile,
+      mobile: mobile || "",
       city: input.city.trim(),
       role: "owner",
     } as Record<string, unknown>;
@@ -105,7 +105,7 @@ export async function registerOwner(
     const extendedRow = {
       owner_id: ownerUserId,
       name: input.name.trim(),
-      mobile,
+      mobile: mobile || "",
       email,
       city: input.city.trim(),
       aadhaar_number: aadhaar,
@@ -144,7 +144,7 @@ export async function registerOwner(
         .from("owners")
         .insert({
           owner_name: input.name.trim(),
-          mobile,
+          mobile: mobile || null,
           email,
           address: input.city.trim(),
           verification_status: "pending",

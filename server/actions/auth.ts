@@ -12,7 +12,7 @@ const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
 type SignupInput = {
   name: string;
   email: string;
-  mobile: string;
+  mobile?: string;
   city: string;
   password: string;
 };
@@ -46,14 +46,14 @@ function validatePassword(password: string) {
 
 async function upsertUserProfile(input: SignupInput, role: UserRole, userId: string) {
   const db = createAdminClient();
-  const mobile = input.mobile.replace(/\s/g, "");
+  const mobile = input.mobile?.replace(/\s/g, "") ?? "";
   const email = input.email.toLowerCase().trim();
   const userPayload = {
     id: userId,
     name: input.name.trim(),
     full_name: input.name.trim(),
     email,
-    mobile,
+    mobile: mobile || null,
     city: input.city.trim(),
     role,
   } as Record<string, unknown>;
@@ -81,7 +81,8 @@ async function signUpWithRole(input: SignupInput, role: UserRole): Promise<Actio
   if (configError) return { success: false, error: configError };
   if (!input.name.trim()) return { success: false, error: "Name is required" };
   if (!input.email.trim()) return { success: false, error: "Email is required" };
-  if (!MOBILE_REGEX.test(input.mobile.replace(/\s/g, ""))) {
+  const mobile = input.mobile?.replace(/\s/g, "") ?? "";
+  if (mobile && !MOBILE_REGEX.test(mobile)) {
     return { success: false, error: "Enter a valid mobile number" };
   }
   const passwordError = validatePassword(input.password);
@@ -89,7 +90,6 @@ async function signUpWithRole(input: SignupInput, role: UserRole): Promise<Actio
     return { success: false, error: passwordError };
   }
 
-  const mobile = input.mobile.replace(/\s/g, "");
   const email = input.email.toLowerCase().trim();
 
   const supabase = await createClient();
