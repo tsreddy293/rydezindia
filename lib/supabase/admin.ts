@@ -1,11 +1,10 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseServiceKey, getSupabaseUrl, logSupabaseConfig } from "@/lib/supabase/env";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let adminClient: SupabaseClient<any> | null = null;
+let adminClient: SupabaseClient | null = null;
 
 /** Service-role client — server-side only, bypasses RLS */
-export function createAdminClient(): SupabaseClient<any> {
+export function createAdminClient(): SupabaseClient {
   logSupabaseConfig("admin");
 
   const url = getSupabaseUrl();

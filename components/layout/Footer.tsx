@@ -44,10 +44,11 @@ function YoutubeIcon({ className }: { className?: string }) {
 }
 const FOOTER_LINKS = {
   Platform: [
-    { href: "/search", label: "Search Vehicles" },
+    { href: "/search-return", label: "Return Journeys" },
+    { href: "/search-self-drive", label: "Self Drive" },
+    { href: "/search-driver", label: "With Driver" },
     { href: "/owner", label: "Register as Owner" },
-    { href: "/vehicles/add", label: "Add Vehicle" },
-    { href: "/user/register", label: "User Registration" },
+    { href: "/owner/dashboard", label: "Owner Dashboard" },
   ],
   Company: [
     { href: "/investors", label: "Investors" },

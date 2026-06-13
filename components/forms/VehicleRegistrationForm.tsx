@@ -15,7 +15,16 @@ const VEHICLE_TYPES = [
   { value: "MUV", label: "MUV" },
   { value: "Luxury", label: "Luxury" },
   { value: "Tempo Traveller", label: "Tempo Traveller" },
+  { value: "Mini Bus", label: "Mini Bus" },
+  { value: "Bus", label: "Bus" },
 ];
+
+const FUEL_TYPES = ["Petrol", "Diesel", "CNG", "Electric", "Hybrid"].map((value) => ({
+  value,
+  label: value,
+}));
+
+const TRANSMISSIONS = ["Manual", "Automatic"].map((value) => ({ value, label: value }));
 
 interface Props {
   owners: VehicleOwner[];
@@ -36,17 +45,22 @@ export default function VehicleRegistrationForm({ owners }: Props) {
 
     const result = await registerVehicle({
       owner_id: String(form.get("owner_id") ?? ""),
+      vehicle_name: String(form.get("vehicle_name") ?? ""),
       vehicle_type: String(form.get("vehicle_type") ?? ""),
       vehicle_number: String(form.get("vehicle_number") ?? ""),
+      fuel_type: String(form.get("fuel_type") ?? ""),
+      transmission: String(form.get("transmission") ?? ""),
       seats: Number(form.get("seats") ?? 0),
       from_city: String(form.get("from_city") ?? ""),
       to_city: String(form.get("to_city") ?? ""),
+      journey_date: String(form.get("journey_date") ?? ""),
+      journey_time: String(form.get("journey_time") ?? ""),
       price: Number(form.get("price") ?? 0),
     });
 
     if (result.success) {
       setSuccess(true);
-      setTimeout(() => router.push("/search"), 1500);
+      setTimeout(() => router.push("/search-return"), 1500);
     } else {
       setError(result.error ?? "Failed to register vehicle");
       setLoading(false);
@@ -83,12 +97,17 @@ export default function VehicleRegistrationForm({ owners }: Props) {
       />
 
       <div className="grid gap-5 sm:grid-cols-2">
+        <FormField label="Vehicle Name" name="vehicle_name" required placeholder="Toyota Innova Crysta" />
         <FormField label="Vehicle Type" name="vehicle_type" as="select" required options={VEHICLE_TYPES} />
         <FormField label="Vehicle Number" name="vehicle_number" required placeholder="TS09 AB 1234" />
+        <FormField label="Fuel Type" name="fuel_type" as="select" options={FUEL_TYPES} />
+        <FormField label="Transmission" name="transmission" as="select" options={TRANSMISSIONS} />
         <FormField label="Seats" name="seats" type="number" required placeholder="7" />
         <FormField label="Price (₹ per seat)" name="price" type="number" required placeholder="1200" />
         <FormField label="From City" name="from_city" required placeholder="Hyderabad" />
         <FormField label="To City" name="to_city" required placeholder="Bangalore" />
+        <FormField label="Journey Date" name="journey_date" type="date" required />
+        <FormField label="Journey Time" name="journey_time" type="time" />
       </div>
 
       <Button type="submit" variant="primary" size="lg" className="w-full" disabled={loading}>

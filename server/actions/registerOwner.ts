@@ -3,12 +3,23 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
 import { getSupabaseConfigError } from "@/lib/supabase/env";
 import type { ActionResult, RegisterOwnerInput } from "@/types/database";
 
 const MOBILE_REGEX = /^[6-9]\d{9}$/;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const AADHAAR_REGEX = /^\d{12}$/;
+
+function isMissingTableError(error: { code?: string; message?: string } | null | undefined) {
+  if (!error) return false;
+  return (
+    error.code === "42P01" ||
+    error.code === "PGRST205" ||
+    error.message?.toLowerCase().includes("could not find the table") ||
+    error.message?.toLowerCase().includes("does not exist")
+  );
+}
 
 function validateOwnerInput(input: RegisterOwnerInput): string | null {
   if (!input.name.trim()) return "Full name is required";
@@ -17,6 +28,7 @@ function validateOwnerInput(input: RegisterOwnerInput): string | null {
   }
   if (!EMAIL_REGEX.test(input.email)) return "Enter a valid email address";
   if (!input.city.trim()) return "City is required";
+  if (input.password && input.password.length < 8) return "Password must be at least 8 characters";
   if (!AADHAAR_REGEX.test(input.aadhaar_number.replace(/\s/g, ""))) {
     return "Aadhaar number must be 12 digits";
   }
@@ -48,7 +60,7 @@ export async function registerOwner(
 
   try {
     // Step 1: Create Supabase Auth user (required — users.id FK + owner_id NOT NULL)
-    const tempPassword = `${crypto.randomUUID()}Aa1!`;
+    const tempPassword = input.password || `${crypto.randomUUID()}Aa1!`;
 
     const { data: authData, error: authError } = await db.auth.admin.createUser({
       email,
@@ -70,15 +82,20 @@ export async function registerOwner(
     const ownerUserId = authData.user.id;
 
     // Step 2: Ensure users profile is updated (trigger may have created it)
-    await db
-      .from("users")
-      .update({
-        name: input.name.trim(),
-        mobile,
-        city: input.city.trim(),
-        role: "owner",
-      })
-      .eq("id", ownerUserId);
+    const profilePayload = {
+      id: ownerUserId,
+      name: input.name.trim(),
+      full_name: input.name.trim(),
+      email,
+      mobile,
+      city: input.city.trim(),
+      role: "owner",
+    } as Record<string, unknown>;
+    const profileResult = await db.from("users").upsert(profilePayload).select("id");
+    if (profileResult.error?.message?.includes("column")) {
+      delete profilePayload.full_name;
+      await db.from("users").upsert(profilePayload).select("id");
+    }
 
     // Step 3: Insert vehicle_owners — try extended columns, fallback to base schema
     const extendedRow = {
@@ -118,6 +135,36 @@ export async function registerOwner(
         .single();
     }
 
+    if (insertResult.error && isMissingTableError(insertResult.error)) {
+      const ownerInsert = await db
+        .from("owners")
+        .insert({
+          owner_name: input.name.trim(),
+          mobile,
+          email,
+          address: input.city.trim(),
+          verification_status: "pending",
+        })
+        .select("id")
+        .single();
+
+      if (ownerInsert.error) {
+        console.error("[registerOwner] Owners insert error:", ownerInsert.error.message);
+        await db.auth.admin.deleteUser(ownerUserId);
+        return { success: false, error: ownerInsert.error.message };
+      }
+
+      revalidatePath("/");
+      revalidatePath("/admin");
+      revalidatePath("/vehicles/add");
+      revalidatePath("/vehicles/self-drive");
+      revalidatePath("/vehicles/driver");
+      const supabase = await createClient();
+      await supabase.auth.signInWithPassword({ email, password: tempPassword });
+
+      return { success: true, data: { id: ownerInsert.data.id as string } };
+    }
+
     if (insertResult.error) {
       console.error("[registerOwner] Insert error:", insertResult.error.message);
       await db.auth.admin.deleteUser(ownerUserId);
@@ -129,6 +176,8 @@ export async function registerOwner(
     revalidatePath("/");
     revalidatePath("/admin");
     revalidatePath("/vehicles/add");
+    const supabase = await createClient();
+    await supabase.auth.signInWithPassword({ email, password: tempPassword });
 
     return { success: true, data: { id: insertResult.data.id } };
   } catch (err) {

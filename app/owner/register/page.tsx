@@ -1,17 +1,41 @@
 "use client";
 
 import { useState } from "react";
-import { Car, CheckCircle } from "lucide-react";
+import { Car, CheckCircle, Loader2 } from "lucide-react";
 import PageLayout from "@/components/layout/PageLayout";
 import FormField from "@/components/forms/FormField";
 import Button from "@/components/ui/Button";
+import { registerOwner } from "@/server/actions/registerOwner";
 
 export default function OwnerRegisterPage() {
   const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setSubmitted(true);
+    setError("");
+    setLoading(true);
+
+    const form = new FormData(e.currentTarget);
+    const result = await registerOwner({
+      name: String(form.get("name") ?? ""),
+      mobile: String(form.get("mobile") ?? ""),
+      email: String(form.get("email") ?? ""),
+      city: String(form.get("city") ?? ""),
+      password: String(form.get("password") ?? ""),
+      aadhaar_number: String(form.get("aadhaar") ?? ""),
+      license_number: String(form.get("dl") ?? ""),
+      vehicle_type: String(form.get("category") ?? ""),
+      vehicle_number: String(form.get("reg") ?? ""),
+    });
+
+    if (result.success) {
+      setSubmitted(true);
+    } else {
+      setError(result.error ?? "Registration failed");
+      setLoading(false);
+    }
   };
 
   if (submitted) {
@@ -41,12 +65,18 @@ export default function OwnerRegisterPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="rounded-2xl bg-white border border-gray-100 p-8 shadow-sm space-y-6">
+          {error && (
+            <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-600">
+              {error}
+            </div>
+          )}
           <h2 className="text-lg font-semibold text-secondary border-b pb-3">Personal Details</h2>
           <div className="grid gap-6 sm:grid-cols-2">
             <FormField label="Full Name" name="name" required />
             <FormField label="Mobile Number" name="mobile" type="tel" required />
             <FormField label="Email" name="email" type="email" required />
             <FormField label="City" name="city" required />
+            <FormField label="Password" name="password" type="password" required />
           </div>
           <FormField label="Address" name="address" as="textarea" required />
 
@@ -96,7 +126,14 @@ export default function OwnerRegisterPage() {
           </div>
 
           <Button type="submit" variant="primary" size="lg" className="w-full">
-            Submit Registration
+            {loading ? (
+              <>
+                <Loader2 className="h-5 w-5 animate-spin" />
+                Submitting...
+              </>
+            ) : (
+              "Submit Registration"
+            )}
           </Button>
         </form>
       </div>

@@ -5,6 +5,17 @@ export type VehicleOwnerStatus = "pending" | "approved" | "rejected";
 export type BookingStatus = "pending" | "confirmed" | "cancelled" | "completed";
 export type PaymentStatus = "pending" | "paid" | "refunded" | "failed";
 export type JourneyStatus = "available" | "booked" | "completed" | "cancelled";
+export type BookingType = "return_journey" | "self_drive" | "with_driver";
+export type ListingAvailability = "available" | "unavailable" | "booked" | "completed" | "cancelled";
+export type VehicleType =
+  | "Hatchback"
+  | "Sedan"
+  | "SUV"
+  | "MUV"
+  | "Luxury"
+  | "Tempo Traveller"
+  | "Mini Bus"
+  | "Bus";
 
 export interface User {
   id: string;
@@ -37,12 +48,14 @@ export interface VehicleOwner {
 export interface Vehicle {
   id: string;
   owner_id: string;
+  vehicle_name?: string | null;
   vehicle_type: string;
   vehicle_number: string;
+  fuel_type?: string | null;
+  transmission?: string | null;
   seats: number;
-  from_city: string;
-  to_city: string;
-  price: number;
+  photos?: string[];
+  status?: string;
   created_at: string;
 }
 
@@ -52,21 +65,127 @@ export interface PlatformStats {
   vehiclesTableCount: number;
   bookings: number;
   returnJourneys: number;
+  selfDriveVehicles: number;
+  driverVehicles: number;
+  todaysBookings: number;
+  monthlyRevenue: number;
   users: number;
   revenue: number;
+  returnJourneyRevenue: number;
+  driverVehicleRevenue: number;
+  selfDriveRevenue: number;
+  recentBookings?: RecentBooking[];
+  recentVehicles?: RecentVehicle[];
+  recentOwners?: RecentOwner[];
+  revenueTrend?: ChartPoint[];
+  bookingTrend?: ChartPoint[];
+  vehicleCategoryDistribution?: ChartPoint[];
   error?: string | null;
+}
+
+export interface ChartPoint {
+  label: string;
+  value: number;
+}
+
+export interface RecentBooking {
+  id: string;
+  booking_type: BookingType | string;
+  amount: number;
+  booking_status: string;
+  created_at: string;
+}
+
+export interface BookingConfirmation {
+  id: string;
+  booking_type: BookingType | string;
+  passenger_name: string;
+  mobile: string;
+  amount: number;
+  booking_status: string;
+  payment_status: string;
+  created_at: string;
+}
+
+export type VehicleDetail =
+  | (SearchResult & { module: "return_journey"; price_label: string })
+  | (DriverVehicleResult & { module: "with_driver"; price_label: string })
+  | (SelfDriveResult & { module: "self_drive"; price_label: string });
+
+export interface RecentVehicle {
+  id: string;
+  vehicle_name: string;
+  vehicle_type: string;
+  vehicle_number: string;
+  status: string;
+  created_at: string;
+}
+
+export interface RecentOwner {
+  id: string;
+  owner_name: string;
+  mobile: string;
+  verification_status: string;
+  created_at: string;
 }
 
 export interface SearchResult {
   id: string;
+  booking_type?: BookingType;
+  vehicle_id?: string | null;
   vehicle_name: string;
   vehicle_type: string;
   owner_name: string;
   from_city: string;
   to_city: string;
   journey_date: string;
+  journey_time?: string;
   available_seats: number;
   price: number;
+}
+
+export interface SelfDriveResult {
+  id: string;
+  booking_type: "self_drive";
+  vehicle_id: string;
+  vehicle_name: string;
+  vehicle_type: string;
+  owner_name: string;
+  pickup_city: string;
+  drop_city: string;
+  journey_date: string;
+  journey_time: string;
+  available_seats: number;
+  price: number;
+  status: string;
+  location: string;
+  daily_rent: number;
+  security_deposit: number;
+  availability: string;
+  photos: string[];
+  seats: number;
+}
+
+export interface DriverVehicleResult {
+  id: string;
+  booking_type: "with_driver";
+  vehicle_id: string;
+  vehicle_name: string;
+  vehicle_type: string;
+  owner_name: string;
+  pickup_city: string;
+  drop_city: string;
+  journey_date: string;
+  journey_time: string;
+  available_seats: number;
+  price: number;
+  status: string;
+  driver_name: string;
+  driver_phone: string;
+  rate_per_km: number;
+  base_location: string;
+  availability: string;
+  seats: number;
 }
 
 export interface RegisterOwnerInput {
@@ -74,6 +193,7 @@ export interface RegisterOwnerInput {
   mobile: string;
   email: string;
   city: string;
+  password?: string;
   aadhaar_number: string;
   license_number: string;
   vehicle_type: string;
@@ -88,6 +208,56 @@ export interface RegisterVehicleInput {
   from_city: string;
   to_city: string;
   price: number;
+  vehicle_name?: string;
+  fuel_type?: string;
+  transmission?: string;
+  journey_date?: string;
+  journey_time?: string;
+}
+
+export interface RegisterSelfDriveInput {
+  owner_id: string;
+  vehicle_id?: string;
+  vehicle_name: string;
+  vehicle_type: string;
+  vehicle_number: string;
+  fuel_type?: string;
+  transmission?: string;
+  seats: number;
+  pickup_city?: string;
+  drop_city?: string;
+  journey_date?: string;
+  journey_time?: string;
+  available_seats?: number;
+  price?: number;
+  location: string;
+  daily_rent: number;
+  security_deposit: number;
+  photos?: string[];
+}
+
+export interface RegisterDriverVehicleInput {
+  owner_id: string;
+  vehicle_id?: string;
+  vehicle_name: string;
+  vehicle_type: string;
+  vehicle_number: string;
+  fuel_type?: string;
+  transmission?: string;
+  seats: number;
+  pickup_city?: string;
+  drop_city?: string;
+  journey_date?: string;
+  journey_time?: string;
+  available_seats?: number;
+  price?: number;
+  driver_name: string;
+  driver_phone: string;
+  rate_per_km: number;
+  base_location: string;
+  local_package_price?: number;
+  outstation_package_price?: number;
+  airport_transfer_price?: number;
 }
 
 export interface CreateBookingInput {
@@ -95,6 +265,15 @@ export interface CreateBookingInput {
   passenger_name: string;
   mobile: string;
   seats_booked: number;
+}
+
+export interface CreateMarketplaceBookingInput {
+  booking_type: Exclude<BookingType, "return_journey">;
+  reference_id: string;
+  vehicle_id: string;
+  passenger_name: string;
+  mobile: string;
+  amount: number;
 }
 
 export interface ActionResult<T = unknown> {

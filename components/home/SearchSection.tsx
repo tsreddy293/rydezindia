@@ -9,20 +9,31 @@ import Button from "@/components/ui/Button";
 
 export default function SearchSection() {
   const router = useRouter();
+  const [category, setCategory] = useState<"return_journey" | "with_driver" | "self_drive">("return_journey");
   const [pickup, setPickup] = useState("");
   const [drop, setDrop] = useState("");
-  const [tripType, setTripType] = useState<"one-way" | "round-trip">("one-way");
-  const [driveType, setDriveType] = useState<"self-drive" | "chauffeur">("self-drive");
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     const params = new URLSearchParams();
-    if (pickup) params.set("fromCity", pickup);
-    if (drop) params.set("toCity", drop);
+    if (pickup) params.set("pickupCity", pickup);
+    if (drop) params.set("dropCity", drop);
     if (date) params.set("date", date);
-    router.push(`/search?${params.toString()}`);
+    if (time) params.set("time", time);
+
+    if (category === "self_drive") {
+      router.push(`/search-self-drive?${params.toString()}`);
+      return;
+    }
+
+    if (category === "with_driver") {
+      router.push(`/search-driver?${params.toString()}`);
+      return;
+    }
+
+    router.push(`/search-return?${params.toString()}`);
   };
 
   return (
@@ -40,6 +51,29 @@ export default function SearchSection() {
           onSubmit={handleSearch}
           className="bg-white rounded-2xl shadow-xl p-6 md:p-8 border border-gray-100"
         >
+          <div className="mb-8 grid gap-4 md:grid-cols-3">
+            {[
+              { key: "return_journey" as const, icon: "🚗", title: "Return Journey", description: "Book empty seats on intercity routes" },
+              { key: "with_driver" as const, icon: "🚕", title: "Vehicle With Driver", description: "Hire chauffeur driven vehicles" },
+              { key: "self_drive" as const, icon: "🚙", title: "Self Drive", description: "Rent vehicles without driver" },
+            ].map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => setCategory(item.key)}
+                className={`rounded-2xl border p-5 text-left transition ${
+                  category === item.key
+                    ? "border-primary bg-primary/5 shadow-sm"
+                    : "border-gray-100 bg-gray-50 hover:border-primary/30"
+                }`}
+              >
+                <span className="text-3xl">{item.icon}</span>
+                <h3 className="mt-3 font-semibold text-secondary">{item.title}</h3>
+                <p className="mt-1 text-sm text-gray-500">{item.description}</p>
+              </button>
+            ))}
+          </div>
+
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Pickup Location</label>
@@ -66,46 +100,6 @@ export default function SearchSection() {
                   onChange={(e) => setDrop(e.target.value)}
                   className="w-full rounded-xl border border-gray-200 pl-10 pr-4 py-3 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition"
                 />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Trip Type</label>
-              <div className="flex gap-2">
-                {(["one-way", "round-trip"] as const).map((type) => (
-                  <button
-                    key={type}
-                    type="button"
-                    onClick={() => setTripType(type)}
-                    className={`flex-1 rounded-xl py-3 text-sm font-medium transition ${
-                      tripType === type
-                        ? "bg-primary text-white"
-                        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                    }`}
-                  >
-                    {type === "one-way" ? "One Way" : "Round Trip"}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Drive Type</label>
-              <div className="flex gap-2">
-                {(["self-drive", "chauffeur"] as const).map((type) => (
-                  <button
-                    key={type}
-                    type="button"
-                    onClick={() => setDriveType(type)}
-                    className={`flex-1 rounded-xl py-3 text-sm font-medium transition ${
-                      driveType === type
-                        ? "bg-secondary text-white"
-                        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                    }`}
-                  >
-                    {type === "self-drive" ? "Self Drive" : "Chauffeur Driven"}
-                  </button>
-                ))}
               </div>
             </div>
 

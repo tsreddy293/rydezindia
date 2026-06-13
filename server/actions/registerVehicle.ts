@@ -5,14 +5,25 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getSupabaseConfigError } from "@/lib/supabase/env";
 import type { ActionResult, RegisterVehicleInput } from "@/types/database";
 
+function isMissingTableError(error: { code?: string; message?: string } | null | undefined) {
+  if (!error) return false;
+  return (
+    error.code === "42P01" ||
+    error.code === "PGRST205" ||
+    error.message?.toLowerCase().includes("could not find the table") ||
+    error.message?.toLowerCase().includes("does not exist")
+  );
+}
+
 function revalidateDashboards() {
   revalidatePath("/");
   revalidatePath("/search");
+  revalidatePath("/search-return");
   revalidatePath("/admin");
   revalidatePath("/vehicles/add");
 }
 
-/** Register vehicle — inserts into vehicles table (if exists) AND return_journeys */
+/** Register a return journey vehicle and listing */
 export async function registerVehicle(
   input: RegisterVehicleInput
 ): Promise<ActionResult<{ id: string; journeyId?: string }>> {
@@ -31,59 +42,124 @@ export async function registerVehicle(
 
   const db = createAdminClient();
 
-  const { data: ownerRow, error: ownerError } = await db
+  const { data: legacyOwnerRow, error: legacyOwnerError } = await db
     .from("vehicle_owners")
     .select("owner_id")
     .eq("id", input.owner_id)
-    .single();
+    .maybeSingle();
 
-  if (ownerError || !ownerRow) {
+  let ownerUserId = (legacyOwnerRow as { owner_id?: string } | null)?.owner_id ?? input.owner_id;
+
+  if ((legacyOwnerError && !isMissingTableError(legacyOwnerError)) || (!legacyOwnerRow && !isMissingTableError(legacyOwnerError))) {
+    const { data: ownerRow, error: ownerError } = await db
+      .from("owners")
+      .select("id")
+      .eq("id", input.owner_id)
+      .maybeSingle();
+
+    if (ownerError || !ownerRow) {
+      return { success: false, error: "Owner not found" };
+    }
+    ownerUserId = String(ownerRow.id);
+  } else if (legacyOwnerError && isMissingTableError(legacyOwnerError)) {
+    const { data: ownerRow, error: ownerError } = await db
+      .from("owners")
+      .select("id")
+      .eq("id", input.owner_id)
+      .maybeSingle();
+
+    if (ownerError || !ownerRow) {
+      return { success: false, error: "Owner not found" };
+    }
+    ownerUserId = String(ownerRow.id);
+  }
+
+  if (!ownerUserId) {
     return { success: false, error: "Owner not found" };
   }
 
-  const ownerUserId = ownerRow.owner_id as string;
   let vehicleRecordId: string | undefined;
 
-  // Insert into vehicles table when it exists
-  const vehicleInsert = await db
+  // Insert into the master vehicles registry when it exists.
+  const vehiclePayload = {
+    owner_id: input.owner_id,
+    vehicle_name: input.vehicle_name?.trim() || input.vehicle_number.trim().toUpperCase(),
+    vehicle_type: input.vehicle_type,
+    vehicle_number: input.vehicle_number.trim().toUpperCase(),
+    fuel_type: input.fuel_type || null,
+    transmission: input.transmission || null,
+    seats: input.seats,
+    status: "available",
+    // Compatibility columns from the earlier return-journey-only table.
+    from_city: input.from_city.trim(),
+    to_city: input.to_city.trim(),
+    price: input.price,
+  } as Record<string, unknown>;
+
+  let vehicleInsert = await db
     .from("vehicles")
-    .insert({
-      owner_id: input.owner_id,
-      vehicle_type: input.vehicle_type,
-      vehicle_number: input.vehicle_number.trim().toUpperCase(),
-      seats: input.seats,
-      from_city: input.from_city.trim(),
-      to_city: input.to_city.trim(),
-      price: input.price,
-    })
+    .insert(vehiclePayload)
     .select("id")
     .single();
+
+  if (vehicleInsert.error?.message?.includes("column")) {
+    delete vehiclePayload.from_city;
+    delete vehiclePayload.to_city;
+    delete vehiclePayload.price;
+    vehicleInsert = await db
+      .from("vehicles")
+      .insert(vehiclePayload)
+      .select("id")
+      .single();
+  }
 
   if (!vehicleInsert.error) {
     vehicleRecordId = vehicleInsert.data.id as string;
     console.log("[registerVehicle] vehicles table insert:", vehicleRecordId);
-  } else if (!vehicleInsert.error.message.includes("Could not find the table")) {
+  } else if (!isMissingTableError(vehicleInsert.error)) {
     console.error("[registerVehicle] vehicles error:", vehicleInsert.error.message);
     return { success: false, error: vehicleInsert.error.message };
   } else {
     console.log("[registerVehicle] vehicles table not found — skipping");
   }
 
-  // Always create return_journey (powers search page + journey count)
-  const journeyInsert = await db
+  // Always create return_journey (existing production booking/search flow).
+  const journeyPayload = {
+    owner_id: ownerUserId,
+    vehicle_id: vehicleRecordId ?? input.owner_id,
+    vehicle_name: input.vehicle_name?.trim() || input.vehicle_number.trim().toUpperCase(),
+    vehicle_type: input.vehicle_type,
+    pickup_city: input.from_city.trim(),
+    drop_city: input.to_city.trim(),
+    from_city: input.from_city.trim(),
+    to_city: input.to_city.trim(),
+    journey_date: input.journey_date || new Date().toISOString().split("T")[0],
+    journey_time: input.journey_time || null,
+    available_seats: input.seats,
+    price: input.price,
+    price_per_seat: input.price,
+    status: "available",
+  } as Record<string, unknown>;
+
+  let journeyInsert = await db
     .from("return_journeys")
-    .insert({
-      owner_id: ownerUserId,
-      vehicle_id: input.owner_id,
-      from_city: input.from_city.trim(),
-      to_city: input.to_city.trim(),
-      journey_date: new Date().toISOString().split("T")[0],
-      available_seats: input.seats,
-      price_per_seat: input.price,
-      status: "available",
-    })
+    .insert(journeyPayload)
     .select("id")
     .single();
+
+  if (journeyInsert.error?.message?.includes("column")) {
+    delete journeyPayload.vehicle_name;
+    delete journeyPayload.vehicle_type;
+    delete journeyPayload.pickup_city;
+    delete journeyPayload.drop_city;
+    delete journeyPayload.journey_time;
+    delete journeyPayload.price;
+    journeyInsert = await db
+      .from("return_journeys")
+      .insert(journeyPayload)
+      .select("id")
+      .single();
+  }
 
   if (journeyInsert.error) {
     console.error("[registerVehicle] return_journeys error:", journeyInsert.error.message);

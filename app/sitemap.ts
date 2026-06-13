@@ -5,8 +5,13 @@ import { siteConfig } from "@/lib/seo";
 const PUBLIC_ROUTES: { path: string; priority: number; changeFrequency: MetadataRoute.Sitemap[0]["changeFrequency"] }[] = [
   { path: "", priority: 1, changeFrequency: "daily" },
   { path: "/search", priority: 0.9, changeFrequency: "daily" },
+  { path: "/search-return", priority: 0.9, changeFrequency: "daily" },
+  { path: "/search-self-drive", priority: 0.9, changeFrequency: "daily" },
+  { path: "/search-driver", priority: 0.9, changeFrequency: "daily" },
   { path: "/owner", priority: 0.9, changeFrequency: "weekly" },
   { path: "/vehicles/add", priority: 0.8, changeFrequency: "weekly" },
+  { path: "/vehicles/self-drive", priority: 0.8, changeFrequency: "weekly" },
+  { path: "/vehicles/driver", priority: 0.8, changeFrequency: "weekly" },
   { path: "/contact", priority: 0.8, changeFrequency: "monthly" },
   { path: "/investors", priority: 0.7, changeFrequency: "monthly" },
   { path: "/privacy", priority: 0.5, changeFrequency: "yearly" },

@@ -34,6 +34,7 @@ export default function OwnerRegistrationForm() {
       mobile: String(form.get("mobile") ?? ""),
       email: String(form.get("email") ?? ""),
       city: String(form.get("city") ?? ""),
+      password: String(form.get("password") ?? ""),
       aadhaar_number: String(form.get("aadhaar_number") ?? ""),
       license_number: String(form.get("license_number") ?? ""),
       vehicle_type: String(form.get("vehicle_type") ?? ""),
@@ -82,6 +83,7 @@ export default function OwnerRegistrationForm() {
           <FormField label="Mobile Number" name="mobile" type="tel" required placeholder="9876543210" />
           <FormField label="Email Address" name="email" type="email" required placeholder="you@email.com" />
           <FormField label="City" name="city" required placeholder="Hyderabad" />
+          <FormField label="Password" name="password" type="password" required placeholder="Minimum 8 characters" />
           <FormField label="Aadhaar Number" name="aadhaar_number" required placeholder="123456789012" />
           <FormField label="Driving License Number" name="license_number" required placeholder="TS01234567890123" />
           <FormField label="Vehicle Type" name="vehicle_type" as="select" required options={VEHICLE_TYPES} />
