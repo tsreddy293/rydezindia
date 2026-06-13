@@ -20,12 +20,11 @@ export default function OwnerSuccessPage() {
           Thank you for registering with Rydez India.
         </p>
         <p className="text-gray-500 text-sm mb-10">
-          Our team will verify your details shortly. You will receive a confirmation once
-          your profile is approved.
+          Please verify your email before logging in. Our team will also review your owner details.
         </p>
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
-          <Button href="/vehicles/add" variant="primary" size="lg">
-            Register Vehicle
+          <Button href="/owner/login" variant="primary" size="lg">
+            Go to Owner Login
           </Button>
           <Button href="/" variant="outline" size="lg">
             Back to Home

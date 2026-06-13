@@ -89,7 +89,8 @@ export async function registerVehicle(
     fuel_type: input.fuel_type || null,
     transmission: input.transmission || null,
     seats: input.seats,
-    status: "available",
+    status: "pending",
+    vehicle_approval_status: "pending",
     // Compatibility columns from the earlier return-journey-only table.
     from_city: input.from_city.trim(),
     to_city: input.to_city.trim(),
@@ -106,6 +107,7 @@ export async function registerVehicle(
     delete vehiclePayload.from_city;
     delete vehiclePayload.to_city;
     delete vehiclePayload.price;
+    delete vehiclePayload.vehicle_approval_status;
     vehicleInsert = await db
       .from("vehicles")
       .insert(vehiclePayload)
@@ -138,7 +140,8 @@ export async function registerVehicle(
     available_seats: input.seats,
     price: input.price,
     price_per_seat: input.price,
-    status: "available",
+    status: "pending",
+    vehicle_approval_status: "pending",
   } as Record<string, unknown>;
 
   let journeyInsert = await db
@@ -154,6 +157,7 @@ export async function registerVehicle(
     delete journeyPayload.drop_city;
     delete journeyPayload.journey_time;
     delete journeyPayload.price;
+    delete journeyPayload.vehicle_approval_status;
     journeyInsert = await db
       .from("return_journeys")
       .insert(journeyPayload)

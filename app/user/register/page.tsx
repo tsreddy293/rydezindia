@@ -12,6 +12,9 @@ export default function UserRegisterPage() {
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpVerified, setOtpVerified] = useState(false);
+  const [otpMessage, setOtpMessage] = useState("");
   const [account, setAccount] = useState({
     name: "",
     mobile: "",
@@ -20,6 +23,39 @@ export default function UserRegisterPage() {
     password: "",
   });
 
+  async function sendOtp(mobile: string) {
+    setError("");
+    setOtpMessage("");
+    const response = await fetch("/api/auth/send-otp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mobile, purpose: "user_signup" }),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      setError(result.error ?? "Failed to send OTP");
+      return;
+    }
+    setOtpSent(true);
+    setOtpMessage("OTP sent. It expires in 5 minutes.");
+  }
+
+  async function verifyOtp(mobile: string, otp: string) {
+    setError("");
+    const response = await fetch("/api/auth/verify-otp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mobile, otp, purpose: "user_signup" }),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      setError(result.error ?? "Failed to verify OTP");
+      return;
+    }
+    setOtpVerified(true);
+    setOtpMessage("Mobile number verified.");
+  }
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError("");
@@ -27,6 +63,10 @@ export default function UserRegisterPage() {
     const form = new FormData(e.currentTarget);
 
     if (step === 0) {
+      if (!otpVerified) {
+        setError("Please verify your mobile number with OTP before continuing.");
+        return;
+      }
       setAccount({
         name: String(form.get("name") ?? ""),
         mobile: String(form.get("mobile") ?? ""),
@@ -58,8 +98,8 @@ export default function UserRegisterPage() {
         <div className="mx-auto max-w-lg px-4 py-20 text-center">
           <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-6" />
           <h1 className="text-3xl font-bold text-secondary mb-4">Welcome to Rydez!</h1>
-          <p className="text-gray-600 mb-8">Your account has been created. KYC verification is in progress.</p>
-          <Button href="/" variant="primary">Go to Home</Button>
+          <p className="text-gray-600 mb-8">Your account has been created. Please verify your email before logging in.</p>
+          <Button href="/login" variant="primary">Go to Login</Button>
         </div>
       </PageLayout>
     );
@@ -94,6 +134,33 @@ export default function UserRegisterPage() {
             <>
               <FormField label="Full Name" name="name" required />
               <FormField label="Mobile Number" name="mobile" type="tel" required />
+              <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+                <FormField label="OTP" name="otp" required placeholder="6-digit OTP" />
+                <div className="flex items-end gap-2">
+                  <button
+                    type="button"
+                    className="rounded-xl border-2 border-primary px-4 py-3 text-sm font-medium text-primary hover:bg-primary hover:text-white"
+                    onClick={(event) => {
+                      const form = event.currentTarget.closest("form");
+                      sendOtp(String(new FormData(form!).get("mobile") ?? ""));
+                    }}
+                  >
+                    {otpSent ? "Resend" : "Send OTP"}
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-xl bg-primary px-4 py-3 text-sm font-medium text-white hover:bg-primary-dark"
+                    onClick={(event) => {
+                      const form = event.currentTarget.closest("form");
+                      const data = new FormData(form!);
+                      verifyOtp(String(data.get("mobile") ?? ""), String(data.get("otp") ?? ""));
+                    }}
+                  >
+                    Verify
+                  </button>
+                </div>
+              </div>
+              {otpMessage && <p className="text-sm text-green-600">{otpMessage}</p>}
               <FormField label="Email" name="email" type="email" required />
               <FormField label="City" name="city" required />
               <FormField label="Password" name="password" type="password" required />

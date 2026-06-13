@@ -64,3 +64,19 @@ export function websiteSchema() {
     },
   };
 }
+
+export function marketplaceSchema() {
+  return {
+    "@context": "https://schema.org",
+    "@type": "OnlineBusiness",
+    name: siteConfig.name,
+    url: siteConfig.url,
+    description: siteConfig.description,
+    areaServed: {
+      "@type": "Country",
+      name: "India",
+    },
+    paymentAccepted: ["UPI", "Cards", "NetBanking"],
+    currenciesAccepted: "INR",
+  };
+}

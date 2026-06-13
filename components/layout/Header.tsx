@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { ChevronDown, Menu, X, Car } from "lucide-react";
 import Button from "@/components/ui/Button";
+import { signOutUser } from "@/server/actions/auth";
 
 const NAV_LINKS = [
   { href: "/#features", label: "Features" },
@@ -94,6 +95,11 @@ export default function Header() {
           <Button href="/user/register" variant="primary" size="sm">
             Sign Up
           </Button>
+          <form action={signOutUser}>
+            <button type="submit" className="rounded-xl px-4 py-2 text-sm font-medium text-secondary hover:bg-gray-100">
+              Logout
+            </button>
+          </form>
         </div>
 
         <button
@@ -158,6 +164,11 @@ export default function Header() {
               <Button href="/user/register" variant="primary" size="sm">
                 Sign Up
               </Button>
+              <form action={signOutUser}>
+                <button type="submit" className="rounded-xl px-4 py-2 text-sm font-medium text-secondary hover:bg-gray-100">
+                  Logout
+                </button>
+              </form>
             </div>
           </nav>
         </div>

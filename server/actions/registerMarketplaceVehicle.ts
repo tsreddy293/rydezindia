@@ -47,12 +47,32 @@ async function createMasterVehicle(input: {
       transmission: input.transmission || null,
       seats: input.seats,
       photos: sanitizePhotos(input.photos),
-      status: "available",
+      status: "pending",
+      vehicle_approval_status: "pending",
     })
     .select("id")
     .single();
 
-  if (error) throw new Error(error.message);
+    if (error?.message?.includes("column")) {
+      const { data: retryData, error: retryError } = await db
+        .from("vehicles")
+        .insert({
+          owner_id: input.owner_id,
+          vehicle_name: input.vehicle_name.trim(),
+          vehicle_type: input.vehicle_type,
+          vehicle_number: input.vehicle_number.trim().toUpperCase(),
+          fuel_type: input.fuel_type || null,
+          transmission: input.transmission || null,
+          seats: input.seats,
+          photos: sanitizePhotos(input.photos),
+          status: "pending",
+        })
+        .select("id")
+        .single();
+      if (retryError) throw new Error(retryError.message);
+      return retryData.id as string;
+    }
+    if (error) throw new Error(error.message);
   return data.id as string;
 }
 
@@ -100,7 +120,8 @@ export async function registerSelfDriveVehicle(
         journey_time: input.journey_time || null,
         available_seats: input.available_seats ?? input.seats,
         price: input.price ?? input.daily_rent,
-        status: "available",
+        status: "pending",
+        vehicle_approval_status: "pending",
         location: input.location.trim(),
         daily_rent: input.daily_rent,
         security_deposit: input.security_deposit,
@@ -110,6 +131,33 @@ export async function registerSelfDriveVehicle(
       .select("id")
       .single();
 
+    if (error?.message?.includes("column")) {
+      const { data: retryData, error: retryError } = await db
+        .from("self_drive_vehicles")
+        .insert({
+          owner_id: input.owner_id,
+          vehicle_id: vehicleId,
+          vehicle_name: input.vehicle_name.trim(),
+          vehicle_type: input.vehicle_type,
+          pickup_city: input.pickup_city?.trim() || input.location.trim(),
+          drop_city: input.drop_city?.trim() || "",
+          journey_date: input.journey_date || null,
+          journey_time: input.journey_time || null,
+          available_seats: input.available_seats ?? input.seats,
+          price: input.price ?? input.daily_rent,
+          status: "pending",
+          location: input.location.trim(),
+          daily_rent: input.daily_rent,
+          security_deposit: input.security_deposit,
+          availability: "available",
+          photos: sanitizePhotos(input.photos),
+        })
+        .select("id")
+        .single();
+      if (retryError) return { success: false, error: retryError.message };
+      revalidateMarketplace();
+      return { success: true, data: { id: retryData.id as string, vehicleId } };
+    }
     if (error) return { success: false, error: error.message };
     revalidateMarketplace();
     return { success: true, data: { id: data.id as string, vehicleId } };
@@ -167,7 +215,8 @@ export async function registerDriverVehicle(
         journey_time: input.journey_time || null,
         available_seats: input.available_seats ?? input.seats,
         price: input.price ?? input.rate_per_km,
-        status: "available",
+        status: "pending",
+        vehicle_approval_status: "pending",
         driver_name: input.driver_name.trim(),
         driver_phone: input.driver_phone.replace(/\s/g, ""),
         rate_per_km: input.rate_per_km,
@@ -180,6 +229,36 @@ export async function registerDriverVehicle(
       .select("id")
       .single();
 
+    if (error?.message?.includes("column")) {
+      const { data: retryData, error: retryError } = await db
+        .from("driver_vehicles")
+        .insert({
+          owner_id: input.owner_id,
+          vehicle_id: vehicleId,
+          vehicle_name: input.vehicle_name.trim(),
+          vehicle_type: input.vehicle_type,
+          pickup_city: input.pickup_city?.trim() || input.base_location.trim(),
+          drop_city: input.drop_city?.trim() || "",
+          journey_date: input.journey_date || null,
+          journey_time: input.journey_time || null,
+          available_seats: input.available_seats ?? input.seats,
+          price: input.price ?? input.rate_per_km,
+          status: "pending",
+          driver_name: input.driver_name.trim(),
+          driver_phone: input.driver_phone.replace(/\s/g, ""),
+          rate_per_km: input.rate_per_km,
+          base_location: input.base_location.trim(),
+          availability: "available",
+          local_package_price: input.local_package_price ?? 0,
+          outstation_package_price: input.outstation_package_price ?? 0,
+          airport_transfer_price: input.airport_transfer_price ?? 0,
+        })
+        .select("id")
+        .single();
+      if (retryError) return { success: false, error: retryError.message };
+      revalidateMarketplace();
+      return { success: true, data: { id: retryData.id as string, vehicleId } };
+    }
     if (error) return { success: false, error: error.message };
     revalidateMarketplace();
     return { success: true, data: { id: data.id as string, vehicleId } };

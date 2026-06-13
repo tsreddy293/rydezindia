@@ -65,7 +65,7 @@ export async function registerOwner(
     const { data: authData, error: authError } = await db.auth.admin.createUser({
       email,
       password: tempPassword,
-      email_confirm: true,
+      email_confirm: false,
       user_metadata: {
         name: input.name.trim(),
         mobile,
@@ -160,7 +160,11 @@ export async function registerOwner(
       revalidatePath("/vehicles/self-drive");
       revalidatePath("/vehicles/driver");
       const supabase = await createClient();
-      await supabase.auth.signInWithPassword({ email, password: tempPassword });
+      await supabase.auth.resend({
+        type: "signup",
+        email,
+        options: { emailRedirectTo: `${(process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/$/, "")}/owner/login?verified=1` },
+      });
 
       return { success: true, data: { id: ownerInsert.data.id as string } };
     }
@@ -177,7 +181,11 @@ export async function registerOwner(
     revalidatePath("/admin");
     revalidatePath("/vehicles/add");
     const supabase = await createClient();
-    await supabase.auth.signInWithPassword({ email, password: tempPassword });
+    await supabase.auth.resend({
+      type: "signup",
+      email,
+      options: { emailRedirectTo: `${(process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/$/, "")}/owner/login?verified=1` },
+    });
 
     return { success: true, data: { id: insertResult.data.id } };
   } catch (err) {

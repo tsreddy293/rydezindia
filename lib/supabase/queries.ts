@@ -5,6 +5,7 @@ import type {
   DriverVehicleResult,
   BookingConfirmation,
   PlatformStats,
+  OwnerStats,
   RecentBooking,
   RecentOwner,
   RecentVehicle,
@@ -46,6 +47,12 @@ function getNumber(row: Row | null | undefined, key: string, fallback = 0) {
   const value = row?.[key];
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function isPublicListing(row: Row) {
+  const status = getString(row, "status") || getString(row, "availability", "available");
+  const approval = getString(row, "vehicle_approval_status", "approved");
+  return status === "available" && approval === "approved";
 }
 
 function getDateKey(value: unknown) {
@@ -195,6 +202,7 @@ export async function getPlatformStats(): Promise<PlatformStats> {
     bookingRows,
     recentVehiclesRows,
     recentOwnersRows,
+    ownerKycCount,
   ] = await Promise.all([
     countTable("users"),
     countTable("owners"),
@@ -205,8 +213,9 @@ export async function getPlatformStats(): Promise<PlatformStats> {
     countTable("bookings"),
     countTable("bookings", { createdAfter: `${today}T00:00:00.000Z` }),
     selectRows("bookings", "id, booking_type, amount, booking_status, created_at", 500),
-    selectRows("vehicles", "id, vehicle_name, vehicle_type, vehicle_number, status, created_at", 8),
+    selectRows("vehicles", "id, vehicle_name, vehicle_type, vehicle_number, status, vehicle_approval_status, created_at", 8),
     selectRows("owners", "id, owner_name, mobile, verification_status, created_at", 8),
+    countTable("owner_kyc"),
   ]);
 
   const revenue = bookingRows.reduce((sum, row) => sum + getNumber(row, "amount"), 0);
@@ -222,6 +231,10 @@ export async function getPlatformStats(): Promise<PlatformStats> {
   const monthlyRevenue = bookingRows
     .filter((row) => new Date(String(row.created_at)) >= monthStart)
     .reduce((sum, row) => sum + getNumber(row, "amount"), 0);
+  const pendingApprovals =
+    ownerKycCount +
+    recentVehiclesRows.filter((row) => getString(row, "vehicle_approval_status", "approved") === "pending").length +
+    recentOwnersRows.filter((row) => getString(row, "verification_status", "pending") === "pending").length;
 
   const categoryCounts = new Map<string, number>();
   recentVehiclesRows.forEach((row) => {
@@ -240,6 +253,7 @@ export async function getPlatformStats(): Promise<PlatformStats> {
     driverVehicles,
     todaysBookings,
     revenue,
+    pendingApprovals,
     returnJourneyRevenue,
     driverVehicleRevenue,
     selfDriveRevenue,
@@ -285,6 +299,7 @@ function emptyStats(error: string): PlatformStats {
     driverVehicles: 0,
     todaysBookings: 0,
     revenue: 0,
+    pendingApprovals: 0,
     returnJourneyRevenue: 0,
     driverVehicleRevenue: 0,
     selfDriveRevenue: 0,
@@ -378,7 +393,7 @@ export async function searchReturnJourneys(filters: {
     return { data: [], error: error.message };
   }
 
-  const rows = asRows(data);
+  const rows = asRows(data).filter(isPublicListing);
   const vehicleIds = rows.map((row) => getString(row, "vehicle_id")).filter(Boolean);
   const ownerIds = rows.map((row) => getString(row, "owner_id")).filter(Boolean);
   const [vehicleMap, legacyVehicleMap, userMap] = await Promise.all([
@@ -451,10 +466,7 @@ export async function searchSelfDriveVehicles(filters: {
   ]);
 
   let results = rows
-    .filter((row) => {
-      const status = getString(row, "status") || getString(row, "availability", "available");
-      return status === "available";
-    })
+    .filter(isPublicListing)
     .map((row) => {
     const vehicle = vehicleMap.get(getString(row, "vehicle_id")) ?? null;
     const owner = ownerMap.get(getString(row, "owner_id")) ?? userMap.get(getString(row, "owner_id")) ?? null;
@@ -537,10 +549,7 @@ export async function searchDriverVehicles(filters: {
   ]);
 
   let results = rows
-    .filter((row) => {
-      const status = getString(row, "status") || getString(row, "availability", "available");
-      return status === "available";
-    })
+    .filter(isPublicListing)
     .map((row) => {
     const vehicle = vehicleMap.get(getString(row, "vehicle_id")) ?? null;
     const owner = ownerMap.get(getString(row, "owner_id")) ?? userMap.get(getString(row, "owner_id")) ?? null;
@@ -780,5 +789,66 @@ export async function getBookingConfirmationById(id: string): Promise<BookingCon
     booking_status: getString(row, "booking_status", "pending"),
     payment_status: getString(row, "payment_status", "pending"),
     created_at: getString(row, "created_at"),
+  };
+}
+
+export async function getAdminRows(table: string, columns = "*", limit = 50): Promise<Row[]> {
+  return selectRows(table, columns, limit);
+}
+
+export async function getOwnerStats(ownerId: string): Promise<OwnerStats> {
+  const stats = await getPlatformStats();
+  const [vehicles, returnJourneys, driverVehicles, selfDriveVehicles, bookings, payments] = await Promise.all([
+    selectRows("vehicles", "id, owner_id, vehicle_name, vehicle_type, vehicle_number, status, created_at", 500),
+    selectRows("return_journeys", "id, owner_id, vehicle_name, vehicle_type, status, available_seats, created_at", 500),
+    selectRows("driver_vehicles", "id, owner_id, vehicle_name, vehicle_type, status, available_seats, created_at", 500),
+    selectRows("self_drive_vehicles", "id, owner_id, vehicle_name, vehicle_type, status, available_seats, created_at", 500),
+    selectRows("bookings", "id, owner_id, amount, booking_status, created_at", 500),
+    selectRows("payments", "id, owner_id, amount, status, created_at", 500),
+  ]);
+
+  const ownerVehicles = [...vehicles, ...returnJourneys, ...driverVehicles, ...selfDriveVehicles].filter(
+    (row) => getString(row, "owner_id") === ownerId
+  );
+  const ownerBookings = bookings.filter((row) => getString(row, "owner_id") === ownerId);
+  const ownerPayments = payments.filter((row) => getString(row, "owner_id") === ownerId);
+  const monthStart = new Date();
+  monthStart.setDate(1);
+  monthStart.setHours(0, 0, 0, 0);
+  const revenueRows = ownerPayments.length > 0 ? ownerPayments : ownerBookings;
+  const revenue = revenueRows.reduce((sum, row) => sum + getNumber(row, "amount"), 0);
+  const monthlyRevenue = revenueRows
+    .filter((row) => new Date(getString(row, "created_at")) >= monthStart)
+    .reduce((sum, row) => sum + getNumber(row, "amount"), 0);
+
+  return {
+    ...stats,
+    vehicles: ownerVehicles.length,
+    vehiclesTableCount: vehicles.filter((row) => getString(row, "owner_id") === ownerId).length,
+    returnJourneys: returnJourneys.filter((row) => getString(row, "owner_id") === ownerId).length,
+    driverVehicles: driverVehicles.filter((row) => getString(row, "owner_id") === ownerId).length,
+    selfDriveVehicles: selfDriveVehicles.filter((row) => getString(row, "owner_id") === ownerId).length,
+    bookings: ownerBookings.length,
+    revenue,
+    monthlyRevenue,
+    activeVehicles: ownerVehicles.filter((row) => isPublicListing(row)).length,
+    bookingRequests: ownerBookings.filter((row) => getString(row, "booking_status", "pending") === "pending").length,
+    recentVehicles: ownerVehicles.slice(0, 8).map((row) => ({
+      id: getString(row, "id"),
+      vehicle_name: getString(row, "vehicle_name", getString(row, "vehicle_number", "Vehicle")),
+      vehicle_type: getString(row, "vehicle_type", "Unknown"),
+      vehicle_number: getString(row, "vehicle_number"),
+      status: getString(row, "status", "pending"),
+      created_at: getString(row, "created_at"),
+    })),
+    recentBookings: ownerBookings.slice(0, 8).map((row) => ({
+      id: getString(row, "id"),
+      booking_type: getString(row, "booking_type", "booking"),
+      amount: getNumber(row, "amount"),
+      booking_status: getString(row, "booking_status", "pending"),
+      created_at: getString(row, "created_at"),
+    })),
+    revenueTrend: bucketTrend(revenueRows, "amount"),
+    bookingTrend: bucketTrend(ownerBookings),
   };
 }

@@ -1,20 +1,31 @@
 import { Calendar, Car, DollarSign, Route, Users } from "lucide-react";
 import PageLayout from "@/components/layout/PageLayout";
 import Button from "@/components/ui/Button";
-import { getPlatformStats } from "@/lib/supabase/queries";
+import ChangePasswordForm from "@/components/auth/ChangePasswordForm";
+import NotificationCenter from "@/components/notifications/NotificationCenter";
+import { getOwnerStats } from "@/lib/supabase/queries";
+import { listNotifications } from "@/lib/services/notifications";
 import { formatINR } from "@/lib/utils";
 import { requireRole, signOutUser } from "@/server/actions/auth";
 
 export const dynamic = "force-dynamic";
 
-export default async function OwnerDashboardPage() {
-  await requireRole("owner");
-  const stats = await getPlatformStats();
+interface Props {
+  searchParams: Promise<{ passwordError?: string; passwordSuccess?: string }>;
+}
+
+export default async function OwnerDashboardPage({ searchParams }: Props) {
+  const { user } = await requireRole("owner");
+  const { passwordError, passwordSuccess } = await searchParams;
+  const stats = await getOwnerStats(user.id);
+  const notifications = await listNotifications({ recipientId: user.id, recipientRole: "owner", limit: 10 });
+  const emailVerified = Boolean(user.email_confirmed_at || user.confirmed_at);
 
   const menu = [
     { href: "/vehicles/add", label: "My Return Journeys" },
     { href: "/vehicles/driver", label: "My Driver Vehicles" },
     { href: "/vehicles/self-drive", label: "My Self Drive Vehicles" },
+    { href: "/owner/kyc", label: "KYC" },
     { href: "/owner/dashboard#bookings", label: "Bookings" },
     { href: "/owner/dashboard#revenue-summary", label: "Revenue" },
   ];
@@ -23,7 +34,8 @@ export default async function OwnerDashboardPage() {
     { icon: Route, label: "My Return Journeys", value: stats.returnJourneys },
     { icon: Users, label: "My Driver Vehicles", value: stats.driverVehicles },
     { icon: Car, label: "My Self Drive Vehicles", value: stats.selfDriveVehicles },
-    { icon: Calendar, label: "My Bookings", value: stats.bookings },
+    { icon: Calendar, label: "Booking Requests", value: stats.bookingRequests },
+    { icon: Car, label: "Active Vehicles", value: stats.activeVehicles },
     { icon: DollarSign, label: "Return Journey Revenue", value: formatINR(stats.returnJourneyRevenue) },
     { icon: DollarSign, label: "Driver Vehicle Revenue", value: formatINR(stats.driverVehicleRevenue) },
     { icon: DollarSign, label: "Self Drive Revenue", value: formatINR(stats.selfDriveRevenue) },
@@ -37,6 +49,9 @@ export default async function OwnerDashboardPage() {
           <div>
             <h1 className="text-3xl font-bold text-secondary">Owner Dashboard</h1>
             <p className="text-gray-600">Manage vehicles, listings, bookings, and revenue</p>
+            <p className={`mt-2 text-sm ${emailVerified ? "text-green-600" : "text-yellow-600"}`}>
+              {emailVerified ? "Email verified" : "Email verification pending"}
+            </p>
           </div>
           <div className="flex flex-wrap gap-3">
             <Button href="/vehicles/add" variant="outline" size="sm">Return Journey</Button>
@@ -119,6 +134,12 @@ export default async function OwnerDashboardPage() {
               </div>
             )}
           </section>
+        </div>
+        <div className="mt-8">
+          <NotificationCenter notifications={notifications as Record<string, unknown>[]} />
+        </div>
+        <div className="mt-8">
+          <ChangePasswordForm returnTo="/owner/dashboard" error={passwordError} success={passwordSuccess} />
         </div>
       </div>
     </PageLayout>

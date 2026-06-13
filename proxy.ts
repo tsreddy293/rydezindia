@@ -20,7 +20,34 @@ export async function proxy(request: NextRequest) {
     },
   });
 
-  await supabase.auth.getUser();
+  const { data } = await supabase.auth.getUser();
+  const path = request.nextUrl.pathname;
+  const role = data.user?.user_metadata?.role;
+
+  const redirectTo = (pathname: string) => {
+    const url = request.nextUrl.clone();
+    url.pathname = pathname;
+    return NextResponse.redirect(url);
+  };
+
+  if (path.startsWith("/admin") && path !== "/admin/login" && (!data.user || (role && role !== "admin"))) {
+    return redirectTo("/admin/login");
+  }
+
+  const ownerOnly =
+    path.startsWith("/owner/dashboard") ||
+    path.startsWith("/owner/kyc") ||
+    path.startsWith("/vehicles/add") ||
+    path.startsWith("/vehicles/self-drive") ||
+    path.startsWith("/vehicles/driver");
+  if (ownerOnly && (!data.user || (role && role !== "owner"))) {
+    return redirectTo("/owner/login");
+  }
+
+  if (path.startsWith("/user/dashboard") && !data.user) {
+    return redirectTo("/login");
+  }
+
   return response;
 }
 

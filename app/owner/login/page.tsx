@@ -2,7 +2,7 @@ import { LogIn } from "lucide-react";
 import PageLayout from "@/components/layout/PageLayout";
 import Button from "@/components/ui/Button";
 import FormField from "@/components/forms/FormField";
-import { signInWithRole } from "@/server/actions/auth";
+import { resendVerificationEmail, signInWithRole } from "@/server/actions/auth";
 import { createPageMetadata } from "@/lib/metadata";
 
 export const metadata = createPageMetadata({
@@ -12,11 +12,11 @@ export const metadata = createPageMetadata({
 });
 
 interface Props {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; success?: string; email?: string; unverified?: string; verified?: string }>;
 }
 
 export default async function OwnerLoginPage({ searchParams }: Props) {
-  const { error } = await searchParams;
+  const { error, success, email, unverified, verified } = await searchParams;
 
   return (
     <PageLayout>
@@ -37,8 +37,14 @@ export default async function OwnerLoginPage({ searchParams }: Props) {
               {error}
             </div>
           )}
+          {(success || verified) && (
+            <div className="rounded-xl bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-700">
+              {success || "Email verified. You can login now."}
+            </div>
+          )}
           <FormField label="Email" name="email" type="email" required />
           <FormField label="Password" name="password" type="password" required />
+          <a href="/owner/forgot-password" className="text-sm text-primary hover:underline">Forgot Password?</a>
           <Button type="submit" variant="primary" className="w-full">
             Login as Owner
           </Button>
@@ -46,6 +52,13 @@ export default async function OwnerLoginPage({ searchParams }: Props) {
             Create Owner Account
           </Button>
         </form>
+        {unverified && email && (
+          <form action={resendVerificationEmail} className="mt-4 rounded-2xl bg-white border border-gray-100 p-5 shadow-sm">
+            <input type="hidden" name="email" value={email} />
+            <input type="hidden" name="loginPath" value="/owner/login" />
+            <Button type="submit" variant="outline" className="w-full">Resend Verification Email</Button>
+          </form>
+        )}
       </div>
     </PageLayout>
   );

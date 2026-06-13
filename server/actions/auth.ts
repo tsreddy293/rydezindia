@@ -7,6 +7,7 @@ import { getSupabaseConfigError } from "@/lib/supabase/env";
 import type { ActionResult, UserRole } from "@/types/database";
 
 const MOBILE_REGEX = /^[6-9]\d{9}$/;
+const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
 
 type SignupInput = {
   name: string;
@@ -30,6 +31,17 @@ const ROLE_LOGIN_PATHS: Record<UserRole, string> = {
 
 function normalizeRole(value: unknown): UserRole | null {
   return value === "user" || value === "owner" || value === "admin" ? value : null;
+}
+
+function siteUrl() {
+  return (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/$/, "");
+}
+
+function validatePassword(password: string) {
+  if (!PASSWORD_REGEX.test(password)) {
+    return "Password must be at least 8 characters and include uppercase, lowercase, and a number";
+  }
+  return null;
 }
 
 async function upsertUserProfile(input: SignupInput, role: UserRole, userId: string) {
@@ -72,31 +84,34 @@ async function signUpWithRole(input: SignupInput, role: UserRole): Promise<Actio
   if (!MOBILE_REGEX.test(input.mobile.replace(/\s/g, ""))) {
     return { success: false, error: "Enter a valid mobile number" };
   }
-  if (input.password.length < 8) {
-    return { success: false, error: "Password must be at least 8 characters" };
+  const passwordError = validatePassword(input.password);
+  if (passwordError) {
+    return { success: false, error: passwordError };
   }
 
-  const db = createAdminClient();
   const mobile = input.mobile.replace(/\s/g, "");
   const email = input.email.toLowerCase().trim();
 
-  const { data, error } = await db.auth.admin.createUser({
+  const supabase = await createClient();
+  const { data, error } = await supabase.auth.signUp({
     email,
     password: input.password,
-    email_confirm: true,
-    user_metadata: {
-      name: input.name.trim(),
-      mobile,
-      city: input.city.trim(),
-      role,
+    options: {
+      emailRedirectTo: `${siteUrl()}/login?verified=1`,
+      data: {
+        name: input.name.trim(),
+        mobile,
+        city: input.city.trim(),
+        role,
+      },
     },
   });
 
   if (error) return { success: false, error: error.message };
+  if (!data.user) return { success: false, error: "Signup failed. Please try again." };
 
   await upsertUserProfile(input, role, data.user.id);
-  const supabase = await createClient();
-  await supabase.auth.signInWithPassword({ email, password: input.password });
+  await supabase.auth.signOut();
 
   return { success: true, data: { id: data.user.id } };
 }
@@ -121,6 +136,11 @@ export async function signInWithRole(formData: FormData) {
     redirect(`${loginPath}?error=${encodeURIComponent(error.message)}`);
   }
 
+  if (!data.user?.email_confirmed_at && !data.user?.confirmed_at) {
+    await supabase.auth.signOut();
+    redirect(`${loginPath}?email=${encodeURIComponent(email)}&unverified=1&error=${encodeURIComponent("Please verify your email before logging in.")}`);
+  }
+
   const role =
     (data.user ? await getRoleForUser(data.user.id) : null) ??
     normalizeRole(data.user?.user_metadata?.role) ??
@@ -142,6 +162,58 @@ export async function signOutUser() {
   const supabase = await createClient();
   await supabase.auth.signOut();
   redirect("/");
+}
+
+export async function requestPasswordReset(formData: FormData) {
+  const email = String(formData.get("email") ?? "").toLowerCase().trim();
+  const loginPath = String(formData.get("loginPath") ?? "/login");
+  const supabase = await createClient();
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${siteUrl()}/reset-password`,
+  });
+  if (error) redirect(`${loginPath}?error=${encodeURIComponent(error.message)}`);
+  redirect(`${loginPath}?success=${encodeURIComponent("Password reset email sent. Please check your inbox.")}`);
+}
+
+export async function resendVerificationEmail(formData: FormData) {
+  const email = String(formData.get("email") ?? "").toLowerCase().trim();
+  const loginPath = String(formData.get("loginPath") ?? "/login");
+  const supabase = await createClient();
+  const { error } = await supabase.auth.resend({
+    type: "signup",
+    email,
+    options: { emailRedirectTo: `${siteUrl()}${loginPath}?verified=1` },
+  });
+  if (error) redirect(`${loginPath}?error=${encodeURIComponent(error.message)}`);
+  redirect(`${loginPath}?success=${encodeURIComponent("Verification email sent. Please check your inbox.")}`);
+}
+
+export async function changePassword(formData: FormData) {
+  const currentPassword = String(formData.get("current_password") ?? "");
+  const newPassword = String(formData.get("new_password") ?? "");
+  const confirmPassword = String(formData.get("confirm_password") ?? "");
+  const returnTo = String(formData.get("returnTo") ?? "/");
+  const passwordError = validatePassword(newPassword);
+  if (passwordError) redirect(`${returnTo}?passwordError=${encodeURIComponent(passwordError)}`);
+  if (newPassword !== confirmPassword) {
+    redirect(`${returnTo}?passwordError=${encodeURIComponent("Passwords do not match")}`);
+  }
+
+  const supabase = await createClient();
+  const { data, error: userError } = await supabase.auth.getUser();
+  if (userError || !data.user?.email) redirect("/login");
+
+  const { error: currentError } = await supabase.auth.signInWithPassword({
+    email: data.user.email,
+    password: currentPassword,
+  });
+  if (currentError) {
+    redirect(`${returnTo}?passwordError=${encodeURIComponent("Current password is incorrect")}`);
+  }
+
+  const { error } = await supabase.auth.updateUser({ password: newPassword });
+  if (error) redirect(`${returnTo}?passwordError=${encodeURIComponent(error.message)}`);
+  redirect(`${returnTo}?passwordSuccess=${encodeURIComponent("Password updated successfully")}`);
 }
 
 export async function getCurrentUserRole(): Promise<UserRole | null> {

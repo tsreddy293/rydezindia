@@ -12,6 +12,7 @@ import Link from "next/link";
 import SupabaseErrorBanner from "@/components/ui/SupabaseErrorBanner";
 import { testSupabaseConnection } from "@/lib/supabase/admin";
 import { getPlatformStats } from "@/lib/supabase/queries";
+import { getAuthStats } from "@/lib/services/auth-admin";
 import { formatDate, formatINR } from "@/lib/utils";
 import { requireRole, signOutUser } from "@/server/actions/auth";
 
@@ -47,6 +48,7 @@ export default async function AdminPage() {
   await requireRole("admin");
   const connection = await testSupabaseConnection();
   const stats = connection.ok ? await getPlatformStats() : await getPlatformStats();
+  const authStats = await getAuthStats();
 
   const cards = [
     { icon: Shield, label: "Total Owners", value: stats.vehicleOwners.toLocaleString("en-IN") },
@@ -62,6 +64,21 @@ export default async function AdminPage() {
     { icon: IndianRupee, label: "Self Drive Revenue", value: formatINR(stats.selfDriveRevenue) },
     { icon: IndianRupee, label: "Monthly Revenue", value: formatINR(stats.monthlyRevenue) },
     { icon: IndianRupee, label: "Total Revenue", value: formatINR(stats.revenue) },
+    { icon: Shield, label: "Pending Approvals", value: stats.pendingApprovals.toLocaleString("en-IN") },
+    { icon: Shield, label: "Verified Users", value: authStats.verified.toLocaleString("en-IN") },
+    { icon: Shield, label: "Unverified Users", value: authStats.unverified.toLocaleString("en-IN") },
+    { icon: Shield, label: "Blocked Accounts", value: authStats.blocked.toLocaleString("en-IN") },
+  ];
+
+  const modules = [
+    { href: "/admin/users", label: "User Management" },
+    { href: "/admin/owners", label: "Owner Management" },
+    { href: "/admin/vehicles", label: "Vehicle Management" },
+    { href: "/admin/bookings", label: "Booking Management" },
+    { href: "/admin/payments", label: "Payment Management" },
+    { href: "/admin/kyc", label: "KYC Management" },
+    { href: "/admin/notifications", label: "Notifications" },
+    { href: "/admin/reports", label: "Reports" },
   ];
 
   return (
@@ -99,6 +116,18 @@ export default async function AdminPage() {
             {connection.message}
           </div>
         )}
+
+        <div className="mb-8 flex flex-wrap gap-3 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+          {modules.map((module) => (
+            <Link
+              key={module.href}
+              href={module.href}
+              className="rounded-xl bg-gray-50 px-4 py-2 text-sm font-medium text-secondary hover:bg-primary hover:text-white transition-colors"
+            >
+              {module.label}
+            </Link>
+          ))}
+        </div>
 
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 mb-8">
           {cards.map(({ icon: Icon, label, value }) => (

@@ -71,6 +71,7 @@ export interface PlatformStats {
   monthlyRevenue: number;
   users: number;
   revenue: number;
+  pendingApprovals: number;
   returnJourneyRevenue: number;
   driverVehicleRevenue: number;
   selfDriveRevenue: number;
@@ -81,6 +82,11 @@ export interface PlatformStats {
   bookingTrend?: ChartPoint[];
   vehicleCategoryDistribution?: ChartPoint[];
   error?: string | null;
+}
+
+export interface OwnerStats extends PlatformStats {
+  activeVehicles: number;
+  bookingRequests: number;
 }
 
 export interface ChartPoint {

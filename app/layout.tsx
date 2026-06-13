@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import { siteConfig, organizationSchema, websiteSchema } from "@/lib/seo";
+import { siteConfig, organizationSchema, websiteSchema, marketplaceSchema } from "@/lib/seo";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -85,6 +85,10 @@ export default function RootLayout({
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteSchema()) }}
+        />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(marketplaceSchema()) }}
         />
       </head>
       <body className="min-h-full flex flex-col antialiased">{children}</body>

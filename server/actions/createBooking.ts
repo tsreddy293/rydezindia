@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getJourneyById } from "@/lib/supabase/queries";
 import { getSupabaseConfigError } from "@/lib/supabase/env";
+import { createNotification } from "@/lib/services/notifications";
 import type { ActionResult, CreateBookingInput, CreateMarketplaceBookingInput } from "@/types/database";
 
 const MOBILE_REGEX = /^[6-9]\d{9}$/;
@@ -136,6 +137,14 @@ export async function createBooking(
   revalidatePath("/");
   revalidatePath("/search");
   revalidatePath("/admin");
+  await createNotification({
+    recipientId: ownerId,
+    recipientRole: "owner",
+    type: "new_booking",
+    title: "New booking request",
+    message: `${input.passenger_name.trim()} requested ${input.seats_booked} seat(s).`,
+    metadata: { bookingId: booking!.id, rideId: input.ride_id },
+  });
 
   return { success: true, data: { id: booking!.id as string } };
 }
@@ -206,6 +215,13 @@ export async function createMarketplaceBooking(
   revalidatePath("/admin");
   revalidatePath("/owner/dashboard");
   revalidatePath(input.booking_type === "self_drive" ? "/search-self-drive" : "/search-driver");
+  await createNotification({
+    recipientRole: "owner",
+    type: "new_booking",
+    title: "New marketplace booking request",
+    message: `${input.passenger_name.trim()} submitted a ${input.booking_type} booking request.`,
+    metadata: { bookingId: booking.id, referenceId: input.reference_id, bookingType: input.booking_type },
+  });
 
   return { success: true, data: { id: booking.id as string } };
 }
