@@ -38,6 +38,10 @@ function validateOwnerInput(input: RegisterOwnerInput): string | null {
   return null;
 }
 
+function siteUrl() {
+  return (process.env.NEXT_PUBLIC_SITE_URL || "https://rydezindia.com").replace(/\/$/, "");
+}
+
 /** Register owner — creates auth user + vehicle_owners record */
 export async function registerOwner(
   input: RegisterOwnerInput
@@ -163,7 +167,7 @@ export async function registerOwner(
       await supabase.auth.resend({
         type: "signup",
         email,
-        options: { emailRedirectTo: `${(process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/$/, "")}/owner/login?verified=1` },
+        options: { emailRedirectTo: `${siteUrl()}/owner/login?verified=1` },
       });
 
       return { success: true, data: { id: ownerInsert.data.id as string } };
@@ -184,7 +188,7 @@ export async function registerOwner(
     await supabase.auth.resend({
       type: "signup",
       email,
-      options: { emailRedirectTo: `${(process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/$/, "")}/owner/login?verified=1` },
+      options: { emailRedirectTo: `${siteUrl()}/owner/login?verified=1` },
     });
 
     return { success: true, data: { id: insertResult.data.id } };

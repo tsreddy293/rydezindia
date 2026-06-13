@@ -108,6 +108,9 @@ Migration `006_production_marketplace_core.sql` adds:
 - Run migrations `003`, `004`, and `006` in Supabase SQL Editor before using production marketplace features.
 - Configure real SMS provider credentials for OTP delivery.
 - Configure Razorpay live/test keys in Vercel environment variables.
+- Configure Supabase Auth URL settings:
+  - Site URL: `https://rydezindia.com`
+  - Redirect URLs: `https://rydezindia.com/reset-password`, `https://rydezindia.com/login`, `https://rydezindia.com/owner/login`
 - Create or promote an admin user with role `admin`.
 - Add PDF/Excel export support if required beyond CSV.
 - Add Razorpay webhook handling before high-volume payment launch.
