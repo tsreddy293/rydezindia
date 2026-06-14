@@ -10,12 +10,14 @@ export default function SessionTimeout() {
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const mountedRef = useRef(false);
 
   useEffect(() => {
     const supabase = createClient();
-    let active = true;
+    mountedRef.current = true;
 
     async function logout() {
+      if (!mountedRef.current) return;
       await supabase.auth.signOut();
       window.location.href = "/";
     }
@@ -26,8 +28,10 @@ export default function SessionTimeout() {
     }
 
     function startCountdown() {
+      if (!mountedRef.current) return;
       setSecondsLeft(WARNING_MS / 1000);
       countdownRef.current = setInterval(() => {
+        if (!mountedRef.current) return;
         setSecondsLeft((value) => {
           if (!value || value <= 1) {
             logout();
@@ -40,19 +44,20 @@ export default function SessionTimeout() {
 
     function reset() {
       clearTimers();
+      if (!mountedRef.current) return;
       setSecondsLeft(null);
       timerRef.current = setTimeout(startCountdown, TIMEOUT_MS - WARNING_MS);
     }
 
     const events = ["click", "keydown", "mousemove", "scroll", "touchstart"];
     supabase.auth.getSession().then(({ data }) => {
-      if (!active || !data.session) return;
+      if (!mountedRef.current || !data.session) return;
       events.forEach((event) => window.addEventListener(event, reset, { passive: true }));
       reset();
     });
 
     return () => {
-      active = false;
+      mountedRef.current = false;
       clearTimers();
       events.forEach((event) => window.removeEventListener(event, reset));
     };
@@ -70,7 +75,9 @@ export default function SessionTimeout() {
         <button
           className="mt-5 rounded-xl bg-primary px-5 py-2 text-sm font-medium text-white"
           onClick={() => {
-            setSecondsLeft(null);
+            if (mountedRef.current) {
+              setSecondsLeft(null);
+            }
             window.dispatchEvent(new Event("mousemove"));
           }}
         >

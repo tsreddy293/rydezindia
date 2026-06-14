@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Menu, X } from "lucide-react";
@@ -35,19 +35,26 @@ function getAccountLink(role: HeaderRole) {
 export default function HeaderClient() {
   const [open, setOpen] = useState(false);
   const [role, setRole] = useState<HeaderRole>(null);
+  const mountedRef = useRef(false);
   const navLinks = role ? AUTH_NAV_LINKS : PUBLIC_NAV_LINKS;
   const accountLink = getAccountLink(role);
 
   useEffect(() => {
-    let active = true;
+    mountedRef.current = true;
     const supabase = createClient();
+
+    function safeSetRole(nextRole: HeaderRole) {
+      if (mountedRef.current) {
+        setRole(nextRole);
+      }
+    }
 
     async function loadRole() {
       const { data, error } = await supabase.auth.getUser();
-      if (!active) return;
+      if (!mountedRef.current) return;
 
       if (error || !data.user) {
-        setRole(null);
+        safeSetRole(null);
         return;
       }
 
@@ -63,7 +70,7 @@ export default function HeaderClient() {
         nextRole = normalizeRole((profile as { role?: unknown } | null)?.role);
       }
 
-      setRole(nextRole ?? "user");
+      safeSetRole(nextRole ?? "user");
     }
 
     loadRole();
@@ -72,21 +79,23 @@ export default function HeaderClient() {
     });
 
     return () => {
-      active = false;
+      mountedRef.current = false;
       listener.subscription.unsubscribe();
     };
   }, []);
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 glass border-b border-gray-200/50">
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 md:px-6 md:py-3">
+    <header className="fixed top-0 left-0 right-0 z-50 min-h-20 glass border-b border-gray-200/50">
+      <div className="mx-auto flex min-h-20 max-w-7xl items-center justify-between px-4 md:px-6">
         <Link href="/" className="flex items-center" onClick={() => setOpen(false)}>
           <Image
-            src="/images/rydez-logo.png"
+            src="/images/logo copy 2.png"
             alt="Rydez India"
-            width={320}
-            height={90}
+            width={240}
+            height={60}
             priority
+            unoptimized
+            className="navbar-logo-image"
           />
         </Link>
 

@@ -42,6 +42,18 @@ body {
   -webkit-backdrop-filter: blur(12px);
 }
 
+.navbar-logo-image {
+  height: 45px;
+  width: auto;
+  object-fit: contain;
+}
+
+@media (min-width: 768px) {
+  .navbar-logo-image {
+    height: 60px;
+  }
+}
+
 .hero-gradient {
   background: linear-gradient(
     135deg,

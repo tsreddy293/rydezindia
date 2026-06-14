@@ -73,18 +73,21 @@ const SOCIAL = [
   { href: socialLinks.linkedin, label: "LinkedIn", icon: LinkedinIcon },
   { href: socialLinks.youtube, label: "YouTube", icon: YoutubeIcon },
 ];
+
+const COPYRIGHT_YEAR = 2026;
+
 export default function Footer() {
   return (
     <footer className="bg-secondary text-white">
       <div className="mx-auto max-w-7xl px-4 py-16 md:px-6">
         <div className="grid gap-12 md:grid-cols-2 lg:grid-cols-5">
           <div className="lg:col-span-2">
-            <Link href="/" className="inline-flex h-14 items-center">
+            <Link href="/" className="inline-flex h-[70px] items-center">
               <Image
-                src="/images/rydez-logo.png"
+                src="/images/rydez-logo-sports.png"
                 alt="Rydez India"
-                width={260}
-                height={75}
+                width={325}
+                height={94}
                 className="h-auto w-auto max-h-full"
               />
             </Link>
@@ -154,7 +157,7 @@ export default function Footer() {
 
         <div className="mt-12 border-t border-white/10 pt-8 flex flex-col md:flex-row items-center justify-between gap-4 text-center md:text-left">
           <p className="text-sm text-white/50">
-            &copy; {new Date().getFullYear()} Rydez India. All rights reserved.
+            &copy; {COPYRIGHT_YEAR} Rydez India. All rights reserved.
           </p>
           <p className="text-sm text-white/50">
             Hyderabad, Telangana, India ·{" "}
