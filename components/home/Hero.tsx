@@ -27,11 +27,11 @@ export default function Hero() {
           className="max-w-3xl"
         >
           <span className="inline-block rounded-full bg-accent/20 border border-accent/40 px-4 py-1.5 text-sm font-medium text-accent mb-6">
-            India&apos;s Trusted AI-Powered Vehicle Sharing Platform
+            India&apos;s AI-Powered Vehicle Sharing Marketplace
           </span>
           <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold text-white leading-tight">
-            Turn Your Car Into{" "}
-            <span className="gradient-text">Income</span>
+            Turn Your Vehicle Into{" "}
+            <span className="gradient-text">Monthly Income</span>
           </h1>
           <p className="mt-6 text-lg md:text-xl text-white/80 max-w-xl">
             Connect with verified users, earn from idle vehicles, and experience
@@ -42,7 +42,7 @@ export default function Hero() {
             <Button href="/owner/register" variant="accent" size="lg">
               Register Your Vehicle
             </Button>
-            <Button href="/search" variant="outline" size="lg" className="!border-white !text-white hover:!bg-white hover:!text-secondary">
+            <Button href="/#search" variant="outline" size="lg" className="!border-white !text-white hover:!bg-white hover:!text-secondary">
               Book A Vehicle
             </Button>
           </div>

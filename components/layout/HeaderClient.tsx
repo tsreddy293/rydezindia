@@ -12,7 +12,6 @@ export type HeaderRole = "user" | "owner" | "admin" | null;
 const PUBLIC_NAV_LINKS = [
   { href: "/#features", label: "Features" },
   { href: "/#how-it-works", label: "How It Works" },
-  { href: "/investors", label: "Investors" },
   { href: "/contact", label: "Contact" },
 ];
 

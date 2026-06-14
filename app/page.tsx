@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
 export const metadata = createPageMetadata({
   title: "Home",
   description:
-    "Rydez India — India's trusted AI-powered vehicle sharing platform. Register your vehicle, book return journeys, and earn from idle cars.",
+    "Rydez India — India's AI-powered vehicle sharing marketplace. Search vehicles, register your vehicle, and earn monthly income from verified bookings.",
   path: "",
 });
 
@@ -35,8 +35,8 @@ export default async function Home() {
   return (
     <PageLayout>
       <Hero />
-      <StatsBar stats={stats} />
       <SearchSection />
+      <StatsBar stats={stats} />
       <Categories />
       <Features />
       <UniqueFeatures />

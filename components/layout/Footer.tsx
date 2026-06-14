@@ -44,25 +44,24 @@ function YoutubeIcon({ className }: { className?: string }) {
 }
 const FOOTER_LINKS = {
   Platform: [
-    { href: "/search-return", label: "Return Journeys" },
+    { href: "/search", label: "Search Vehicles" },
+    { href: "/owner/register", label: "Register Vehicle" },
+    { href: "/search-return", label: "Return Journey" },
     { href: "/search-self-drive", label: "Self Drive" },
-    { href: "/search-driver", label: "With Driver" },
-    { href: "/owner", label: "Register as Owner" },
-    { href: "/owner/login", label: "Owner Login" },
+    { href: "/search-driver", label: "Vehicle With Driver" },
   ],
   Company: [
     { href: "/about-us", label: "About Us" },
-    { href: "/investors", label: "Investors" },
     { href: "/contact-us", label: "Contact Us" },
     { href: "/#faq", label: "FAQ" },
-    { href: "/#testimonials", label: "Testimonials" },
+    { href: "/investors", label: "Investors" },
   ],
   Legal: [
     { href: "/privacy-policy", label: "Privacy Policy" },
     { href: "/terms-and-conditions", label: "Terms & Conditions" },
     { href: "/refund-policy", label: "Refund Policy" },
-    { href: "/owner-agreement", label: "Owner Agreement" },
     { href: "/user-agreement", label: "User Agreement" },
+    { href: "/owner-agreement", label: "Owner Agreement" },
   ],
 };
 
@@ -115,7 +114,6 @@ export default function Footer() {
               </a>
             </div>
 
-            {/* Social media placeholders */}
             <div className="mt-8">
               <p className="text-sm font-medium text-accent mb-3">Follow Us</p>
               <div className="flex flex-wrap gap-3">

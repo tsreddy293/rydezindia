@@ -25,8 +25,8 @@ export default function CTA() {
             <Button href="/owner/register" variant="secondary" size="lg">
               Register Your Vehicle
             </Button>
-            <Button href="/search" size="lg" className="!bg-white !text-primary hover:!bg-white/90">
-              Book A Vehicle
+            <Button href="/contact-us" size="lg" className="!bg-white !text-primary hover:!bg-white/90">
+              Contact Us
             </Button>
           </div>
         </motion.div>
