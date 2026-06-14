@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { Car, Mail, Phone, Globe } from "lucide-react";
+import Image from "next/image";
+import { Mail, Phone, Globe } from "lucide-react";
 import { COMPANY } from "@/lib/data";
 import { socialLinks } from "@/lib/seo";
 
@@ -78,14 +79,14 @@ export default function Footer() {
       <div className="mx-auto max-w-7xl px-4 py-16 md:px-6">
         <div className="grid gap-12 md:grid-cols-2 lg:grid-cols-5">
           <div className="lg:col-span-2">
-            <Link href="/" className="flex items-center gap-2">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary">
-                <Car className="h-5 w-5" />
-              </div>
-              <div>
-                <span className="text-xl font-bold">Rydez</span>
-                <span className="text-xl font-bold text-accent"> India</span>
-              </div>
+            <Link href="/" className="inline-flex h-14 items-center">
+              <Image
+                src="/images/rydez-logo.png"
+                alt="Rydez India"
+                width={260}
+                height={75}
+                className="h-auto w-auto max-h-full"
+              />
             </Link>
             <p className="mt-4 text-white/70 max-w-sm">
               {COMPANY.tagline} — India&apos;s trusted AI-powered vehicle sharing platform.

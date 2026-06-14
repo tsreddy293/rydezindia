@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
-import { Car, Menu, X } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import Button from "@/components/ui/Button";
 import { createClient } from "@/lib/supabase/client";
 import { signOutUser } from "@/server/actions/auth";
@@ -78,15 +79,15 @@ export default function HeaderClient() {
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 glass border-b border-gray-200/50">
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 md:px-6">
-        <Link href="/" className="flex items-center gap-2 group" onClick={() => setOpen(false)}>
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-white transition-transform group-hover:scale-105">
-            <Car className="h-5 w-5" />
-          </div>
-          <div>
-            <span className="text-xl font-bold text-secondary">Rydez</span>
-            <span className="text-xl font-bold text-primary"> India</span>
-          </div>
+      <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 md:px-6 md:py-3">
+        <Link href="/" className="flex items-center" onClick={() => setOpen(false)}>
+          <Image
+            src="/images/rydez-logo.png"
+            alt="Rydez India"
+            width={320}
+            height={90}
+            priority
+          />
         </Link>
 
         <nav className="hidden items-center gap-8 lg:flex">
