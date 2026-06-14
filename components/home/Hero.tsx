@@ -39,7 +39,7 @@ export default function Hero() {
           </p>
 
           <div className="mt-10 flex flex-col sm:flex-row gap-4">
-            <Button href="/owner" variant="accent" size="lg">
+            <Button href="/owner/register" variant="accent" size="lg">
               Register Your Vehicle
             </Button>
             <Button href="/search" variant="outline" size="lg" className="!border-white !text-white hover:!bg-white hover:!text-secondary">
