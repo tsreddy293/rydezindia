@@ -15,10 +15,10 @@ export const metadata = createPageMetadata({
 });
 
 const VEHICLE_TYPES = ["", "Hatchback", "Sedan", "SUV", "MUV", "Luxury", "Tempo Traveller", "Mini Bus", "Bus"];
-const TRIP_TYPES = ["", "Local Trip", "Outstation Trip", "Airport Transfer"];
+const TRIP_TYPES = ["", "One Way", "Round Trip", "Multi-City"];
 
 interface Props {
-  searchParams: Promise<{ city?: string; pickupCity?: string; dropCity?: string; date?: string; tripType?: string; vehicleType?: string }>;
+  searchParams: Promise<{ city?: string; pickupCity?: string; dropCity?: string; date?: string; tripType?: string; vehicleType?: string; cities?: string }>;
 }
 
 export default async function SearchDriverPage({ searchParams }: Props) {
@@ -28,6 +28,7 @@ export default async function SearchDriverPage({ searchParams }: Props) {
   const date = params.date ?? "";
   const tripType = params.tripType ?? "";
   const vehicleType = params.vehicleType ?? "";
+  const cities = params.cities ?? "";
 
   const { data: results, error } = await searchDriverVehicles({
     pickupCity: pickupCity || undefined,
@@ -45,6 +46,11 @@ export default async function SearchDriverPage({ searchParams }: Props) {
           <p className="text-gray-600 mt-1">
             {error ? "Connection error" : `${results.length} results found`}
           </p>
+          {cities && (
+            <p className="mt-2 text-sm text-primary">
+              Multi-city route: {cities.split(",").join(" → ")}
+            </p>
+          )}
         </div>
 
         {error && <SupabaseErrorBanner message={error} />}
