@@ -12,9 +12,10 @@ export const COMPANY = {
 export const HERO_BADGES = [
   "Verified Owners",
   "Verified Users",
-  "GPS Tracking",
   "AI Matching",
+  "GPS Tracking",
   "Secure Payments",
+  "24x7 Support",
 ];
 
 export const CATEGORIES: { id: VehicleCategory; name: string; icon: string; count: number }[] = [

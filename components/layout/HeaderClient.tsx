@@ -112,6 +112,12 @@ export default function HeaderClient() {
         </nav>
 
         <div className="hidden items-center gap-3 lg:flex">
+          <Link
+            href="/#download-app"
+            className="mr-1 text-sm font-semibold text-primary transition-colors hover:text-primary-dark"
+          >
+            Download Mobile App
+          </Link>
           {role ? (
             <>
               <Button href={accountLink.href} variant="outline" size="sm">
@@ -157,6 +163,14 @@ export default function HeaderClient() {
                 {link.label}
               </Link>
             ))}
+
+            <Link
+              href="/#download-app"
+              className="text-base font-semibold text-primary"
+              onClick={() => setOpen(false)}
+            >
+              Download Mobile App
+            </Link>
 
             <div className="mt-4 flex flex-col gap-3">
               {role ? (
