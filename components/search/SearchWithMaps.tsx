@@ -350,11 +350,29 @@ function SearchWithMapsInner(props: SearchWithMapsProps) {
             variant="light"
             availableSeats={availableSeats}
             localPackagePrice={selectedPackage?.basePrice}
+            tripTypeLabel={props.mode === "with_driver" ? tripType : undefined}
+            driverTripType={
+              props.mode === "with_driver"
+                ? tripType === "Round Trip"
+                  ? "round_trip"
+                  : tripType === "Multi-City"
+                    ? "multi_city"
+                    : tripType === "One Way"
+                      ? "one_way"
+                      : undefined
+                : undefined
+            }
+            cityNames={
+              props.mode === "with_driver" && props.initialFilters.cities
+                ? props.initialFilters.cities.split(",")
+                : [pickup?.label ?? "", drop?.label ?? ""].filter(Boolean)
+            }
             ratePerKm={
               props.mode === "with_driver" && props.results[0]
                 ? props.results[0].rate_per_km
                 : undefined
             }
+            returnJourneyDiscountPercent={30}
           />
         </div>
       </form>

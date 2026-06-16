@@ -1,21 +1,20 @@
 "use client";
 
-import { Clock, IndianRupee, MapPinned, Percent, Users } from "lucide-react";
 import RouteMapView from "@/components/maps/RouteMapView";
+import TripPricingCard from "@/components/maps/TripPricingCard";
 import { useRouteDirections } from "@/hooks/useRouteDirections";
-import {
-  DEFAULT_DRIVER_RATE_PER_KM,
-  RETURN_JOURNEY_SAVINGS_PERCENT,
-} from "@/lib/maps/constants";
-import {
-  calculateSavingsPercent,
-  estimateDriverFare,
-  estimateStandardFare,
-  formatDistanceKm,
-  formatDuration,
-  formatIndianCurrency,
-} from "@/lib/maps/format";
+import { DEFAULT_DRIVER_RATE_PER_KM } from "@/lib/maps/constants";
+import { formatIndianCurrency } from "@/lib/maps/format";
 import type { PlaceLocation, SearchServiceMode } from "@/lib/maps/types";
+import {
+  calculateTripPricing,
+  detectTripType,
+  mapDriverTripTypeLabel,
+  type TripPricingType,
+} from "@/lib/pricing/trip-pricing";
+import { useMemo } from "react";
+
+export type DriverTripTypeKey = "one_way" | "round_trip" | "multi_city";
 
 interface RouteInsightsPanelProps {
   origin: PlaceLocation | null;
@@ -26,7 +25,27 @@ interface RouteInsightsPanelProps {
   ratePerKm?: number;
   availableSeats?: number;
   localPackagePrice?: number;
+  driverTripType?: DriverTripTypeKey;
+  tripTypeLabel?: string;
+  cityNames?: string[];
+  returnJourneyDiscountPercent?: number;
   className?: string;
+}
+
+function resolveTripPricingType(
+  mode: SearchServiceMode,
+  driverTripType?: DriverTripTypeKey,
+  tripTypeLabel?: string,
+  cityNames: string[] = []
+): TripPricingType {
+  if (mode === "return_journey") return "return_journey";
+
+  const mappedLabel = mapDriverTripTypeLabel(tripTypeLabel);
+  if (mappedLabel) return mappedLabel;
+  if (driverTripType) return driverTripType;
+  if (cityNames.length > 0) return detectTripType(cityNames);
+
+  return "one_way";
 }
 
 export default function RouteInsightsPanel({
@@ -38,6 +57,10 @@ export default function RouteInsightsPanel({
   ratePerKm = DEFAULT_DRIVER_RATE_PER_KM,
   availableSeats,
   localPackagePrice,
+  driverTripType,
+  tripTypeLabel,
+  cityNames = [],
+  returnJourneyDiscountPercent = 30,
   className = "",
 }: RouteInsightsPanelProps) {
   const needsRoute = mode === "with_driver" || mode === "return_journey";
@@ -48,6 +71,21 @@ export default function RouteInsightsPanel({
     needsRoute
   );
 
+  const pricingType = useMemo(
+    () => resolveTripPricingType(mode, driverTripType, tripTypeLabel, cityNames),
+    [cityNames, driverTripType, mode, tripTypeLabel]
+  );
+
+  const pricing = useMemo(() => {
+    if (!route) return null;
+    return calculateTripPricing({
+      tripType: pricingType,
+      distanceKm: route.distanceKm,
+      ratePerKm,
+      returnJourneyDiscountPercent,
+    });
+  }, [pricingType, ratePerKm, returnJourneyDiscountPercent, route]);
+
   if (!canFetch && mode !== "local_rental") {
     return null;
   }
@@ -56,28 +94,15 @@ export default function RouteInsightsPanel({
     return null;
   }
 
-  const estimatedFare = route ? estimateDriverFare(route.distanceKm, ratePerKm) : null;
-  const standardFare = route ? estimateStandardFare(route.distanceKm, ratePerKm) : null;
-  const savingsPercent = route
-    ? calculateSavingsPercent(estimatedFare ?? 0, standardFare ?? 0) || RETURN_JOURNEY_SAVINGS_PERCENT
-    : RETURN_JOURNEY_SAVINGS_PERCENT;
-
   const cardClass =
     variant === "dark"
       ? "rounded-xl border border-white/10 bg-black/20 p-3 md:p-4"
       : "rounded-xl border border-gray-200 bg-gray-50 p-3 md:p-4";
 
-  const statClass =
-    variant === "dark"
-      ? "rounded-lg border border-white/10 bg-white/5 px-3 py-2"
-      : "rounded-lg border border-gray-200 bg-white px-3 py-2";
-
   const labelClass =
     variant === "dark"
       ? "text-[10px] uppercase tracking-wide text-white/55"
       : "text-[10px] uppercase tracking-wide text-gray-500";
-  const valueClass =
-    variant === "dark" ? "text-sm font-semibold text-white" : "text-sm font-semibold text-secondary";
 
   return (
     <div className={`space-y-3 ${className}`}>
@@ -89,69 +114,29 @@ export default function RouteInsightsPanel({
             destination={destination ?? origin}
             variant={variant}
           />
-          <div className={cardClass}>
-            {loading ? (
+          {loading ? (
+            <div className={cardClass}>
               <p className={variant === "dark" ? "text-xs text-white/60" : "text-xs text-gray-500"}>
                 Calculating route…
               </p>
-            ) : error ? (
+            </div>
+          ) : error ? (
+            <div className={cardClass}>
               <div className="space-y-1">
                 <p className="text-xs text-amber-400">{error}</p>
                 <p className={variant === "dark" ? "text-[10px] text-white/45" : "text-[10px] text-gray-400"}>
                   Enable Directions API in Google Cloud and pick both locations from the autocomplete list.
                 </p>
               </div>
-            ) : route ? (
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                <div className={statClass}>
-                  <div className={`mb-1 flex items-center gap-1 ${labelClass}`}>
-                    <MapPinned className="h-3 w-3" />
-                    Distance
-                  </div>
-                  <p className={valueClass}>{formatDistanceKm(route.distanceKm)}</p>
-                </div>
-                <div className={statClass}>
-                  <div className={`mb-1 flex items-center gap-1 ${labelClass}`}>
-                    <Clock className="h-3 w-3" />
-                    Travel Time
-                  </div>
-                  <p className={valueClass}>{formatDuration(route.durationMinutes)}</p>
-                </div>
-                {mode === "with_driver" && estimatedFare ? (
-                  <div className={statClass}>
-                    <div className={`mb-1 flex items-center gap-1 ${labelClass}`}>
-                      <IndianRupee className="h-3 w-3" />
-                      Est. Fare
-                    </div>
-                    <p className={valueClass}>{formatIndianCurrency(estimatedFare)}</p>
-                    <p className={`mt-0.5 text-[10px] ${variant === "dark" ? "text-white/45" : "text-gray-400"}`}>
-                      @ ₹{ratePerKm}/km
-                    </p>
-                  </div>
-                ) : null}
-                {mode === "return_journey" ? (
-                  <>
-                    <div className={statClass}>
-                      <div className={`mb-1 flex items-center gap-1 ${labelClass}`}>
-                        <Percent className="h-3 w-3" />
-                        Savings
-                      </div>
-                      <p className={`${valueClass} text-accent`}>Up to {savingsPercent}%</p>
-                    </div>
-                    {typeof availableSeats === "number" ? (
-                      <div className={statClass}>
-                        <div className={`mb-1 flex items-center gap-1 ${labelClass}`}>
-                          <Users className="h-3 w-3" />
-                          Seats
-                        </div>
-                        <p className={valueClass}>{availableSeats} available</p>
-                      </div>
-                    ) : null}
-                  </>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
+            </div>
+          ) : route && pricing ? (
+            <TripPricingCard
+              pricing={pricing}
+              durationMinutes={route.durationMinutes}
+              variant={variant}
+              availableSeats={mode === "return_journey" ? availableSeats : undefined}
+            />
+          ) : null}
         </>
       ) : null}
 

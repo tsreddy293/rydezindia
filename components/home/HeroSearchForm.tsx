@@ -395,6 +395,12 @@ export default function HeroSearchForm() {
         }
         mode={routeMode}
         variant="dark"
+        driverTripType={serviceType === "with_driver" ? driverTripType : undefined}
+        cityNames={
+          isMultiCityTrip(serviceType, driverTripType)
+            ? multiCityPlaces.map((place) => place?.label ?? "").filter(Boolean)
+            : [fromPlace?.label ?? "", toPlace?.label ?? ""].filter(Boolean)
+        }
         localPackagePrice={serviceType === "local_rental" ? selectedLocalPackage.basePrice : undefined}
       />
 

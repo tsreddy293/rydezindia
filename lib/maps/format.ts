@@ -19,14 +19,17 @@ export function formatIndianCurrency(amount: number): string {
   }).format(Math.round(amount));
 }
 
+/** @deprecated Use calculateTripPricing from @/lib/pricing/trip-pricing */
 export function estimateDriverFare(distanceKm: number, ratePerKm = DEFAULT_DRIVER_RATE_PER_KM): number {
-  return Math.max(ratePerKm * distanceKm, ratePerKm * 5);
+  return Math.round(Math.max(ratePerKm * distanceKm, ratePerKm * 5));
 }
 
+/** @deprecated Use calculateTripPricing with tripType return_journey */
 export function estimateStandardFare(distanceKm: number, ratePerKm = DEFAULT_DRIVER_RATE_PER_KM): number {
-  return estimateDriverFare(distanceKm, ratePerKm * 1.67);
+  return Math.round(Math.max(ratePerKm * distanceKm * 1.67, ratePerKm * 5));
 }
 
+/** @deprecated Use TripPricingResult.discountPercent */
 export function calculateSavingsPercent(discounted: number, standard: number): number {
   if (standard <= 0) return 0;
   return Math.max(0, Math.round(((standard - discounted) / standard) * 100));
