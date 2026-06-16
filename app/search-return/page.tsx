@@ -1,5 +1,5 @@
 import PageLayout from "@/components/layout/PageLayout";
-import SearchPageClient from "@/components/search/SearchPageClient";
+import { SearchReturnClient } from "@/components/search/SearchWithMaps";
 import SupabaseErrorBanner from "@/components/ui/SupabaseErrorBanner";
 import { createPageMetadata } from "@/lib/metadata";
 import { searchReturnJourneys } from "@/lib/supabase/queries";
@@ -23,6 +23,12 @@ interface Props {
     toCity?: string;
     pickupCity?: string;
     dropCity?: string;
+    pickupLat?: string;
+    pickupLng?: string;
+    pickupAddress?: string;
+    dropLat?: string;
+    dropLng?: string;
+    dropAddress?: string;
   }>;
 }
 
@@ -42,14 +48,26 @@ export default async function SearchReturnPage({ searchParams }: Props) {
 
   return (
     <PageLayout>
-      {error && (
+      {error ? (
         <div className="mx-auto max-w-7xl px-4 pt-8 md:px-6">
           <SupabaseErrorBanner message={error} />
         </div>
-      )}
-      <SearchPageClient
-        initialResults={results}
-        initialFilters={{ fromCity, toCity, date, vehicleType }}
+      ) : null}
+      <SearchReturnClient
+        title="Return Journey Deals"
+        initialFilters={{
+          fromCity,
+          toCity,
+          date,
+          vehicleType,
+          pickupLat: params.pickupLat,
+          pickupLng: params.pickupLng,
+          pickupAddress: params.pickupAddress,
+          dropLat: params.dropLat,
+          dropLng: params.dropLng,
+          dropAddress: params.dropAddress,
+        }}
+        results={results}
         connectionError={error}
       />
     </PageLayout>

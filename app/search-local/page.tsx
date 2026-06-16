@@ -1,48 +1,44 @@
 import PageLayout from "@/components/layout/PageLayout";
-import { SearchSelfDriveClient } from "@/components/search/SearchWithMaps";
+import { SearchLocalClient } from "@/components/search/SearchWithMaps";
 import SupabaseErrorBanner from "@/components/ui/SupabaseErrorBanner";
 import { createPageMetadata } from "@/lib/metadata";
-import { searchSelfDriveVehicles } from "@/lib/supabase/queries";
+import { searchDriverVehicles } from "@/lib/supabase/queries";
 
 export const dynamic = "force-dynamic";
 
 export const metadata = createPageMetadata({
-  title: "Search Self Drive Vehicles",
+  title: "Search Local Rental Vehicles",
   description:
-    "Rent self-drive vehicles by city with daily rent, security deposit, photos, and availability on Rydez India.",
-  path: "/search-self-drive",
+    "Book local rental packages with driver in Andhra Pradesh and Telangana — 4 hours, 8 hours, 12 hours, or full day.",
+  path: "/search-local",
 });
 
 interface Props {
   searchParams: Promise<{
-    city?: string;
     pickupCity?: string;
-    dropCity?: string;
+    city?: string;
     date?: string;
     vehicleType?: string;
-    duration?: string;
+    package?: string;
     pickupLat?: string;
     pickupLng?: string;
     pickupAddress?: string;
-    dropLat?: string;
-    dropLng?: string;
-    dropAddress?: string;
+    pickupPlaceId?: string;
   }>;
 }
 
-export default async function SearchSelfDrivePage({ searchParams }: Props) {
+export default async function SearchLocalPage({ searchParams }: Props) {
   const params = await searchParams;
   const pickupCity = params.pickupCity ?? params.city ?? "";
-  const dropCity = params.dropCity ?? "";
   const date = params.date ?? "";
   const vehicleType = params.vehicleType ?? "";
-  const duration = params.duration ?? "";
+  const packageKey = params.package ?? "4h_40km";
 
-  const { data: results, error } = await searchSelfDriveVehicles({
+  const { data: results, error } = await searchDriverVehicles({
     pickupCity: pickupCity || undefined,
-    dropCity: dropCity || undefined,
     date: date || undefined,
     vehicleType: vehicleType || undefined,
+    tripType: "Local Rental",
   });
 
   return (
@@ -52,20 +48,16 @@ export default async function SearchSelfDrivePage({ searchParams }: Props) {
           <SupabaseErrorBanner message={error} />
         </div>
       ) : null}
-      <SearchSelfDriveClient
-        title="Self Drive Vehicles"
+      <SearchLocalClient
+        title="Local Rental Packages"
         initialFilters={{
           pickupCity,
-          dropCity,
           date,
           vehicleType,
-          duration,
+          packageKey,
           pickupLat: params.pickupLat,
           pickupLng: params.pickupLng,
           pickupAddress: params.pickupAddress,
-          dropLat: params.dropLat,
-          dropLng: params.dropLng,
-          dropAddress: params.dropAddress,
         }}
         results={results}
         connectionError={error}

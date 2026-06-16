@@ -8,6 +8,7 @@ const PUBLIC_ROUTES: { path: string; priority: number; changeFrequency: Metadata
   { path: "/search-return", priority: 0.9, changeFrequency: "daily" },
   { path: "/search-self-drive", priority: 0.9, changeFrequency: "daily" },
   { path: "/search-driver", priority: 0.9, changeFrequency: "daily" },
+  { path: "/search-local", priority: 0.9, changeFrequency: "daily" },
   { path: "/owner", priority: 0.9, changeFrequency: "weekly" },
   { path: "/about-us", priority: 0.8, changeFrequency: "monthly" },
   { path: "/contact-us", priority: 0.8, changeFrequency: "monthly" },
