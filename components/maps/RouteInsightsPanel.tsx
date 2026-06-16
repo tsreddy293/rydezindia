@@ -1,13 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
 import { Clock, IndianRupee, MapPinned, Percent, Users } from "lucide-react";
 import RouteMapView from "@/components/maps/RouteMapView";
-import { buildRouteCacheKey, getCachedRoute, setCachedRoute } from "@/lib/maps/route-cache";
+import { useRouteDirections } from "@/hooks/useRouteDirections";
 import {
   DEFAULT_DRIVER_RATE_PER_KM,
   RETURN_JOURNEY_SAVINGS_PERCENT,
-  ROUTE_DEBOUNCE_MS,
 } from "@/lib/maps/constants";
 import {
   calculateSavingsPercent,
@@ -17,7 +15,7 @@ import {
   formatDuration,
   formatIndianCurrency,
 } from "@/lib/maps/format";
-import type { PlaceLocation, RouteDirectionsResult, SearchServiceMode } from "@/lib/maps/types";
+import type { PlaceLocation, SearchServiceMode } from "@/lib/maps/types";
 
 interface RouteInsightsPanelProps {
   origin: PlaceLocation | null;
@@ -42,84 +40,15 @@ export default function RouteInsightsPanel({
   localPackagePrice,
   className = "",
 }: RouteInsightsPanelProps) {
-  const [route, setRoute] = useState<RouteDirectionsResult | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const hasValidCoords = (place: PlaceLocation | null | undefined) =>
-    Boolean(place && place.lat !== 0 && place.lng !== 0);
-
   const needsRoute = mode === "with_driver" || mode === "return_journey";
-  const canFetchRoute =
-    needsRoute && hasValidCoords(origin) && hasValidCoords(destination);
+  const { route, loading, error, canFetch } = useRouteDirections(
+    origin,
+    destination,
+    waypoints,
+    needsRoute
+  );
 
-  useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-
-    if (!canFetchRoute) {
-      setRoute(null);
-      setError(null);
-      return;
-    }
-
-    debounceRef.current = setTimeout(async () => {
-      const waypointPoints = waypoints.filter(hasValidCoords).map((point) => ({
-        lat: point!.lat,
-        lng: point!.lng,
-      }));
-
-      const cacheKey = buildRouteCacheKey(
-        { lat: origin!.lat, lng: origin!.lng },
-        { lat: destination!.lat, lng: destination!.lng },
-        waypointPoints
-      );
-      const cached = getCachedRoute(cacheKey);
-      if (cached) {
-        setRoute(cached);
-        setError(null);
-        return;
-      }
-
-      setLoading(true);
-      setError(null);
-
-      try {
-        const params = new URLSearchParams({
-          originLat: String(origin!.lat),
-          originLng: String(origin!.lng),
-          destLat: String((destination ?? origin)!.lat),
-          destLng: String((destination ?? origin)!.lng),
-        });
-        if (waypointPoints.length > 0) {
-          params.set(
-            "waypoints",
-            waypointPoints.map((point) => `${point.lat},${point.lng}`).join("|")
-          );
-        }
-
-        const response = await fetch(`/api/directions?${params.toString()}`);
-        const payload = await response.json();
-        if (!response.ok) {
-          throw new Error(payload.error ?? "Route lookup failed");
-        }
-
-        setCachedRoute(cacheKey, payload as RouteDirectionsResult);
-        setRoute(payload as RouteDirectionsResult);
-      } catch (fetchError) {
-        setRoute(null);
-        setError(fetchError instanceof Error ? fetchError.message : "Route lookup failed");
-      } finally {
-        setLoading(false);
-      }
-    }, ROUTE_DEBOUNCE_MS);
-
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, [canFetchRoute, destination, origin, waypoints]);
-
-  if (!canFetchRoute && mode !== "local_rental") {
+  if (!canFetch && mode !== "local_rental") {
     return null;
   }
 
@@ -143,12 +72,16 @@ export default function RouteInsightsPanel({
       ? "rounded-lg border border-white/10 bg-white/5 px-3 py-2"
       : "rounded-lg border border-gray-200 bg-white px-3 py-2";
 
-  const labelClass = variant === "dark" ? "text-[10px] uppercase tracking-wide text-white/55" : "text-[10px] uppercase tracking-wide text-gray-500";
-  const valueClass = variant === "dark" ? "text-sm font-semibold text-white" : "text-sm font-semibold text-secondary";
+  const labelClass =
+    variant === "dark"
+      ? "text-[10px] uppercase tracking-wide text-white/55"
+      : "text-[10px] uppercase tracking-wide text-gray-500";
+  const valueClass =
+    variant === "dark" ? "text-sm font-semibold text-white" : "text-sm font-semibold text-secondary";
 
   return (
     <div className={`space-y-3 ${className}`}>
-      {canFetchRoute ? (
+      {canFetch ? (
         <>
           <RouteMapView
             route={route}
@@ -162,7 +95,12 @@ export default function RouteInsightsPanel({
                 Calculating route…
               </p>
             ) : error ? (
-              <p className="text-xs text-amber-400">{error}</p>
+              <div className="space-y-1">
+                <p className="text-xs text-amber-400">{error}</p>
+                <p className={variant === "dark" ? "text-[10px] text-white/45" : "text-[10px] text-gray-400"}>
+                  Enable Directions API in Google Cloud and pick both locations from the autocomplete list.
+                </p>
+              </div>
             ) : route ? (
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 <div className={statClass}>

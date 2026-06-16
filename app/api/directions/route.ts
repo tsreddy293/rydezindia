@@ -86,10 +86,9 @@ export async function GET(request: NextRequest) {
   const payload = (await response.json()) as GoogleDirectionsResponse;
 
   if (payload.status !== "OK" || !payload.routes?.[0]) {
-    return NextResponse.json(
-      { error: payload.error_message ?? "Unable to calculate route." },
-      { status: 502 }
-    );
+    const googleError = payload.error_message ?? payload.status ?? "Unable to calculate route.";
+    console.error("[directions]", googleError);
+    return NextResponse.json({ error: googleError, status: payload.status }, { status: 502 });
   }
 
   const route = payload.routes[0];

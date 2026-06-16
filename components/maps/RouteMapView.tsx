@@ -71,7 +71,21 @@ export default function RouteMapView({
             : "border-gray-200 bg-gray-50 text-gray-400"
         } ${className}`}
       >
-        Select locations to preview your route
+        Select both locations from autocomplete to preview your route
+      </div>
+    );
+  }
+
+  if (!route && origin && destination && origin.lat !== 0 && destination.lat !== 0) {
+    return (
+      <div
+        className={`${containerClass} flex items-center justify-center border ${
+          variant === "dark"
+            ? "border-white/10 bg-black/20 text-white/50"
+            : "border-gray-200 bg-gray-50 text-gray-400"
+        } ${className}`}
+      >
+        Calculating route map…
       </div>
     );
   }
