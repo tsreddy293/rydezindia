@@ -9,6 +9,7 @@ import { createNotification } from "@/lib/services/notifications";
 import { assertOwnerCanReceiveBookings } from "@/lib/services/verification";
 import { bookReturnJourneySeats, initializeReturnJourneySeats } from "@/lib/services/return-journey-seats";
 import { dispatchBookingEvent } from "@/lib/services/messaging";
+import { findOrCreateGuestUserByMobile } from "@/lib/users/guest-user";
 import type { ActionResult, CreateBookingInput, CreateMarketplaceBookingInput } from "@/types/database";
 
 const MOBILE_REGEX = /^[6-9]\d{9}$/;
@@ -54,34 +55,11 @@ export async function createBooking(
   const mobile = input.mobile.replace(/\s/g, "");
   const amount = pricePerSeat * input.seats_booked;
 
-  // Find or create passenger user
-  const { data: existingUser } = await db
-    .from("users")
-    .select("id")
-    .eq("mobile", mobile)
-    .maybeSingle();
-
-  let userId = (existingUser as { id: string } | null)?.id;
-
-  if (!userId) {
-    const { data: newUser, error: userError } = await db
-      .from("users")
-      .insert({
-        id: crypto.randomUUID(),
-        name: input.passenger_name.trim(),
-        email: `${mobile}@rydezindia.guest`,
-        mobile,
-        role: "rider",
-      } as Record<string, unknown>)
-      .select("id")
-      .single();
-
-    if (userError) {
-      userId = ownerId;
-    } else {
-      userId = newUser.id as string;
-    }
-  }
+  const guestUser = await findOrCreateGuestUserByMobile(db, input.passenger_name, mobile, {
+    fallbackUserId: ownerId,
+    failOnError: false,
+  });
+  const userId = guestUser.userId ?? ownerId;
 
   const bookingReference = await generateBookingReference();
 
@@ -230,31 +208,13 @@ export async function createUnifiedBooking(
   const mobile = input.mobile.replace(/\s/g, "");
   const bookingReference = await generateBookingReference();
 
-  const { data: existingUser } = await db
-    .from("users")
-    .select("id")
-    .eq("mobile", mobile)
-    .maybeSingle();
-
-  let userId = (existingUser as { id: string } | null)?.id;
-
-  if (!userId) {
-    const { data: newUser, error: userError } = await db
-      .from("users")
-      .insert({
-        id: crypto.randomUUID(),
-        name: input.passenger_name.trim(),
-        full_name: input.passenger_name.trim(),
-        email: `${mobile}@rydezindia.guest`,
-        mobile,
-        role: "rider",
-      } as Record<string, unknown>)
-      .select("id")
-      .single();
-
-    if (userError) return { success: false, error: userError.message };
-    userId = newUser.id as string;
+  const guestUser = await findOrCreateGuestUserByMobile(db, input.passenger_name, mobile, {
+    failOnError: true,
+  });
+  if (!guestUser.userId) {
+    return { success: false, error: guestUser.error ?? "Failed to create user profile" };
   }
+  const userId = guestUser.userId;
 
   let finalAmount = input.amount;
   let couponDiscount = 0;

@@ -65,7 +65,7 @@ export async function publishVehicleToMarketplace(vehicleId: string) {
 
   const { data: owner } = await db
     .from("users")
-    .select("name, full_name, mobile, city")
+    .select("name, mobile, city")
     .eq("id", ownerId)
     .maybeSingle();
 
@@ -90,7 +90,7 @@ export async function publishVehicleToMarketplace(vehicleId: string) {
     }
   }
 
-  const driverName = ownerRow?.full_name || ownerRow?.name || "Owner Driver";
+  const driverName = ownerRow?.name || ownerRow?.full_name || "Owner Driver";
   const driverPhone = ownerRow?.mobile || "9999999999";
   const city = resolveVehicleCity(vehicle as Record<string, unknown>, ownerCity || "India");
   const displayName = vehicleDisplayName(v);

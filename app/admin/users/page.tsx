@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminUsersPage() {
   await requireRole("admin");
-  const users = await getAdminRows("users", "id, name, full_name, email, mobile, role, is_blocked, created_at", 100);
+  const users = await getAdminRows("users", "id, name, email, mobile, role, is_blocked, created_at", 100);
   const authAccounts = await getAuthAccounts();
   const authMap = new Map(authAccounts.map((account) => [account.id, account]));
 

@@ -17,6 +17,7 @@ import type {
   VehicleOwner,
 } from "@/types/database";
 import { scoreRouteMatch } from "@/lib/services/route-matching";
+import { resolveUserName } from "@/lib/users/display-name";
 import { mapVehicleRow } from "@/lib/vehicles/format";
 import {
   buildVehicleDisplayName,
@@ -171,7 +172,7 @@ async function getUserMap(ids: string[]) {
 
   const { data, error } = await db()
     .from("users")
-    .select("id, name, full_name, mobile, email, city")
+    .select("id, name, mobile, email, city")
     .in("id", uniqueIds);
 
   if (error) {
@@ -246,7 +247,7 @@ async function resolveOwnerNames(ownerIds: string[]): Promise<Map<string, string
 
   const userMap = await getUserMap(uniqueIds);
   for (const [id, row] of userMap) {
-    const name = getString(row, "full_name") || getString(row, "name");
+    const name = resolveUserName(row as { name?: string; full_name?: string });
     if (name) nameMap.set(id, name);
   }
 
@@ -703,7 +704,7 @@ export async function searchReturnJourneys(filters: {
       vehicle_number: vehicle ? maskRegistrationNumber(getString(vehicle, "registration_number")) : undefined,
       vehicle_type: getString(row, "vehicle_type") || getString(vehicle, "vehicle_category", "-"),
       photos: vehicle?.vehicle_photo_url ? [String(vehicle.vehicle_photo_url)] : [],
-      owner_name: getString(owner, "full_name") || getString(owner, "name", "Owner"),
+      owner_name: resolveUserName(owner as { name?: string; full_name?: string }, "Owner"),
       from_city: getString(row, "pickup_city") || getString(row, "from_city"),
       to_city: getString(row, "drop_city") || getString(row, "to_city"),
       journey_date: getString(row, "journey_date"),
@@ -927,7 +928,7 @@ export async function getJourneyById(id: string): Promise<Record<string, unknown
       owner: owner
         ? {
             id: getString(owner, "id", ownerId),
-            name: getString(owner, "full_name") || getString(owner, "name", "Owner"),
+            name: resolveUserName(owner as { name?: string; full_name?: string }, "Owner"),
             email: getString(owner, "email"),
           }
         : { id: ownerId, name: "Owner" },
