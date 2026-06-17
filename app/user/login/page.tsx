@@ -1,1 +1,5 @@
-export { metadata, default } from "@/app/login/page";
+import { redirect } from "next/navigation";
+
+export default function LegacyUserLoginRedirect() {
+  redirect("/login/rider");
+}

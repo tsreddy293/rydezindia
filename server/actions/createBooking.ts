@@ -71,7 +71,7 @@ export async function createBooking(
         name: input.passenger_name.trim(),
         email: `${mobile}@rydezindia.guest`,
         mobile,
-        role: "user",
+        role: "rider",
       } as Record<string, unknown>)
       .select("id")
       .single();
@@ -247,7 +247,7 @@ export async function createUnifiedBooking(
         full_name: input.passenger_name.trim(),
         email: `${mobile}@rydezindia.guest`,
         mobile,
-        role: "user",
+        role: "rider",
       } as Record<string, unknown>)
       .select("id")
       .single();

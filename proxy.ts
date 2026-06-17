@@ -1,6 +1,19 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseAnonKey, getSupabaseUrl } from "@/lib/supabase/env";
+import { normalizeRole } from "@/lib/auth/roles";
+
+async function resolveUserRole(
+  supabase: ReturnType<typeof createServerClient>,
+  userId: string,
+  metadataRole: unknown
+): Promise<ReturnType<typeof normalizeRole>> {
+  const fromMeta = normalizeRole(metadataRole);
+  if (fromMeta) return fromMeta;
+
+  const { data } = await supabase.from("users").select("role").eq("id", userId).maybeSingle();
+  return normalizeRole((data as { role?: unknown } | null)?.role);
+}
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
@@ -22,7 +35,10 @@ export async function proxy(request: NextRequest) {
 
   const { data } = await supabase.auth.getUser();
   const path = request.nextUrl.pathname;
-  const role = data.user?.user_metadata?.role;
+
+  const role = data.user
+    ? await resolveUserRole(supabase, data.user.id, data.user.user_metadata?.role)
+    : null;
 
   const redirectTo = (pathname: string) => {
     const url = request.nextUrl.clone();
@@ -30,10 +46,23 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   };
 
-  if (path.startsWith("/admin") && path !== "/admin/login" && (!data.user || (role && role !== "admin"))) {
-    return redirectTo("/admin/login");
+  const authSelectionPaths = ["/login", "/signup"];
+  const isAuthSelection = authSelectionPaths.includes(path);
+
+  // --- Admin routes ---
+  const adminPublic = path === "/login/admin" || path === "/admin/login";
+  if (path.startsWith("/admin") && !adminPublic) {
+    if (!data.user || role !== "admin") {
+      return redirectTo("/login/admin");
+    }
   }
 
+  // --- Owner routes ---
+  const ownerPublic =
+    path === "/login/owner" ||
+    path === "/signup/owner" ||
+    path === "/owner/login" ||
+    path === "/owner/register";
   const ownerOnly =
     path.startsWith("/owner/dashboard") ||
     path.startsWith("/owner/kyc") ||
@@ -46,15 +75,20 @@ export async function proxy(request: NextRequest) {
     path.startsWith("/vehicles/add") ||
     path.startsWith("/vehicles/self-drive") ||
     path.startsWith("/vehicles/driver");
-  if (ownerOnly && (!data.user || (role && role !== "owner"))) {
-    return redirectTo("/owner/login");
+
+  if (ownerOnly && (!data.user || role !== "owner")) {
+    return redirectTo("/login/owner");
   }
 
-  if (path.startsWith("/user/dashboard") && !data.user) {
-    return redirectTo("/login");
-  }
-
-  const userOnly =
+  // --- Rider routes ---
+  const riderPublic =
+    path === "/login/rider" ||
+    path === "/signup/rider" ||
+    path === "/user/login" ||
+    path === "/user/register";
+  const riderOnly =
+    path.startsWith("/dashboard") ||
+    path.startsWith("/user/dashboard") ||
     path.startsWith("/user/bookings") ||
     path.startsWith("/user/trips") ||
     path.startsWith("/user/saved") ||
@@ -62,9 +96,37 @@ export async function proxy(request: NextRequest) {
     path.startsWith("/user/wallet") ||
     path.startsWith("/user/referrals") ||
     path.startsWith("/user/dashboard/verification");
-  if (userOnly && !data.user) {
-    return redirectTo("/login");
+
+  if (riderOnly && !data.user) {
+    return redirectTo("/login/rider");
   }
+
+  if (riderOnly && data.user && role === "owner") {
+    return redirectTo("/owner/dashboard");
+  }
+
+  if (riderOnly && data.user && role === "admin") {
+    return redirectTo("/admin");
+  }
+
+  if (ownerOnly && data.user && role === "rider") {
+    return redirectTo("/dashboard");
+  }
+
+  if (path.startsWith("/admin") && !adminPublic && data.user && role === "rider") {
+    return redirectTo("/dashboard");
+  }
+
+  if (path.startsWith("/admin") && !adminPublic && data.user && role === "owner") {
+    return redirectTo("/owner/dashboard");
+  }
+
+  // Legacy login redirects
+  if (path === "/admin/login") return redirectTo("/login/admin");
+  if (path === "/owner/login") return redirectTo("/login/owner");
+  if (path === "/user/login") return redirectTo("/login/rider");
+  if (path === "/user/register") return redirectTo("/signup/rider");
+  if (path === "/owner/register") return redirectTo("/signup/owner");
 
   return response;
 }

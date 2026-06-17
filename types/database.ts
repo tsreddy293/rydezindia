@@ -1,6 +1,6 @@
 /** Rydez India — Supabase database types */
 
-export type UserRole = "user" | "owner" | "admin";
+export type UserRole = "rider" | "owner" | "admin";
 export type VehicleOwnerStatus = "pending" | "approved" | "rejected";
 export type BookingStatus = "pending" | "confirmed" | "cancelled" | "completed";
 export type PaymentStatus = "pending" | "paid" | "refunded" | "failed";

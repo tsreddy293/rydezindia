@@ -36,7 +36,7 @@ export async function updateCustomerKycStatus(
     await db.from("users").update({ kyc_status: status }).eq("id", userId);
     await createNotification({
       recipientId: userId,
-      recipientRole: "user",
+      recipientRole: "rider",
       type: status === "verified" ? "kyc_verified" : "kyc_rejected",
       title: status === "verified" ? "KYC Verified" : "KYC Rejected",
       message: remarks ?? (status === "verified" ? "Your identity is verified." : "Please re-upload your documents."),
@@ -99,7 +99,7 @@ export async function requestKycReupload(
 
   await createNotification({
     recipientId,
-    recipientRole: entityType === "owner_kyc" ? "owner" : "user",
+    recipientRole: entityType === "owner_kyc" ? "owner" : "rider",
     type: "kyc_reupload_requested",
     title: "Re-upload required",
     message: reason || "Please re-upload your documents.",

@@ -22,7 +22,7 @@ export default async function AdminUsersPage() {
             String(user.name ?? user.full_name ?? "User"),
             String(user.email ?? auth?.email ?? "-"),
           String(user.mobile ?? "-"),
-          String(user.role ?? "user"),
+          String(user.role ?? "rider"),
           auth?.verified ? "Verified" : "Unverified",
           auth?.lastLogin ? new Date(auth.lastLogin).toLocaleString("en-IN") : "Never",
           user.is_blocked ? "Blocked" : "Active",

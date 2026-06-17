@@ -85,7 +85,10 @@ export async function getAnalyticsReport() {
     dailyRevenue,
     monthlyRevenue,
     totalBookings: bookingRows.length,
-    totalUsers: (users.data ?? []).filter((u) => (u as { role: string }).role === "user").length,
+    totalUsers: (users.data ?? []).filter((u) => {
+      const r = (u as { role: string }).role;
+      return r === "rider" || r === "user";
+    }).length,
     totalOwners: owners.data?.length ?? 0,
     totalVehicles,
     vehicleUtilization: utilization,

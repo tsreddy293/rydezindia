@@ -208,7 +208,7 @@ export async function cancelBooking(input: {
 
   await createNotification({
     recipientId: row?.user_id,
-    recipientRole: "user",
+    recipientRole: "rider",
     type: "booking_cancelled",
     title: "Booking cancelled",
     message: input.reason || "A booking has been cancelled.",

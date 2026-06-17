@@ -23,7 +23,7 @@ export default function OwnerSuccessPage() {
           Please verify your email before logging in. Our team will also review your owner details.
         </p>
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
-          <Button href="/owner/login" variant="primary" size="lg">
+          <Button href="/login/owner" variant="primary" size="lg">
             Go to Owner Login
           </Button>
           <Button href="/" variant="outline" size="lg">

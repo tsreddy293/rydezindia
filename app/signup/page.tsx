@@ -3,15 +3,15 @@ import AuthRolePicker from "@/components/auth/AuthRolePicker";
 import { createPageMetadata } from "@/lib/metadata";
 
 export const metadata = createPageMetadata({
-  title: "Login",
-  description: "Choose how you want to sign in to Rydez India — as a rider or vehicle owner.",
-  path: "/login",
+  title: "Sign Up",
+  description: "Join Rydez India as a rider or vehicle owner.",
+  path: "/signup",
 });
 
-export default function LoginRoleSelectionPage() {
+export default function SignupRoleSelectionPage() {
   return (
     <PageLayout>
-      <AuthRolePicker mode="login" />
+      <AuthRolePicker mode="signup" />
     </PageLayout>
   );
 }

@@ -167,7 +167,7 @@ export async function registerOwner(
       await supabase.auth.resend({
         type: "signup",
         email,
-        options: { emailRedirectTo: `${siteUrl()}/owner/login?verified=1` },
+        options: { emailRedirectTo: `${siteUrl()}/login/owner?verified=1` },
       });
 
       return { success: true, data: { id: ownerInsert.data.id as string } };
@@ -188,7 +188,7 @@ export async function registerOwner(
     await supabase.auth.resend({
       type: "signup",
       email,
-      options: { emailRedirectTo: `${siteUrl()}/owner/login?verified=1` },
+      options: { emailRedirectTo: `${siteUrl()}/login/owner?verified=1` },
     });
 
     return { success: true, data: { id: insertResult.data.id } };

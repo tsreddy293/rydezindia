@@ -33,7 +33,7 @@ export default async function OwnerForgotPasswordPage({ searchParams }: Props) {
           {success && <div className="rounded-xl bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-700">{success}</div>}
           <FormField label="Email" name="email" type="email" required />
           <Button type="submit" variant="primary" className="w-full">Send Reset Email</Button>
-          <Button href="/owner/login" variant="outline" className="w-full">Back to Owner Login</Button>
+          <Button href="/login/owner" variant="outline" className="w-full">Back to Owner Login</Button>
         </form>
       </div>
     </PageLayout>

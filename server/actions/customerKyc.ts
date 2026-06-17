@@ -32,7 +32,7 @@ export async function submitCustomerKyc(formData: FormData) {
   await createNotification({
     recipientRole: "admin",
     actorId: userId,
-    actorRole: "user",
+    actorRole: "rider",
     type: "customer_kyc_submitted",
     title: "Customer KYC submitted",
     message: "A customer submitted KYC documents for review.",

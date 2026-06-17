@@ -116,7 +116,7 @@ export default async function UserDashboardPage({ searchParams }: Props) {
         </div>
 
         <div className="mt-8">
-          <ChangePasswordForm returnTo="/user/dashboard" error={passwordError} success={passwordSuccess} />
+          <ChangePasswordForm returnTo="/dashboard" error={passwordError} success={passwordSuccess} />
         </div>
       </div>
     </PageLayout>
