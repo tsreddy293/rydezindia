@@ -7,8 +7,12 @@ import Button from "@/components/ui/Button";
 import GoogleMapsProvider from "@/components/maps/GoogleMapsProvider";
 import PlaceAutocompleteInput from "@/components/maps/PlaceAutocompleteInput";
 import RouteInsightsPanel from "@/components/maps/RouteInsightsPanel";
-import MarketplaceResultCard from "@/components/vehicles/MarketplaceResultCard";
-import SearchResultCard from "@/components/vehicles/SearchResultCard";
+import VehicleSearchResultCard from "@/components/vehicles/VehicleSearchResultCard";
+import ReturnJourneyDealCard from "@/components/return-journey/ReturnJourneyDealCard";
+import RouteMatchBanner from "@/components/return-journey/RouteMatchBanner";
+import { calculateAiPricing } from "@/lib/pricing/ai-pricing-engine";
+import { scoreRouteMatch } from "@/lib/services/route-matching";
+import { mapDriverTripTypeLabel } from "@/lib/pricing/trip-pricing";
 import { LOCAL_RENTAL_PACKAGES } from "@/lib/maps/constants";
 import { appendPlaceToParams, buildPlaceFromParts } from "@/lib/maps/url-params";
 import type { DriverVehicleResult, SearchResult, SelfDriveResult } from "@/types/database";
@@ -168,6 +172,7 @@ function SearchWithMapsInner(props: SearchWithMapsProps) {
       ? props.initialFilters.packageKey || LOCAL_RENTAL_PACKAGES[0].key
       : LOCAL_RENTAL_PACKAGES[0].key
   );
+  const [distanceKm, setDistanceKm] = useState(0);
 
   const availableSeats = useMemo(() => {
     if (props.mode !== "return_journey") return undefined;
@@ -373,9 +378,25 @@ function SearchWithMapsInner(props: SearchWithMapsProps) {
                 : undefined
             }
             returnJourneyDiscountPercent={30}
+            onRouteUpdate={(data) => setDistanceKm(data.distanceKm)}
           />
         </div>
       </form>
+
+      {props.mode === "return_journey" && pickup?.label && drop?.label && (
+        <RouteMatchBanner
+          fromCity={pickup.label}
+          toCity={drop.label}
+          matchCount={props.results.filter((r) =>
+            scoreRouteMatch({
+              searchFrom: pickup!.label,
+              searchTo: drop!.label,
+              listingFrom: r.from_city,
+              listingTo: r.to_city,
+            }) >= 50
+          ).length}
+        />
+      )}
 
       {!props.connectionError && props.results.length === 0 ? (
         <div className="rounded-2xl border border-gray-100 bg-gray-50 py-20 text-center">
@@ -385,14 +406,75 @@ function SearchWithMapsInner(props: SearchWithMapsProps) {
       ) : !props.connectionError ? (
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {props.mode === "return_journey"
-            ? props.results.map((result) => <SearchResultCard key={result.id} result={result} />)
+            ? props.results.map((result) => (
+                <ReturnJourneyDealCard key={result.id} journey={result} distanceKm={distanceKm} />
+              ))
             : props.mode === "self_drive"
-              ? props.results.map((result) => (
-                  <MarketplaceResultCard key={result.id} type="self_drive" result={result} />
-                ))
-              : props.results.map((result) => (
-                  <MarketplaceResultCard key={result.id} type="with_driver" result={result} />
-                ))}
+              ? props.results.map((result) => {
+                  const pricing = calculateAiPricing({
+                    distanceKm: distanceKm || 100,
+                    tripType: "one_way",
+                    vehicleType: result.vehicle_type,
+                  });
+                  return (
+                    <VehicleSearchResultCard
+                      key={result.id}
+                      result={{
+                        id: result.id,
+                        vehicle_id: result.vehicle_id,
+                        vehicle_name: result.vehicle_name,
+                        vehicle_type: result.vehicle_type,
+                        fuel_type: result.fuel_type,
+                        has_ac: result.has_ac,
+                        rating: result.rating,
+                        seats: result.seats,
+                        photos: result.photos,
+                        price: result.price,
+                        priceLabel: "/ day",
+                        bookingType: "self_drive",
+                        pickup_city: result.pickup_city,
+                        drop_city: result.drop_city,
+                      }}
+                      distanceKm={distanceKm}
+                      estimatedFare={result.price || result.daily_rent}
+                    />
+                  );
+                })
+              : props.results.map((result) => {
+                  const tripPricingType = mapDriverTripTypeLabel(tripType) ?? "one_way";
+                  const pricing = calculateAiPricing({
+                    distanceKm: distanceKm || 100,
+                    tripType: tripPricingType,
+                    vehicleType: result.vehicle_type,
+                    fuelType: result.fuel_type,
+                    driverRequired: true,
+                    ratePerKm: result.rate_per_km,
+                  });
+                  return (
+                    <VehicleSearchResultCard
+                      key={result.id}
+                      result={{
+                        id: result.id,
+                        vehicle_id: result.vehicle_id,
+                        vehicle_name: result.vehicle_name,
+                        vehicle_number: result.vehicle_number,
+                        vehicle_type: result.vehicle_type,
+                        fuel_type: result.fuel_type,
+                        has_ac: result.has_ac,
+                        rating: result.rating,
+                        seats: result.seats,
+                        photos: result.photos,
+                        price: result.price,
+                        priceLabel: "Est. Fare",
+                        bookingType: "with_driver",
+                        pickup_city: result.pickup_city,
+                        drop_city: result.drop_city,
+                      }}
+                      distanceKm={distanceKm}
+                      estimatedFare={pricing.finalFare}
+                    />
+                  );
+                })}
         </div>
       ) : null}
     </div>

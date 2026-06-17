@@ -65,6 +65,7 @@ export async function verifyRazorpayPayment(input: {
   razorpayOrderId: string;
   razorpayPaymentId: string;
   razorpaySignature: string;
+  paymentType?: "advance" | "full";
 }) {
   const { keySecret } = getRazorpayConfig();
   const expected = createHmac("sha256", keySecret)
@@ -74,20 +75,55 @@ export async function verifyRazorpayPayment(input: {
   if (expected !== input.razorpaySignature) throw new Error("Invalid payment signature");
 
   const db = createAdminClient();
+
+  const { data: paymentRow } = await db
+    .from("payments")
+    .select("id, amount, owner_id, booking_id")
+    .eq("razorpay_order_id", input.razorpayOrderId)
+    .maybeSingle();
+
   await db
     .from("payments")
     .update({
       razorpay_payment_id: input.razorpayPaymentId,
       razorpay_signature: input.razorpaySignature,
       status: "paid",
+      payment_type: input.paymentType ?? "full",
       updated_at: new Date().toISOString(),
     })
     .eq("razorpay_order_id", input.razorpayOrderId);
 
-  await db
+  const bookingUpdate: Record<string, unknown> = {
+    payment_status: input.paymentType === "advance" ? "partial" : "paid",
+    booking_status: "confirmed",
+  };
+
+  await db.from("bookings").update(bookingUpdate).eq("id", input.bookingId);
+
+  // Record owner earnings
+  const { data: booking } = await db
     .from("bookings")
-    .update({ payment_status: "paid", booking_status: "confirmed" })
-    .eq("id", input.bookingId);
+    .select("owner_id, amount, platform_fee")
+    .eq("id", input.bookingId)
+    .maybeSingle();
+
+  if (booking) {
+    const gross = Number((booking as { amount?: number }).amount ?? paymentRow?.amount ?? 0);
+    const platformFee = Number((booking as { platform_fee?: number }).platform_fee ?? Math.round(gross * 0.05));
+    const ownerId = (booking as { owner_id?: string }).owner_id ?? (paymentRow as { owner_id?: string } | null)?.owner_id;
+
+    if (ownerId) {
+      await db.from("owner_earnings").insert({
+        owner_id: ownerId,
+        booking_id: input.bookingId,
+        payment_id: (paymentRow as { id?: string } | null)?.id ?? null,
+        gross_amount: gross,
+        platform_fee: platformFee,
+        net_amount: gross - platformFee,
+        status: "settled",
+      });
+    }
+  }
 
   return { verified: true };
 }

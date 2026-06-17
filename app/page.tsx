@@ -1,3 +1,4 @@
+import PopularRoutes from "@/components/home/PopularRoutes";
 import PageLayout from "@/components/layout/PageLayout";
 import Hero from "@/components/home/Hero";
 import StatsBar from "@/components/home/StatsBar";
@@ -35,6 +36,7 @@ export default async function Home() {
     <PageLayout>
       <Hero />
       <StatsBar stats={stats} />
+      <PopularRoutes />
       <Categories />
       <Features />
       <UniqueFeatures />

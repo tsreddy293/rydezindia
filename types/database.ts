@@ -104,12 +104,18 @@ export interface RecentBooking {
 
 export interface BookingConfirmation {
   id: string;
+  booking_reference?: string;
   booking_type: BookingType | string;
   passenger_name: string;
   mobile: string;
   amount: number;
   booking_status: string;
   payment_status: string;
+  pickup_location?: string;
+  drop_location?: string;
+  pickup_date?: string;
+  pickup_time?: string;
+  trip_type?: string;
   created_at: string;
 }
 
@@ -140,7 +146,12 @@ export interface SearchResult {
   booking_type?: BookingType;
   vehicle_id?: string | null;
   vehicle_name: string;
+  vehicle_number?: string;
   vehicle_type: string;
+  fuel_type?: string;
+  has_ac?: boolean;
+  rating?: number;
+  photos?: string[];
   owner_name: string;
   from_city: string;
   to_city: string;
@@ -148,6 +159,12 @@ export interface SearchResult {
   journey_time?: string;
   available_seats: number;
   price: number;
+  return_from_city?: string;
+  return_to_city?: string;
+  return_departure_time?: string;
+  discount_percent?: number;
+  driver_name?: string;
+  driver_phone?: string;
 }
 
 export interface SelfDriveResult {
@@ -156,6 +173,9 @@ export interface SelfDriveResult {
   vehicle_id: string;
   vehicle_name: string;
   vehicle_type: string;
+  fuel_type?: string;
+  has_ac?: boolean;
+  rating?: number;
   owner_name: string;
   pickup_city: string;
   drop_city: string;
@@ -177,8 +197,14 @@ export interface DriverVehicleResult {
   booking_type: "with_driver";
   vehicle_id: string;
   vehicle_name: string;
+  vehicle_number?: string;
   vehicle_type: string;
+  fuel_type?: string;
+  has_ac?: boolean;
+  rating?: number;
+  photos?: string[];
   owner_name: string;
+  owner_id?: string;
   pickup_city: string;
   drop_city: string;
   journey_date: string;
@@ -271,6 +297,8 @@ export interface CreateBookingInput {
   passenger_name: string;
   mobile: string;
   seats_booked: number;
+  special_instructions?: string;
+  discount_amount?: number;
 }
 
 export interface CreateMarketplaceBookingInput {
@@ -280,6 +308,28 @@ export interface CreateMarketplaceBookingInput {
   passenger_name: string;
   mobile: string;
   amount: number;
+}
+
+export interface OwnerDashboardMetrics {
+  totalVehicles: number;
+  activeBookings: number;
+  upcomingTrips: number;
+  earningsToday: number;
+  earningsThisMonth: number;
+}
+
+export interface UserBooking {
+  id: string;
+  booking_reference?: string;
+  booking_type: string;
+  passenger_name: string;
+  amount: number;
+  booking_status: string;
+  payment_status: string;
+  pickup_location?: string;
+  drop_location?: string;
+  pickup_date?: string;
+  created_at: string;
 }
 
 export interface ActionResult<T = unknown> {

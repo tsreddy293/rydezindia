@@ -37,6 +37,12 @@ export async function proxy(request: NextRequest) {
   const ownerOnly =
     path.startsWith("/owner/dashboard") ||
     path.startsWith("/owner/kyc") ||
+    path.startsWith("/owner/vehicles") ||
+    path.startsWith("/owner/add-vehicle") ||
+    path.startsWith("/owner/edit-vehicle") ||
+    path.startsWith("/owner/bookings") ||
+    path.startsWith("/owner/earnings") ||
+    path.startsWith("/owner/profile") ||
     path.startsWith("/vehicles/add") ||
     path.startsWith("/vehicles/self-drive") ||
     path.startsWith("/vehicles/driver");
@@ -45,6 +51,15 @@ export async function proxy(request: NextRequest) {
   }
 
   if (path.startsWith("/user/dashboard") && !data.user) {
+    return redirectTo("/login");
+  }
+
+  const userOnly =
+    path.startsWith("/user/bookings") ||
+    path.startsWith("/user/trips") ||
+    path.startsWith("/user/saved") ||
+    path.startsWith("/user/profile");
+  if (userOnly && !data.user) {
     return redirectTo("/login");
   }
 

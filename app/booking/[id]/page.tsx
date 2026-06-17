@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import PageLayout from "@/components/layout/PageLayout";
 import BookingForm from "@/components/forms/BookingForm";
-import MarketplaceBookingForm from "@/components/forms/MarketplaceBookingForm";
+import UnifiedBookingForm from "@/components/forms/UnifiedBookingForm";
 import {
   getDriverListingById,
   getJourneyById,
@@ -27,7 +27,7 @@ export default async function BookingPage({ params, searchParams }: Props) {
         <div className="mx-auto max-w-5xl px-4 py-12 md:px-6">
           <h1 className="text-3xl font-bold text-secondary mb-2">Book Self Drive Vehicle</h1>
           <p className="text-gray-600 mb-8">Submit your rental request below</p>
-          <MarketplaceBookingForm type="self_drive" listing={listing} />
+          <UnifiedBookingForm type="self_drive" listing={listing} />
         </div>
       </PageLayout>
     );
@@ -41,7 +41,7 @@ export default async function BookingPage({ params, searchParams }: Props) {
         <div className="mx-auto max-w-5xl px-4 py-12 md:px-6">
           <h1 className="text-3xl font-bold text-secondary mb-2">Book Vehicle With Driver</h1>
           <p className="text-gray-600 mb-8">Submit your trip request below</p>
-          <MarketplaceBookingForm type="with_driver" listing={listing} />
+          <UnifiedBookingForm type="with_driver" listing={listing} />
         </div>
       </PageLayout>
     );

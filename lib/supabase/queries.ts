@@ -4,6 +4,7 @@ import type {
   ChartPoint,
   DriverVehicleResult,
   BookingConfirmation,
+  OwnerDashboardMetrics,
   PlatformStats,
   OwnerStats,
   RecentBooking,
@@ -11,9 +12,11 @@ import type {
   RecentVehicle,
   SearchResult,
   SelfDriveResult,
+  UserBooking,
   VehicleDetail,
   VehicleOwner,
 } from "@/types/database";
+import { scoreRouteMatch } from "@/lib/services/route-matching";
 
 const db = () => createAdminClient();
 
@@ -116,7 +119,7 @@ async function getVehicleMap(ids: string[]) {
 
   const { data, error } = await db()
     .from("vehicles")
-    .select("id, owner_id, vehicle_number, vehicle_name, vehicle_type, fuel_type, transmission, seats, photos, status, created_at")
+    .select("id, owner_id, vehicle_number, vehicle_name, vehicle_type, fuel_type, transmission, seats, photos, status, has_ac, rating, vehicle_approval_status, created_at")
     .in("id", uniqueIds);
 
   if (error) {
@@ -416,7 +419,12 @@ export async function searchReturnJourneys(filters: {
       booking_type: "return_journey" as const,
       vehicle_id: vehicleId,
       vehicle_name: vehicleName,
+      vehicle_number: getString(vehicle, "vehicle_number"),
       vehicle_type: getString(vehicle, "vehicle_type", "-"),
+      fuel_type: getString(vehicle, "fuel_type") || undefined,
+      has_ac: vehicle?.has_ac !== false,
+      rating: getNumber(vehicle, "rating", 4.5) || undefined,
+      photos: Array.isArray(vehicle?.photos) ? (vehicle.photos as string[]) : [],
       owner_name: getString(owner, "full_name") || getString(owner, "name", "Owner"),
       from_city: getString(row, "pickup_city") || getString(row, "from_city"),
       to_city: getString(row, "drop_city") || getString(row, "to_city"),
@@ -424,6 +432,12 @@ export async function searchReturnJourneys(filters: {
       journey_time: getString(row, "journey_time"),
       available_seats: getNumber(row, "available_seats"),
       price: getNumber(row, "price") || getNumber(row, "price_per_seat"),
+      return_from_city: getString(row, "return_from_city") || undefined,
+      return_to_city: getString(row, "return_to_city") || undefined,
+      return_departure_time: getString(row, "return_departure_time") || undefined,
+      discount_percent: getNumber(row, "discount_percent", 30) || undefined,
+      driver_name: getString(row, "driver_name") || undefined,
+      driver_phone: getString(row, "driver_phone") || undefined,
     };
   });
 
@@ -560,11 +574,17 @@ export async function searchDriverVehicles(filters: {
       booking_type: "with_driver" as const,
       vehicle_id: getString(row, "vehicle_id"),
       vehicle_name: getString(row, "vehicle_name") || getString(vehicle, "vehicle_name", getString(vehicle, "vehicle_number", "Vehicle")),
+      vehicle_number: getString(vehicle, "vehicle_number") || undefined,
       vehicle_type: getString(row, "vehicle_type") || getString(vehicle, "vehicle_type", "-"),
+      fuel_type: getString(vehicle, "fuel_type") || getString(row, "fuel_type") || undefined,
+      has_ac: vehicle?.has_ac !== false,
+      rating: getNumber(vehicle, "rating", 4.5) || undefined,
+      photos: Array.isArray(vehicle?.photos) ? (vehicle.photos as string[]) : [],
       owner_name:
         getString(owner, "owner_name") ||
         getString(owner, "name") ||
         getString(owner, "full_name", "Owner"),
+      owner_id: getString(row, "owner_id") || undefined,
       pickup_city: pickupCity,
       drop_city: getString(row, "drop_city"),
       journey_date: getString(row, "journey_date"),
@@ -770,7 +790,7 @@ export async function getVehicleListingById(id: string): Promise<VehicleDetail |
 export async function getBookingConfirmationById(id: string): Promise<BookingConfirmation | null> {
   const { data, error } = await db()
     .from("bookings")
-    .select("id, booking_type, passenger_name, mobile, amount, booking_status, payment_status, created_at")
+    .select("id, booking_reference, booking_type, passenger_name, mobile, amount, booking_status, payment_status, pickup_location, drop_location, pickup_date, pickup_time, trip_type, created_at")
     .eq("id", id)
     .single();
 
@@ -782,12 +802,18 @@ export async function getBookingConfirmationById(id: string): Promise<BookingCon
   const row = data as Row;
   return {
     id: getString(row, "id"),
+    booking_reference: getString(row, "booking_reference") || undefined,
     booking_type: getString(row, "booking_type", "return_journey"),
     passenger_name: getString(row, "passenger_name", "Passenger"),
     mobile: getString(row, "mobile"),
     amount: getNumber(row, "amount"),
     booking_status: getString(row, "booking_status", "pending"),
     payment_status: getString(row, "payment_status", "pending"),
+    pickup_location: getString(row, "pickup_location") || undefined,
+    drop_location: getString(row, "drop_location") || undefined,
+    pickup_date: getString(row, "pickup_date") || undefined,
+    pickup_time: getString(row, "pickup_time") || undefined,
+    trip_type: getString(row, "trip_type") || undefined,
     created_at: getString(row, "created_at"),
   };
 }
@@ -851,4 +877,166 @@ export async function getOwnerStats(ownerId: string): Promise<OwnerStats> {
     revenueTrend: bucketTrend(revenueRows, "amount"),
     bookingTrend: bucketTrend(ownerBookings),
   };
+}
+
+export async function getOwnerDashboardMetrics(ownerId: string): Promise<OwnerDashboardMetrics> {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+
+  const [vehicles, bookings, earnings] = await Promise.all([
+    selectRows("vehicles", "id, owner_id", 500),
+    selectRows("bookings", "id, owner_id, booking_status, pickup_date, amount, created_at", 500),
+    selectRows("owner_earnings", "id, owner_id, net_amount, earned_at, created_at", 500),
+  ]);
+
+  const ownerVehicles = vehicles.filter((r) => getString(r, "owner_id") === ownerId);
+  const ownerBookings = bookings.filter((r) => getString(r, "owner_id") === ownerId);
+  const ownerEarnings = earnings.filter((r) => getString(r, "owner_id") === ownerId);
+
+  const activeBookings = ownerBookings.filter(
+    (r) => ["pending", "confirmed"].includes(getString(r, "booking_status"))
+  ).length;
+
+  const upcomingTrips = ownerBookings.filter((r) => {
+    const status = getString(r, "booking_status");
+    const pickupDate = getString(r, "pickup_date");
+    return status === "confirmed" && pickupDate && new Date(pickupDate) >= today;
+  }).length;
+
+  const earningsToday = ownerEarnings
+    .filter((r) => new Date(getString(r, "earned_at", getString(r, "created_at"))) >= today)
+    .reduce((sum, r) => sum + getNumber(r, "net_amount"), 0);
+
+  const earningsThisMonth = ownerEarnings
+    .filter((r) => new Date(getString(r, "earned_at", getString(r, "created_at"))) >= monthStart)
+    .reduce((sum, r) => sum + getNumber(r, "net_amount"), 0);
+
+  return {
+    totalVehicles: ownerVehicles.length,
+    activeBookings,
+    upcomingTrips,
+    earningsToday,
+    earningsThisMonth,
+  };
+}
+
+export async function getOwnerBookings(ownerId: string): Promise<UserBooking[]> {
+  const rows = await selectRows(
+    "bookings",
+    "id, owner_id, booking_reference, booking_type, passenger_name, amount, booking_status, payment_status, pickup_location, drop_location, pickup_date, created_at",
+    100
+  );
+  return rows
+    .filter((r) => getString(r, "owner_id") === ownerId)
+    .map((row) => ({
+      id: getString(row, "id"),
+      booking_reference: getString(row, "booking_reference") || undefined,
+      booking_type: getString(row, "booking_type", "booking"),
+      passenger_name: getString(row, "passenger_name", "Passenger"),
+      amount: getNumber(row, "amount"),
+      booking_status: getString(row, "booking_status", "pending"),
+      payment_status: getString(row, "payment_status", "pending"),
+      pickup_location: getString(row, "pickup_location") || undefined,
+      drop_location: getString(row, "drop_location") || undefined,
+      pickup_date: getString(row, "pickup_date") || undefined,
+      created_at: getString(row, "created_at"),
+    }));
+}
+
+export async function getUserBookings(userId: string): Promise<UserBooking[]> {
+  const rows = await selectRows(
+    "bookings",
+    "id, user_id, booking_reference, booking_type, passenger_name, amount, booking_status, payment_status, pickup_location, drop_location, pickup_date, created_at",
+    100
+  );
+  return rows
+    .filter((r) => getString(r, "user_id") === userId)
+    .map((row) => ({
+      id: getString(row, "id"),
+      booking_reference: getString(row, "booking_reference") || undefined,
+      booking_type: getString(row, "booking_type", "booking"),
+      passenger_name: getString(row, "passenger_name", "Passenger"),
+      amount: getNumber(row, "amount"),
+      booking_status: getString(row, "booking_status", "pending"),
+      payment_status: getString(row, "payment_status", "pending"),
+      pickup_location: getString(row, "pickup_location") || undefined,
+      drop_location: getString(row, "drop_location") || undefined,
+      pickup_date: getString(row, "pickup_date") || undefined,
+      created_at: getString(row, "created_at"),
+    }));
+}
+
+export async function getSavedVehicles(userId: string) {
+  const { data, error } = await db()
+    .from("saved_vehicles")
+    .select("*, vehicles(*)")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+
+  if (error) return [];
+  return data ?? [];
+}
+
+export async function searchReturnJourneysWithMatch(filters: {
+  fromCity?: string;
+  toCity?: string;
+  date?: string;
+  vehicleType?: string;
+}): Promise<QueryResult<SearchResult[]>> {
+  const result = await searchReturnJourneys(filters);
+  if (!filters.fromCity || !filters.toCity) return result;
+
+  const matched = result.data.filter((journey) =>
+    scoreRouteMatch({
+      searchFrom: filters.fromCity!,
+      searchTo: filters.toCity!,
+      listingFrom: journey.from_city,
+      listingTo: journey.to_city,
+    }) >= 50
+  );
+
+  // Cache matches in route_matches table (fire-and-forget)
+  const dbClient = db();
+  for (const journey of matched) {
+    dbClient.from("route_matches").upsert({
+      return_journey_id: journey.id,
+      search_from_city: filters.fromCity,
+      search_to_city: filters.toCity,
+      match_score: scoreRouteMatch({
+        searchFrom: filters.fromCity!,
+        searchTo: filters.toCity!,
+        listingFrom: journey.from_city,
+        listingTo: journey.to_city,
+      }),
+    }).then(() => {});
+  }
+
+  return { data: matched.length > 0 ? matched : result.data, error: null };
+}
+
+export async function getReturnJourneyMarketplace(filters?: {
+  from?: string;
+  to?: string;
+  date?: string;
+}) {
+  return searchReturnJourneys({
+    fromCity: filters?.from,
+    toCity: filters?.to,
+    date: filters?.date,
+  });
+}
+
+export async function getOwnerEarnings(ownerId: string) {
+  const rows = await selectRows("owner_earnings", "*", 200);
+  return rows.filter((r) => getString(r, "owner_id") === ownerId);
+}
+
+export async function getVehicleDocumentsForAdmin(vehicleId: string) {
+  const { data, error } = await db()
+    .from("vehicle_documents")
+    .select("*")
+    .eq("vehicle_id", vehicleId);
+  if (error) return [];
+  return data ?? [];
 }

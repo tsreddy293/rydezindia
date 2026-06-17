@@ -1,7 +1,10 @@
-import { Shield, Calendar, Heart, Bookmark, Car } from "lucide-react";
+import { Calendar, Car, Heart } from "lucide-react";
 import PageLayout from "@/components/layout/PageLayout";
+import UserDashboardNav from "@/components/dashboard/UserDashboardNav";
 import Button from "@/components/ui/Button";
 import ChangePasswordForm from "@/components/auth/ChangePasswordForm";
+import { getSavedVehicles, getUserBookings } from "@/lib/supabase/queries";
+import { formatDate, formatINR } from "@/lib/utils";
 import { requireRole, signOutUser } from "@/server/actions/auth";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +18,14 @@ export default async function UserDashboardPage({ searchParams }: Props) {
   const { passwordError, passwordSuccess } = await searchParams;
   const emailVerified = Boolean(user.email_confirmed_at || user.confirmed_at);
 
+  const [bookings, saved] = await Promise.all([
+    getUserBookings(user.id),
+    getSavedVehicles(user.id),
+  ]);
+
+  const activeTrips = bookings.filter((b) => ["confirmed", "pending"].includes(b.booking_status));
+  const completedTrips = bookings.filter((b) => b.booking_status === "completed");
+
   return (
     <PageLayout>
       <div className="mx-auto max-w-7xl px-4 py-12 md:px-6">
@@ -24,10 +35,9 @@ export default async function UserDashboardPage({ searchParams }: Props) {
             <p className="text-gray-600">Manage your bookings and saved vehicles</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <div className={`flex items-center gap-2 px-4 py-2 rounded-xl ${emailVerified ? "bg-green-50 text-green-700" : "bg-yellow-50 text-yellow-700"}`}>
-              <Shield className="h-5 w-5" />
+            <span className={`px-4 py-2 rounded-xl text-sm ${emailVerified ? "bg-green-50 text-green-700" : "bg-yellow-50 text-yellow-700"}`}>
               {emailVerified ? "Email verified" : "Email not verified"}
-            </div>
+            </span>
             <form action={signOutUser}>
               <button type="submit" className="rounded-xl border-2 border-primary px-4 py-2 text-sm font-medium text-primary hover:bg-primary hover:text-white">
                 Logout
@@ -36,40 +46,75 @@ export default async function UserDashboardPage({ searchParams }: Props) {
           </div>
         </div>
 
-        <div className="rounded-2xl bg-white border border-gray-100 p-6 shadow-sm mb-8">
-          <div className="flex items-center gap-2 mb-6">
-            <Calendar className="h-5 w-5 text-primary" />
-            <h3 className="text-lg font-semibold text-secondary">Booking History</h3>
+        <UserDashboardNav />
+
+        <div className="grid gap-6 sm:grid-cols-3 mb-8">
+          <div className="rounded-2xl bg-white border p-6 shadow-sm">
+            <Calendar className="h-6 w-6 text-primary mb-2" />
+            <p className="text-2xl font-bold">{bookings.length}</p>
+            <p className="text-sm text-gray-500">Total Bookings</p>
           </div>
-          <div className="text-center py-10 rounded-xl bg-gray-50">
-            <Car className="h-8 w-8 text-gray-300 mx-auto mb-3" />
-            <p className="text-gray-500">No bookings yet.</p>
+          <div className="rounded-2xl bg-white border p-6 shadow-sm">
+            <Car className="h-6 w-6 text-primary mb-2" />
+            <p className="text-2xl font-bold">{activeTrips.length}</p>
+            <p className="text-sm text-gray-500">Active Trips</p>
+          </div>
+          <div className="rounded-2xl bg-white border p-6 shadow-sm">
+            <Heart className="h-6 w-6 text-red-500 mb-2" />
+            <p className="text-2xl font-bold">{saved.length}</p>
+            <p className="text-sm text-gray-500">Saved Vehicles</p>
           </div>
         </div>
 
-        <div className="mb-8">
-          <div className="flex items-center gap-2 mb-6">
-            <Heart className="h-5 w-5 text-red-500" />
-            <h3 className="text-lg font-semibold text-secondary">Favorite Vehicles</h3>
+        <section className="rounded-2xl bg-white border p-6 shadow-sm mb-8">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-lg font-semibold text-secondary">Recent Bookings</h3>
+            <Button href="/user/bookings" variant="outline" size="sm">View All</Button>
           </div>
-          <div className="text-center py-10 rounded-2xl bg-gray-50 border border-gray-100">
-            <p className="text-gray-500">No vehicles available</p>
-          </div>
+          {bookings.length === 0 ? (
+            <div className="text-center py-10 rounded-xl bg-gray-50">
+              <Car className="h-8 w-8 text-gray-300 mx-auto mb-3" />
+              <p className="text-gray-500 mb-4">No bookings yet.</p>
+              <Button href="/search" variant="primary">Book a Vehicle</Button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {bookings.slice(0, 5).map((b) => (
+                <div key={b.id} className="flex flex-wrap justify-between gap-2 rounded-xl bg-gray-50 p-4">
+                  <div>
+                    <p className="font-medium">{b.booking_reference ?? b.id.slice(0, 8)}</p>
+                    <p className="text-sm text-gray-500">{formatDate(b.created_at)} · {b.booking_status}</p>
+                  </div>
+                  <p className="font-semibold text-primary">{formatINR(b.amount)}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <div className="grid gap-8 lg:grid-cols-2">
+          <section className="rounded-2xl bg-white border p-6 shadow-sm">
+            <h3 className="text-lg font-semibold mb-4">Active Trips ({activeTrips.length})</h3>
+            {activeTrips.length === 0 ? (
+              <p className="text-gray-500 text-sm">No active trips</p>
+            ) : (
+              activeTrips.slice(0, 3).map((b) => (
+                <p key={b.id} className="text-sm py-2 border-b">{b.pickup_location} → {b.drop_location}</p>
+              ))
+            )}
+          </section>
+          <section className="rounded-2xl bg-white border p-6 shadow-sm">
+            <h3 className="text-lg font-semibold mb-4">Completed ({completedTrips.length})</h3>
+            {completedTrips.length === 0 ? (
+              <p className="text-gray-500 text-sm">No completed trips</p>
+            ) : (
+              completedTrips.slice(0, 3).map((b) => (
+                <p key={b.id} className="text-sm py-2 border-b">{b.pickup_location} → {b.drop_location}</p>
+              ))
+            )}
+          </section>
         </div>
 
-        <div>
-          <div className="flex items-center gap-2 mb-6">
-            <Bookmark className="h-5 w-5 text-primary" />
-            <h3 className="text-lg font-semibold text-secondary">Saved Vehicles</h3>
-          </div>
-          <div className="text-center py-10 rounded-2xl bg-gray-50 border border-gray-100">
-            <p className="text-gray-500">No vehicles available</p>
-          </div>
-        </div>
-
-        <div className="mt-8 text-center">
-          <Button href="/search" variant="primary">Book Another Vehicle</Button>
-        </div>
         <div className="mt-8">
           <ChangePasswordForm returnTo="/user/dashboard" error={passwordError} success={passwordSuccess} />
         </div>

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getJourneyById } from "@/lib/supabase/queries";
 import { getSupabaseConfigError } from "@/lib/supabase/env";
+import { generateBookingReference } from "@/lib/services/booking-id";
 import { createNotification } from "@/lib/services/notifications";
 import type { ActionResult, CreateBookingInput, CreateMarketplaceBookingInput } from "@/types/database";
 
@@ -74,6 +75,8 @@ export async function createBooking(
     }
   }
 
+  const bookingReference = await generateBookingReference();
+
   const bookingPayload: Record<string, unknown> = {
     ride_id: input.ride_id,
     booking_type: "return_journey",
@@ -85,11 +88,20 @@ export async function createBooking(
     amount,
     payment_status: "pending",
     booking_status: "pending",
+    booking_reference: bookingReference,
+    passenger_name: input.passenger_name.trim(),
+    mobile,
+    pickup_location: String(journey.from_city ?? journey.pickup_city ?? ""),
+    drop_location: String(journey.to_city ?? journey.drop_city ?? ""),
+    pickup_date: journey.journey_date ?? null,
+    pickup_time: journey.journey_time ?? null,
+    trip_type: "return_journey",
+    driver_required: true,
+    special_instructions: input.special_instructions ?? null,
+    base_fare: amount,
+    platform_fee: Math.round(amount * 0.05),
+    discount_amount: input.discount_amount ?? 0,
   };
-
-  // Optional columns — ignored if not in schema
-  bookingPayload.passenger_name = input.passenger_name.trim();
-  bookingPayload.mobile = mobile;
 
   const { data: booking, error: bookingError } = await db
     .from("bookings")
@@ -149,9 +161,21 @@ export async function createBooking(
   return { success: true, data: { id: booking!.id as string } };
 }
 
-export async function createMarketplaceBooking(
-  input: CreateMarketplaceBookingInput
-): Promise<ActionResult<{ id: string }>> {
+export async function createUnifiedBooking(
+  input: CreateMarketplaceBookingInput & {
+    pickup_location?: string;
+    drop_location?: string;
+    pickup_date?: string;
+    pickup_time?: string;
+    trip_type?: string;
+    driver_required?: boolean;
+    special_instructions?: string;
+    base_fare?: number;
+    platform_fee?: number;
+    discount_amount?: number;
+    owner_id?: string;
+  }
+): Promise<ActionResult<{ id: string; bookingReference: string }>> {
   const configError = getSupabaseConfigError();
   if (configError) return { success: false, error: configError };
 
@@ -167,6 +191,7 @@ export async function createMarketplaceBooking(
 
   const db = createAdminClient();
   const mobile = input.mobile.replace(/\s/g, "");
+  const bookingReference = await generateBookingReference();
 
   const { data: existingUser } = await db
     .from("users")
@@ -199,13 +224,25 @@ export async function createMarketplaceBooking(
     .insert({
       booking_type: input.booking_type,
       user_id: userId,
+      owner_id: input.owner_id ?? null,
       vehicle_id: input.vehicle_id,
       reference_id: input.reference_id,
       amount: input.amount,
       booking_status: "pending",
       payment_status: "pending",
+      booking_reference: bookingReference,
       passenger_name: input.passenger_name.trim(),
       mobile,
+      pickup_location: input.pickup_location ?? null,
+      drop_location: input.drop_location ?? null,
+      pickup_date: input.pickup_date ?? null,
+      pickup_time: input.pickup_time ?? null,
+      trip_type: input.trip_type ?? null,
+      driver_required: input.driver_required ?? true,
+      special_instructions: input.special_instructions ?? null,
+      base_fare: input.base_fare ?? input.amount,
+      platform_fee: input.platform_fee ?? Math.round(input.amount * 0.05),
+      discount_amount: input.discount_amount ?? 0,
     } as Record<string, unknown>)
     .select("id")
     .single();
@@ -214,14 +251,24 @@ export async function createMarketplaceBooking(
 
   revalidatePath("/admin");
   revalidatePath("/owner/dashboard");
+  revalidatePath("/user/dashboard");
   revalidatePath(input.booking_type === "self_drive" ? "/search-self-drive" : "/search-driver");
   await createNotification({
+    recipientId: input.owner_id,
     recipientRole: "owner",
     type: "new_booking",
-    title: "New marketplace booking request",
-    message: `${input.passenger_name.trim()} submitted a ${input.booking_type} booking request.`,
+    title: "New booking request",
+    message: `${input.passenger_name.trim()} submitted a ${input.booking_type} booking (${bookingReference}).`,
     metadata: { bookingId: booking.id, referenceId: input.reference_id, bookingType: input.booking_type },
   });
 
-  return { success: true, data: { id: booking.id as string } };
+  return { success: true, data: { id: booking.id as string, bookingReference } };
+}
+
+export async function createMarketplaceBooking(
+  input: CreateMarketplaceBookingInput
+): Promise<ActionResult<{ id: string }>> {
+  const result = await createUnifiedBooking(input);
+  if (!result.success) return result;
+  return { success: true, data: { id: result.data!.id } };
 }

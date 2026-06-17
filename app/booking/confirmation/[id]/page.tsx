@@ -28,7 +28,7 @@ export default async function BookingConfirmationPage({ params }: Props) {
           <div className="mt-8 rounded-xl bg-gray-50 p-5 text-left text-sm">
             <div className="flex justify-between border-b border-gray-200 py-2">
               <span className="text-gray-500">Booking ID</span>
-              <span className="font-medium text-secondary">{booking.id}</span>
+              <span className="font-medium text-secondary">{booking.booking_reference ?? booking.id}</span>
             </div>
             <div className="flex justify-between border-b border-gray-200 py-2">
               <span className="text-gray-500">Type</span>

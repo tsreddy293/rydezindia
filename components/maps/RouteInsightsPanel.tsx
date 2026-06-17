@@ -12,7 +12,7 @@ import {
   mapDriverTripTypeLabel,
   type TripPricingType,
 } from "@/lib/pricing/trip-pricing";
-import { useMemo } from "react";
+import { useMemo, useEffect } from "react";
 
 export type DriverTripTypeKey = "one_way" | "round_trip" | "multi_city";
 
@@ -30,6 +30,7 @@ interface RouteInsightsPanelProps {
   cityNames?: string[];
   returnJourneyDiscountPercent?: number;
   className?: string;
+  onRouteUpdate?: (data: { distanceKm: number; finalFare?: number }) => void;
 }
 
 function resolveTripPricingType(
@@ -62,6 +63,7 @@ export default function RouteInsightsPanel({
   cityNames = [],
   returnJourneyDiscountPercent = 30,
   className = "",
+  onRouteUpdate,
 }: RouteInsightsPanelProps) {
   const needsRoute = mode === "with_driver" || mode === "return_journey";
   const { route, loading, error, canFetch } = useRouteDirections(
@@ -85,6 +87,15 @@ export default function RouteInsightsPanel({
       returnJourneyDiscountPercent,
     });
   }, [pricingType, ratePerKm, returnJourneyDiscountPercent, route]);
+
+  useEffect(() => {
+    if (route && onRouteUpdate) {
+      onRouteUpdate({
+        distanceKm: route.distanceKm,
+        finalFare: pricing?.finalFare,
+      });
+    }
+  }, [route, pricing, onRouteUpdate]);
 
   if (!canFetch && mode !== "local_rental") {
     return null;
