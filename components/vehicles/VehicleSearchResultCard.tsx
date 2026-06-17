@@ -8,6 +8,7 @@ import {
   Fuel,
   IndianRupee,
   MapPin,
+  Shield,
   Snowflake,
   Star,
   Users,
@@ -36,6 +37,8 @@ export interface VehicleSearchCardData {
   drop_city?: string;
   from_city?: string;
   to_city?: string;
+  owner_city?: string;
+  security_deposit?: number;
 }
 
 interface Props {
@@ -58,6 +61,7 @@ export default function VehicleSearchResultCard({
   const [imgError, setImgError] = useState(false);
   const imageUrl = result.photos?.[0];
   const seats = result.available_seats ?? result.seats ?? "-";
+  const isSelfDrive = result.bookingType === "self_drive";
   const fare = estimatedFare ?? result.price;
   const bookingQuery = result.bookingType ? `?type=${result.bookingType}` : "";
   const route =
@@ -65,7 +69,9 @@ export default function VehicleSearchResultCard({
       ? `${result.from_city} → ${result.to_city}`
       : result.pickup_city && result.drop_city
         ? `${result.pickup_city} → ${result.drop_city}`
-        : result.pickup_city ?? "";
+        : isSelfDrive
+          ? result.owner_city ?? result.pickup_city ?? ""
+          : result.pickup_city ?? "";
 
   const originalFare = showReturnDeal && discountPercent
     ? Math.round(fare / (1 - discountPercent / 100))
@@ -107,15 +113,21 @@ export default function VehicleSearchResultCard({
           {result.vehicle_number && (
             <p className="text-xs text-gray-400 mt-0.5">{result.vehicle_number}</p>
           )}
+          {isSelfDrive && (
+            <p className="text-sm text-gray-500 mt-1">{result.vehicle_type}</p>
+          )}
         </div>
 
         <div className="space-y-2 text-sm text-gray-600 flex-1">
           {route && (
             <div className="flex items-center gap-2">
               <MapPin className="h-4 w-4 text-primary shrink-0" />
-              <span className="truncate">{route}</span>
+              <span className="truncate">
+                {isSelfDrive ? `Owner City: ${route}` : route}
+              </span>
             </div>
           )}
+          {!isSelfDrive && (
           <div className="flex flex-wrap gap-3">
             <span className="flex items-center gap-1">
               <Users className="h-4 w-4 text-primary" />
@@ -132,6 +144,13 @@ export default function VehicleSearchResultCard({
               {result.has_ac !== false ? "AC" : "Non AC"}
             </span>
           </div>
+          )}
+          {isSelfDrive && result.security_deposit !== undefined && result.security_deposit > 0 && (
+            <div className="flex items-center gap-2">
+              <Shield className="h-4 w-4 text-primary shrink-0" />
+              <span>Security Deposit: {formatINR(result.security_deposit)}</span>
+            </div>
+          )}
           {distanceKm !== undefined && distanceKm > 0 && (
             <p className="text-xs text-gray-400">{distanceKm.toFixed(1)} km</p>
           )}
@@ -158,13 +177,15 @@ export default function VehicleSearchResultCard({
                 <span className="text-xl font-bold text-primary">{formatINR(fare)}</span>
               </div>
               <p className="text-xs text-gray-400">
-                {result.priceLabel ?? (showReturnDeal ? "Final Fare" : "Est. Fare")}
+                {result.priceLabel ?? (isSelfDrive ? "Daily Fare" : showReturnDeal ? "Final Fare" : "Est. Fare")}
               </p>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">
-              <Button href={`/vehicle/${result.id}${bookingQuery}`} variant="outline" size="sm">
-                View Details
-              </Button>
+              {!isSelfDrive && (
+                <Button href={`/vehicle/${result.id}${bookingQuery}`} variant="outline" size="sm">
+                  View Details
+                </Button>
+              )}
               <Button href={`/booking/${result.id}${bookingQuery}`} variant="primary" size="sm">
                 Book Now
               </Button>

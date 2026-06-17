@@ -6,6 +6,7 @@ import { CheckCircle, Loader2 } from "lucide-react";
 import FormField from "@/components/forms/FormField";
 import Button from "@/components/ui/Button";
 import VehicleOnboardingSteps from "@/components/owner/VehicleOnboardingSteps";
+import VehicleServiceAvailabilityFields from "@/components/owner/VehicleServiceAvailabilityFields";
 import VehicleStatusBadge from "@/components/owner/VehicleStatusBadge";
 import { saveOwnerVehicle } from "@/server/actions/vehicles";
 import type { OwnerVehicleRow } from "@/lib/vehicles/format";
@@ -121,6 +122,16 @@ export default function VehicleListingForm({ vehicle, disabled }: Props) {
             </label>
           </div>
         </section>
+
+        <VehicleServiceAvailabilityFields
+          services={{
+            service_self_drive: vehicle?.service_self_drive,
+            service_with_driver: vehicle?.service_with_driver,
+            service_local_rental: vehicle?.service_local_rental,
+            service_return_journey: vehicle?.service_return_journey,
+          }}
+          disabled={disabled}
+        />
 
         <section className="space-y-4 border-t pt-6">
           <h3 className="font-semibold text-secondary">Vehicle Photo</h3>

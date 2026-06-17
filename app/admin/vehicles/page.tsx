@@ -10,7 +10,7 @@ export default async function AdminVehiclesPage() {
   await requireRole("admin");
   const vehicles = await getAdminRows(
     "vehicles",
-    "id, owner_id, vehicle_make, vehicle_model, vehicle_year, registration_number, vehicle_category, vehicle_photo_url, rc_document_url, insurance_document_url, approval_status, created_at",
+    "id, owner_id, vehicle_make, vehicle_model, vehicle_year, registration_number, vehicle_category, vehicle_photo_url, rc_document_url, insurance_document_url, approval_status, service_self_drive, service_with_driver, service_local_rental, service_return_journey, created_at",
     100
   );
 
@@ -29,6 +29,10 @@ export default async function AdminVehiclesPage() {
             vehicle_photo_url: row.vehicle_photo_url ?? null,
             rc_document_url: row.rc_document_url ?? null,
             insurance_document_url: row.insurance_document_url ?? null,
+            service_self_drive: row.service_self_drive ?? true,
+            service_with_driver: row.service_with_driver ?? true,
+            service_local_rental: row.service_local_rental ?? true,
+            service_return_journey: row.service_return_journey ?? false,
           };
         })}
       />

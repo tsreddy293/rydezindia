@@ -16,6 +16,12 @@ import {
   vehicleDisplayName,
   type OwnerVehicleRow,
 } from "@/lib/vehicles/format";
+import {
+  DEFAULT_VEHICLE_SERVICES,
+  parseServiceAvailability,
+  serviceAvailabilityPayload,
+  type VehicleServiceAvailability,
+} from "@/lib/vehicles/services";
 import { requireRole } from "@/server/actions/auth";
 import type { ActionResult } from "@/types/database";
 
@@ -46,6 +52,9 @@ function revalidateVehiclePaths() {
   revalidatePath("/owner/add-vehicle");
   revalidatePath("/admin/vehicles");
   revalidatePath("/search-driver");
+  revalidatePath("/search-self-drive");
+  revalidatePath("/search-local");
+  revalidatePath("/search-return");
 }
 
 function parseVehicleInput(formData: FormData): VehicleFormInput {
@@ -116,28 +125,47 @@ async function processUploads(
 async function upsertVehicleRecord(
   ownerId: string,
   input: VehicleFormInput,
-  vehicleId: string | null
+  vehicleId: string | null,
+  services: VehicleServiceAvailability = DEFAULT_VEHICLE_SERVICES
 ): Promise<string> {
   const db = createAdminClient();
-  const payload = {
+  const payload: Record<string, unknown> = {
     owner_id: ownerId,
     vehicle_make: input.vehicle_make,
     vehicle_model: input.vehicle_model,
     registration_number: input.registration_number,
     vehicle_year: input.vehicle_year,
     vehicle_category: input.vehicle_category,
-    approval_status: "pending" as const,
+    approval_status: "pending",
     updated_at: new Date().toISOString(),
+    ...serviceAvailabilityPayload(services),
   };
 
   if (vehicleId) {
-    const { error } = await db.from("vehicles").update(payload).eq("id", vehicleId).eq("owner_id", ownerId);
+    let { error } = await db.from("vehicles").update(payload).eq("id", vehicleId).eq("owner_id", ownerId);
+    if (error?.message?.includes("service_")) {
+      const fallback = { ...payload };
+      delete fallback.service_self_drive;
+      delete fallback.service_with_driver;
+      delete fallback.service_local_rental;
+      delete fallback.service_return_journey;
+      ({ error } = await db.from("vehicles").update(fallback).eq("id", vehicleId).eq("owner_id", ownerId));
+    }
     if (error) throw new Error(error.message);
     return vehicleId;
   }
 
-  const { data, error } = await db.from("vehicles").insert(payload).select("id").single();
+  let { data, error } = await db.from("vehicles").insert(payload).select("id").single();
+  if (error?.message?.includes("service_")) {
+    const fallback = { ...payload };
+    delete fallback.service_self_drive;
+    delete fallback.service_with_driver;
+    delete fallback.service_local_rental;
+    delete fallback.service_return_journey;
+    ({ data, error } = await db.from("vehicles").insert(fallback).select("id").single());
+  }
   if (error) throw new Error(error.message);
+  if (!data) throw new Error("Failed to create vehicle");
   return data.id as string;
 }
 
@@ -181,6 +209,7 @@ export async function saveOwnerVehicle(
   const { user } = await requireRole("owner");
   const vehicleId = String(formData.get("vehicle_id") ?? "").trim() || null;
   const input = parseVehicleInput(formData);
+  const services = parseServiceAvailability(formData);
 
   const validationError = validateFormInput(input);
   if (validationError) return { success: false, error: validationError };
@@ -202,7 +231,7 @@ export async function saveOwnerVehicle(
   }
 
   try {
-    const id = await upsertVehicleRecord(user.id, input, vehicleId);
+    const id = await upsertVehicleRecord(user.id, input, vehicleId, services);
     await processUploads(user.id, id, formData, existing ?? undefined);
 
     const submissionCheck = await validateVehicleForSubmission(id);
@@ -324,6 +353,9 @@ export async function createReturnJourneyListing(
   if (vehicle.approval_status !== "approved") {
     return { success: false, error: "Only approved vehicles can list return journeys" };
   }
+  if (!vehicle.service_return_journey) {
+    return { success: false, error: "Return Journey is not enabled for this vehicle. Update service availability first." };
+  }
 
   const payload: Record<string, unknown> = {
     owner_id: user.id,
@@ -367,10 +399,21 @@ export async function approveOwnerVehicle(vehicleId: string): Promise<ActionResu
     return { success: false, error: `Cannot approve: ${validation.errors.join(", ")}` };
   }
 
-  const { error } = await db
+  let { error } = await db
     .from("vehicles")
-    .update({ approval_status: "approved", updated_at: new Date().toISOString() })
+    .update({
+      approval_status: "approved",
+      is_active: true,
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", vehicleId);
+
+  if (error?.message?.includes("is_active")) {
+    ({ error } = await db
+      .from("vehicles")
+      .update({ approval_status: "approved", updated_at: new Date().toISOString() })
+      .eq("id", vehicleId));
+  }
 
   if (error) return { success: false, error: error.message };
 
@@ -487,6 +530,39 @@ export async function requestVehicleReupload(vehicleId: string, reason: string):
     approvedBy: user.id,
     remarks: reason,
   });
+
+  revalidateVehiclePaths();
+  revalidatePath("/admin/vehicles");
+  return { success: true };
+}
+
+export async function updateVehicleServiceAvailability(
+  vehicleId: string,
+  services: VehicleServiceAvailability
+): Promise<ActionResult> {
+  await requireRole("admin");
+  const db = createAdminClient();
+
+  let { error } = await db
+    .from("vehicles")
+    .update({
+      ...serviceAvailabilityPayload(services),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", vehicleId);
+
+  if (error?.message?.includes("service_")) {
+    return {
+      success: false,
+      error: "Service columns missing. Run supabase/RUN_VEHICLE_SERVICE_AVAILABILITY.sql in Supabase.",
+    };
+  }
+  if (error) return { success: false, error: error.message };
+
+  const { data: vehicle } = await db.from("vehicles").select("*").eq("id", vehicleId).maybeSingle();
+  if (vehicle && mapVehicleRow(vehicle as Record<string, unknown>).approval_status === "approved") {
+    await publishVehicleToMarketplace(vehicleId);
+  }
 
   revalidateVehiclePaths();
   revalidatePath("/admin/vehicles");

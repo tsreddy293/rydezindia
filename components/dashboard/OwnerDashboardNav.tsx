@@ -6,7 +6,6 @@ import { usePathname } from "next/navigation";
 const OWNER_LINKS = [
   { href: "/owner/dashboard", label: "Dashboard" },
   { href: "/owner/my-vehicles", label: "My Vehicles" },
-  { href: "/owner/add-vehicle", label: "Add Vehicle" },
   { href: "/owner/bookings", label: "My Bookings" },
   { href: "/owner/earnings", label: "Earnings" },
   { href: "/owner/profile", label: "Profile" },

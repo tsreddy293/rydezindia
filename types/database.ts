@@ -175,10 +175,12 @@ export interface SelfDriveResult {
   vehicle_id: string;
   vehicle_name: string;
   vehicle_type: string;
+  registration_number?: string;
   fuel_type?: string;
   has_ac?: boolean;
   rating?: number;
   owner_name: string;
+  owner_city?: string;
   pickup_city: string;
   drop_city: string;
   journey_date: string;

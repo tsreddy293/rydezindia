@@ -17,6 +17,22 @@ import type {
   VehicleOwner,
 } from "@/types/database";
 import { scoreRouteMatch } from "@/lib/services/route-matching";
+import { mapVehicleRow } from "@/lib/vehicles/format";
+import {
+  buildVehicleDisplayName,
+  maskRegistrationNumber,
+  matchesCity,
+  matchesVehicleCategory,
+  normalizeVehicleCategory,
+  resolveDailyFare,
+  resolveSecurityDeposit,
+  resolveVehicleCity,
+  SELF_DRIVE_SEARCH_SQL,
+} from "@/lib/vehicles/search";
+import {
+  isServiceEnabled,
+  type VehicleServiceKey,
+} from "@/lib/vehicles/services";
 
 const db = () => createAdminClient();
 
@@ -165,6 +181,259 @@ async function getUserMap(ids: string[]) {
   }
 
   return new Map(asRows(data).map((row) => [String(row.id), row]));
+}
+
+async function resolveOwnerCities(ownerIds: string[]): Promise<Map<string, string>> {
+  const cityMap = new Map<string, string>();
+  const uniqueIds = [...new Set(ownerIds.filter(Boolean))];
+  if (uniqueIds.length === 0) return cityMap;
+
+  const userMap = await getUserMap(uniqueIds);
+  for (const [id, row] of userMap) {
+    const city = getString(row, "city");
+    if (city) cityMap.set(id, city);
+  }
+
+  let missing = uniqueIds.filter((id) => !cityMap.has(id));
+  if (missing.length > 0) {
+    const { data, error } = await db()
+      .from("owner_profiles")
+      .select("user_id, city")
+      .in("user_id", missing);
+    if (!error) {
+      asRows(data).forEach((row) => {
+        const id = getString(row, "user_id");
+        const city = getString(row, "city");
+        if (id && city) cityMap.set(id, city);
+      });
+    }
+  }
+
+  missing = uniqueIds.filter((id) => !cityMap.has(id));
+  if (missing.length > 0) {
+    const { data, error } = await db()
+      .from("vehicle_owners")
+      .select("owner_id, city")
+      .in("owner_id", missing);
+    if (!error) {
+      asRows(data).forEach((row) => {
+        const id = getString(row, "owner_id");
+        const city = getString(row, "city");
+        if (id && city) cityMap.set(id, city);
+      });
+    }
+  }
+
+  missing = uniqueIds.filter((id) => !cityMap.has(id));
+  for (const ownerId of missing) {
+    try {
+      const { data, error } = await db().auth.admin.getUserById(ownerId);
+      if (!error && data.user?.user_metadata?.city) {
+        cityMap.set(ownerId, String(data.user.user_metadata.city));
+      }
+    } catch {
+      // ignore auth lookup failures
+    }
+  }
+
+  return cityMap;
+}
+
+async function resolveOwnerNames(ownerIds: string[]): Promise<Map<string, string>> {
+  const nameMap = new Map<string, string>();
+  const uniqueIds = [...new Set(ownerIds.filter(Boolean))];
+  if (uniqueIds.length === 0) return nameMap;
+
+  const userMap = await getUserMap(uniqueIds);
+  for (const [id, row] of userMap) {
+    const name = getString(row, "full_name") || getString(row, "name");
+    if (name) nameMap.set(id, name);
+  }
+
+  const missing = uniqueIds.filter((id) => !nameMap.has(id));
+  for (const ownerId of missing) {
+    try {
+      const { data, error } = await db().auth.admin.getUserById(ownerId);
+      if (!error && data.user?.user_metadata?.name) {
+        nameMap.set(ownerId, String(data.user.user_metadata.name));
+      }
+    } catch {
+      // ignore auth lookup failures
+    }
+  }
+
+  return nameMap;
+}
+
+async function resolveOwnerMobiles(ownerIds: string[]): Promise<Map<string, string>> {
+  const mobileMap = new Map<string, string>();
+  const uniqueIds = [...new Set(ownerIds.filter(Boolean))];
+  if (uniqueIds.length === 0) return mobileMap;
+
+  const userMap = await getUserMap(uniqueIds);
+  for (const [id, row] of userMap) {
+    const mobile = getString(row, "mobile");
+    if (mobile) mobileMap.set(id, mobile);
+  }
+
+  const missing = uniqueIds.filter((id) => !mobileMap.has(id));
+  for (const ownerId of missing) {
+    try {
+      const { data, error } = await db().auth.admin.getUserById(ownerId);
+      if (!error && data.user?.user_metadata?.mobile) {
+        mobileMap.set(ownerId, String(data.user.user_metadata.mobile));
+      }
+    } catch {
+      // ignore auth lookup failures
+    }
+  }
+
+  return mobileMap;
+}
+
+async function fetchApprovedMarketplaceVehicles(
+  service?: VehicleServiceKey
+): Promise<{ rows: Row[]; error: string | null }> {
+  let { data, error } = await db()
+    .from("vehicles")
+    .select("*")
+    .eq("approval_status", "approved")
+    .eq("is_active", true)
+    .order("created_at", { ascending: false });
+
+  if (error?.message?.includes("is_active")) {
+    console.warn("[fetchApprovedMarketplaceVehicles] is_active column missing — run supabase/RUN_VEHICLES_SEARCH_COLUMNS.sql");
+    ({ data, error } = await db()
+      .from("vehicles")
+      .select("*")
+      .eq("approval_status", "approved")
+      .order("created_at", { ascending: false }));
+  }
+
+  if (error) {
+    if (isMissingTableError(error)) return { rows: [], error: null };
+    return { rows: [], error: error.message };
+  }
+
+  let rows = asRows(data);
+  if (service) {
+    const before = rows.length;
+    rows = rows.filter((row) => isServiceEnabled(row, service));
+    console.log(`[fetchApprovedMarketplaceVehicles] service "${service}": ${before} → ${rows.length}`);
+  }
+
+  return { rows, error: null };
+}
+
+function mapVehicleRowToSelfDriveResult(
+  row: Row,
+  ownerCity: string,
+  ownerName: string
+): SelfDriveResult {
+  const vehicle = mapVehicleRow(row);
+  const category = normalizeVehicleCategory(vehicle.vehicle_category);
+  const pickupCity = resolveVehicleCity(row, ownerCity);
+  const dailyRent = resolveDailyFare(row, category);
+  const securityDeposit = resolveSecurityDeposit(row, category);
+  const photos = vehicle.vehicle_photo_url ? [vehicle.vehicle_photo_url] : [];
+
+  return {
+    id: vehicle.id,
+    booking_type: "self_drive",
+    vehicle_id: vehicle.id,
+    vehicle_name: buildVehicleDisplayName(row),
+    vehicle_type: category,
+    registration_number: maskRegistrationNumber(vehicle.registration_number),
+    owner_name: ownerName || "Owner",
+    owner_city: pickupCity,
+    pickup_city: pickupCity,
+    drop_city: "",
+    journey_date: "",
+    journey_time: "",
+    available_seats: 4,
+    price: dailyRent,
+    status: "available",
+    location: pickupCity,
+    daily_rent: dailyRent,
+    security_deposit: securityDeposit,
+    availability: "available",
+    photos,
+    seats: 4,
+  };
+}
+
+function mapVehicleRowToDriverResult(
+  row: Row,
+  ownerCity: string,
+  ownerName: string,
+  ownerMobile: string
+): DriverVehicleResult {
+  const vehicle = mapVehicleRow(row);
+  const category = normalizeVehicleCategory(vehicle.vehicle_category);
+  const pickupCity = resolveVehicleCity(row, ownerCity);
+  const ratePerKm = getNumber(row, "rate_per_km") || 15;
+  const photos = vehicle.vehicle_photo_url ? [vehicle.vehicle_photo_url] : [];
+
+  return {
+    id: vehicle.id,
+    booking_type: "with_driver",
+    vehicle_id: vehicle.id,
+    vehicle_name: buildVehicleDisplayName(row),
+    vehicle_number: maskRegistrationNumber(vehicle.registration_number),
+    vehicle_type: category,
+    photos,
+    owner_name: ownerName || "Owner",
+    owner_id: vehicle.owner_id,
+    pickup_city: pickupCity,
+    drop_city: "",
+    journey_date: "",
+    journey_time: "",
+    available_seats: 4,
+    price: ratePerKm,
+    status: "available",
+    driver_name: ownerName || "Owner Driver",
+    driver_phone: ownerMobile || "9999999999",
+    rate_per_km: ratePerKm,
+    base_location: pickupCity,
+    availability: "available",
+    seats: 4,
+  };
+}
+
+function mapVehicleRowToReturnJourneyResult(
+  row: Row,
+  ownerCity: string,
+  ownerName: string,
+  filters: { fromCity?: string; toCity?: string; date?: string }
+): SearchResult {
+  const vehicle = mapVehicleRow(row);
+  const category = normalizeVehicleCategory(vehicle.vehicle_category);
+  const pickupCity = resolveVehicleCity(row, ownerCity);
+  const dailyFare = resolveDailyFare(row, category);
+  const discountPercent = 30;
+  const price = Math.round(dailyFare * (1 - discountPercent / 100));
+  const photos = vehicle.vehicle_photo_url ? [vehicle.vehicle_photo_url] : [];
+  const fromCity = filters.fromCity || pickupCity;
+  const toCity = filters.toCity || pickupCity;
+
+  return {
+    id: vehicle.id,
+    booking_type: "return_journey",
+    vehicle_id: vehicle.id,
+    vehicle_name: buildVehicleDisplayName(row),
+    vehicle_number: maskRegistrationNumber(vehicle.registration_number),
+    vehicle_type: category,
+    photos,
+    owner_name: ownerName || "Owner",
+    from_city: fromCity,
+    to_city: toCity,
+    journey_date: filters.date ?? "",
+    available_seats: 4,
+    price,
+    discount_percent: discountPercent,
+    return_from_city: toCity,
+    return_to_city: fromCity,
+  };
 }
 
 function bucketTrend(rows: Row[], amountKey?: string): ChartPoint[] {
@@ -379,6 +648,8 @@ export async function searchReturnJourneys(filters: {
     return { data: [], error: configError };
   }
 
+  console.log("[searchReturnJourneys] filters:", JSON.stringify(filters));
+
   let query = db()
     .from("return_journeys")
     .select("*")
@@ -396,35 +667,42 @@ export async function searchReturnJourneys(filters: {
     return { data: [], error: error.message };
   }
 
-  const rows = asRows(data).filter(isPublicListing);
-  const vehicleIds = rows.map((row) => getString(row, "vehicle_id")).filter(Boolean);
-  const ownerIds = rows.map((row) => getString(row, "owner_id")).filter(Boolean);
-  const [vehicleMap, legacyVehicleMap, userMap] = await Promise.all([
-    getVehicleMap(vehicleIds),
-    getLegacyVehicleOwnerMap(vehicleIds),
-    getUserMap(ownerIds),
-  ]);
+  const journeyRows = asRows(data).filter(isPublicListing);
+  const journeyVehicleIds = journeyRows.map((row) => getString(row, "vehicle_id")).filter(Boolean);
+  const { data: journeyVehicles } = journeyVehicleIds.length
+    ? await db().from("vehicles").select("*").in("id", journeyVehicleIds)
+    : { data: [] };
+  const journeyVehicleMap = new Map(
+    asRows(journeyVehicles).map((row) => [String(row.id), row])
+  );
 
-  let results = rows.map((row) => {
+  const filteredJourneyRows = journeyRows.filter((row) => {
     const vehicleId = getString(row, "vehicle_id");
-    const vehicle = vehicleMap.get(vehicleId) ?? legacyVehicleMap.get(vehicleId) ?? null;
+    if (!vehicleId) return true;
+    const vehicle = journeyVehicleMap.get(vehicleId);
+    if (!vehicle) return true;
+    return isServiceEnabled(vehicle, "service_return_journey");
+  });
+
+  const ownerIds = filteredJourneyRows.map((row) => getString(row, "owner_id")).filter(Boolean);
+  const userMap = await getUserMap(ownerIds);
+
+  let results: SearchResult[] = filteredJourneyRows.map((row) => {
+    const vehicleId = getString(row, "vehicle_id");
+    const vehicle = vehicleId ? journeyVehicleMap.get(vehicleId) ?? null : null;
     const owner = userMap.get(getString(row, "owner_id"));
     const vehicleName =
-      getString(vehicle, "vehicle_name") ||
-      getString(vehicle, "vehicle_model") ||
-      getString(vehicle, "vehicle_number", "Vehicle");
+      getString(row, "vehicle_name") ||
+      (vehicle ? buildVehicleDisplayName(vehicle) : "Vehicle");
 
     return {
       id: getString(row, "id"),
       booking_type: "return_journey" as const,
       vehicle_id: vehicleId,
       vehicle_name: vehicleName,
-      vehicle_number: getString(vehicle, "vehicle_number"),
-      vehicle_type: getString(vehicle, "vehicle_type", "-"),
-      fuel_type: getString(vehicle, "fuel_type") || undefined,
-      has_ac: vehicle?.has_ac !== false,
-      rating: getNumber(vehicle, "rating", 4.5) || undefined,
-      photos: Array.isArray(vehicle?.photos) ? (vehicle.photos as string[]) : [],
+      vehicle_number: vehicle ? maskRegistrationNumber(getString(vehicle, "registration_number")) : undefined,
+      vehicle_type: getString(row, "vehicle_type") || getString(vehicle, "vehicle_category", "-"),
+      photos: vehicle?.vehicle_photo_url ? [String(vehicle.vehicle_photo_url)] : [],
       owner_name: getString(owner, "full_name") || getString(owner, "name", "Owner"),
       from_city: getString(row, "pickup_city") || getString(row, "from_city"),
       to_city: getString(row, "drop_city") || getString(row, "to_city"),
@@ -441,12 +719,46 @@ export async function searchReturnJourneys(filters: {
     };
   });
 
-  if (filters.vehicleType) {
-    results = results.filter((r) =>
-      r.vehicle_type.toLowerCase().includes(filters.vehicleType!.toLowerCase())
+  const { rows: vehicleRows, error: vehicleError } = await fetchApprovedMarketplaceVehicles(
+    "service_return_journey"
+  );
+  if (!vehicleError && vehicleRows.length > 0) {
+    const vehicleOwnerIds = vehicleRows.map((row) => getString(row, "owner_id"));
+    const [ownerCityMap, ownerNameMap] = await Promise.all([
+      resolveOwnerCities(vehicleOwnerIds),
+      resolveOwnerNames(vehicleOwnerIds),
+    ]);
+
+    const listedVehicleIds = new Set(
+      results.map((r) => r.vehicle_id).filter(Boolean)
     );
+
+    for (const row of vehicleRows) {
+      const vehicleId = getString(row, "id");
+      if (listedVehicleIds.has(vehicleId)) continue;
+
+      const ownerId = getString(row, "owner_id");
+      const ownerCity = ownerCityMap.get(ownerId) ?? "";
+      const ownerName = ownerNameMap.get(ownerId) ?? "Owner";
+      const pickupCity = resolveVehicleCity(row, ownerCity);
+
+      if (filters.fromCity && !matchesCity(pickupCity, filters.fromCity)) continue;
+
+      results.push(
+        mapVehicleRowToReturnJourneyResult(row, ownerCity, ownerName, {
+          fromCity: filters.fromCity || pickupCity,
+          toCity: filters.toCity,
+          date: filters.date,
+        })
+      );
+    }
   }
 
+  if (filters.vehicleType) {
+    results = results.filter((r) => matchesVehicleCategory(r.vehicle_type, filters.vehicleType));
+  }
+
+  console.log("[searchReturnJourneys] final results:", results.length);
   return { data: results, error: null };
 }
 
@@ -460,74 +772,71 @@ export async function searchSelfDriveVehicles(filters: {
   const configError = getSupabaseConfigError();
   if (configError) return { data: [], error: configError };
 
-  const query = db()
-    .from("self_drive_vehicles")
-    .select("*")
-    .order("created_at", { ascending: false });
+  console.log("[searchSelfDriveVehicles] SQL equivalent:", SELF_DRIVE_SEARCH_SQL);
+  console.log("[searchSelfDriveVehicles] filters:", JSON.stringify(filters));
 
-  const { data, error } = await query;
+  const { rows, error } = await fetchApprovedMarketplaceVehicles("service_self_drive");
   if (error) {
-    if (isMissingTableError(error)) return { data: [], error: null };
-    console.error("[searchSelfDriveVehicles]", error.message);
-    return { data: [], error: error.message };
+    console.error("[searchSelfDriveVehicles] query error:", error);
+    return { data: [], error };
   }
 
-  const rows = asRows(data);
-  const [vehicleMap, ownerMap, userMap] = await Promise.all([
-    getVehicleMap(rows.map((row) => getString(row, "vehicle_id"))),
-    getLegacyVehicleOwnerMap(rows.map((row) => getString(row, "owner_id"))),
-    getUserMap(rows.map((row) => getString(row, "owner_id"))),
+  console.log("[searchSelfDriveVehicles] approved vehicles from DB:", rows.length);
+
+  const ownerIds = rows.map((row) => getString(row, "owner_id"));
+  const [ownerCityMap, ownerNameMap] = await Promise.all([
+    resolveOwnerCities(ownerIds),
+    resolveOwnerNames(ownerIds),
   ]);
 
-  let results = rows
-    .filter(isPublicListing)
-    .map((row) => {
-    const vehicle = vehicleMap.get(getString(row, "vehicle_id")) ?? null;
-    const owner = ownerMap.get(getString(row, "owner_id")) ?? userMap.get(getString(row, "owner_id")) ?? null;
-    const photos = Array.isArray(row.photos) ? (row.photos as string[]) : [];
-    const pickupCity = getString(row, "pickup_city") || getString(row, "location");
-    const price = getNumber(row, "price") || getNumber(row, "daily_rent");
-    return {
-      id: getString(row, "id"),
-      booking_type: "self_drive" as const,
-      vehicle_id: getString(row, "vehicle_id"),
-      vehicle_name: getString(row, "vehicle_name") || getString(vehicle, "vehicle_name", getString(vehicle, "vehicle_number", "Vehicle")),
-      vehicle_type: getString(row, "vehicle_type") || getString(vehicle, "vehicle_type", "-"),
-      owner_name:
-        getString(owner, "owner_name") ||
-        getString(owner, "name") ||
-        getString(owner, "full_name", "Owner"),
-      pickup_city: pickupCity,
-      drop_city: getString(row, "drop_city"),
-      journey_date: getString(row, "journey_date"),
-      journey_time: getString(row, "journey_time"),
-      available_seats: getNumber(row, "available_seats") || getNumber(vehicle, "seats") || 1,
-      price,
-      status: getString(row, "status") || getString(row, "availability", "available"),
-      location: pickupCity,
-      daily_rent: getNumber(row, "daily_rent") || price,
-      security_deposit: getNumber(row, "security_deposit"),
-      availability: getString(row, "availability", "available"),
-      photos: photos.length > 0 ? photos : Array.isArray(vehicle?.photos) ? (vehicle?.photos as string[]) : [],
-      seats: getNumber(vehicle, "seats"),
-    };
+  const cityFilter = filters.pickupCity ?? filters.city;
+  const debugExclusions: string[] = [];
+
+  let results = rows.map((row) => {
+    const ownerId = getString(row, "owner_id");
+    const ownerCity = ownerCityMap.get(ownerId) ?? "";
+    const ownerName = ownerNameMap.get(ownerId) ?? "Owner";
+    return mapVehicleRowToSelfDriveResult(row, ownerCity, ownerName);
   });
 
-  const city = filters.pickupCity ?? filters.city;
-  if (city) {
-    results = results.filter((r) => r.pickup_city.toLowerCase().includes(city.toLowerCase()));
+  if (cityFilter) {
+    const before = results.length;
+    results = results.filter((result) => {
+      const match = matchesCity(result.pickup_city, cityFilter);
+      if (!match) {
+        debugExclusions.push(
+          `${result.vehicle_name}: city "${result.pickup_city}" does not match "${cityFilter}"`
+        );
+      }
+      return match;
+    });
+    console.log(`[searchSelfDriveVehicles] city filter "${cityFilter}": ${before} → ${results.length}`);
   }
-  if (filters.dropCity) {
-    results = results.filter((r) => r.drop_city.toLowerCase().includes(filters.dropCity!.toLowerCase()));
+
+  if (filters.vehicleType) {
+    const before = results.length;
+    results = results.filter((result) => {
+      const match = matchesVehicleCategory(result.vehicle_type, filters.vehicleType);
+      if (!match) {
+        debugExclusions.push(
+          `${result.vehicle_name}: category "${result.vehicle_type}" does not match "${filters.vehicleType}"`
+        );
+      }
+      return match;
+    });
+    console.log(
+      `[searchSelfDriveVehicles] category filter "${filters.vehicleType}": ${before} → ${results.length}`
+    );
   }
+
   if (filters.date) {
     results = results.filter((r) => !r.journey_date || r.journey_date === filters.date);
   }
-  if (filters.vehicleType) {
-    results = results.filter((r) =>
-      r.vehicle_type.toLowerCase().includes(filters.vehicleType!.toLowerCase())
-    );
+
+  if (debugExclusions.length > 0) {
+    console.log("[searchSelfDriveVehicles] excluded:", debugExclusions);
   }
+  console.log("[searchSelfDriveVehicles] final results:", results.length);
 
   return { data: results, error: null };
 }
@@ -543,80 +852,51 @@ export async function searchDriverVehicles(filters: {
   const configError = getSupabaseConfigError();
   if (configError) return { data: [], error: configError };
 
-  const query = db()
-    .from("driver_vehicles")
-    .select("*")
-    .order("created_at", { ascending: false });
+  const serviceKey: VehicleServiceKey =
+    filters.tripType === "Local Rental" ? "service_local_rental" : "service_with_driver";
 
-  const { data, error } = await query;
+  console.log("[searchDriverVehicles] service:", serviceKey, "filters:", JSON.stringify(filters));
+
+  const { rows, error } = await fetchApprovedMarketplaceVehicles(serviceKey);
   if (error) {
-    if (isMissingTableError(error)) return { data: [], error: null };
-    console.error("[searchDriverVehicles]", error.message);
-    return { data: [], error: error.message };
+    console.error("[searchDriverVehicles] query error:", error);
+    return { data: [], error };
   }
 
-  const rows = asRows(data);
-  const [vehicleMap, ownerMap, userMap] = await Promise.all([
-    getVehicleMap(rows.map((row) => getString(row, "vehicle_id"))),
-    getLegacyVehicleOwnerMap(rows.map((row) => getString(row, "owner_id"))),
-    getUserMap(rows.map((row) => getString(row, "owner_id"))),
+  const ownerIds = rows.map((row) => getString(row, "owner_id"));
+  const [ownerCityMap, ownerNameMap, ownerMobileMap] = await Promise.all([
+    resolveOwnerCities(ownerIds),
+    resolveOwnerNames(ownerIds),
+    resolveOwnerMobiles(ownerIds),
   ]);
 
-  let results = rows
-    .filter(isPublicListing)
-    .map((row) => {
-    const vehicle = vehicleMap.get(getString(row, "vehicle_id")) ?? null;
-    const owner = ownerMap.get(getString(row, "owner_id")) ?? userMap.get(getString(row, "owner_id")) ?? null;
-    const pickupCity = getString(row, "pickup_city") || getString(row, "base_location");
-    const price = getNumber(row, "price") || getNumber(row, "rate_per_km");
-    return {
-      id: getString(row, "id"),
-      booking_type: "with_driver" as const,
-      vehicle_id: getString(row, "vehicle_id"),
-      vehicle_name: getString(row, "vehicle_name") || getString(vehicle, "vehicle_name", getString(vehicle, "vehicle_number", "Vehicle")),
-      vehicle_number: getString(vehicle, "vehicle_number") || undefined,
-      vehicle_type: getString(row, "vehicle_type") || getString(vehicle, "vehicle_type", "-"),
-      fuel_type: getString(vehicle, "fuel_type") || getString(row, "fuel_type") || undefined,
-      has_ac: vehicle?.has_ac !== false,
-      rating: getNumber(vehicle, "rating", 4.5) || undefined,
-      photos: Array.isArray(vehicle?.photos) ? (vehicle.photos as string[]) : [],
-      owner_name:
-        getString(owner, "owner_name") ||
-        getString(owner, "name") ||
-        getString(owner, "full_name", "Owner"),
-      owner_id: getString(row, "owner_id") || undefined,
-      pickup_city: pickupCity,
-      drop_city: getString(row, "drop_city"),
-      journey_date: getString(row, "journey_date"),
-      journey_time: getString(row, "journey_time"),
-      available_seats: getNumber(row, "available_seats") || getNumber(vehicle, "seats") || 1,
-      price,
-      status: getString(row, "status") || getString(row, "availability", "available"),
-      driver_name: getString(row, "driver_name"),
-      driver_phone: getString(row, "driver_phone"),
-      rate_per_km: getNumber(row, "rate_per_km") || price,
-      base_location: pickupCity,
-      availability: getString(row, "availability", "available"),
-      seats: getNumber(vehicle, "seats"),
-    };
+  let results = rows.map((row) => {
+    const ownerId = getString(row, "owner_id");
+    return mapVehicleRowToDriverResult(
+      row,
+      ownerCityMap.get(ownerId) ?? "",
+      ownerNameMap.get(ownerId) ?? "Owner",
+      ownerMobileMap.get(ownerId) ?? ""
+    );
   });
 
-  const city = filters.pickupCity ?? filters.city;
-  if (city) {
-    results = results.filter((r) => r.pickup_city.toLowerCase().includes(city.toLowerCase()));
+  const cityFilter = filters.pickupCity ?? filters.city;
+  if (cityFilter) {
+    const before = results.length;
+    results = results.filter((r) => matchesCity(r.pickup_city, cityFilter));
+    console.log(`[searchDriverVehicles] city filter "${cityFilter}": ${before} → ${results.length}`);
   }
   if (filters.dropCity) {
-    results = results.filter((r) => r.drop_city.toLowerCase().includes(filters.dropCity!.toLowerCase()));
+    results = results.filter((r) => !r.drop_city || matchesCity(r.drop_city, filters.dropCity!));
   }
   if (filters.date) {
     results = results.filter((r) => !r.journey_date || r.journey_date === filters.date);
   }
   if (filters.vehicleType) {
-    results = results.filter((r) =>
-      r.vehicle_type.toLowerCase().includes(filters.vehicleType!.toLowerCase())
-    );
+    results = results.filter((r) => matchesVehicleCategory(r.vehicle_type, filters.vehicleType));
   }
 
+  console.log("[searchDriverVehicles] final results:", results.length);
   return { data: results, error: null };
 }
 
@@ -625,130 +905,146 @@ export async function getJourneyById(id: string): Promise<Record<string, unknown
     .from("return_journeys")
     .select("*")
     .eq("id", id)
-    .single();
+    .maybeSingle();
 
-  if (error) {
+  if (data) {
+    const journey = data as Row;
+    const vehicleId = getString(journey, "vehicle_id");
+    const ownerId = getString(journey, "owner_id");
+
+    const [vehicleMap, legacyVehicleMap, userMap] = await Promise.all([
+      getVehicleMap([vehicleId]),
+      getLegacyVehicleOwnerMap([vehicleId]),
+      getUserMap([ownerId]),
+    ]);
+
+    const vehicle = vehicleMap.get(vehicleId) ?? legacyVehicleMap.get(vehicleId) ?? null;
+    const owner = userMap.get(ownerId) ?? null;
+
+    return {
+      ...journey,
+      vehicle,
+      owner: owner
+        ? {
+            id: getString(owner, "id", ownerId),
+            name: getString(owner, "full_name") || getString(owner, "name", "Owner"),
+            email: getString(owner, "email"),
+          }
+        : { id: ownerId, name: "Owner" },
+    };
+  }
+
+  if (error && !isMissingTableError(error)) {
     console.error("[getJourneyById]", error.message);
+  }
+
+  const { data: vehicleData } = await db()
+    .from("vehicles")
+    .select("*")
+    .eq("id", id)
+    .eq("approval_status", "approved")
+    .maybeSingle();
+
+  if (!vehicleData || !isServiceEnabled(vehicleData as Row, "service_return_journey")) {
     return null;
   }
 
-  const journey = data as Row;
-  const vehicleId = getString(journey, "vehicle_id");
-  const ownerId = getString(journey, "owner_id");
-
-  const [vehicleMap, legacyVehicleMap, userMap] = await Promise.all([
-    getVehicleMap([vehicleId]),
-    getLegacyVehicleOwnerMap([vehicleId]),
-    getUserMap([ownerId]),
+  const row = vehicleData as Row;
+  const ownerId = getString(row, "owner_id");
+  const [ownerCityMap, ownerNameMap] = await Promise.all([
+    resolveOwnerCities([ownerId]),
+    resolveOwnerNames([ownerId]),
   ]);
-
-  const vehicle = vehicleMap.get(vehicleId) ?? legacyVehicleMap.get(vehicleId) ?? null;
-  const owner = userMap.get(ownerId) ?? null;
+  const returnDeal = mapVehicleRowToReturnJourneyResult(
+    row,
+    ownerCityMap.get(ownerId) ?? "",
+    ownerNameMap.get(ownerId) ?? "Owner",
+    {}
+  );
 
   return {
-    ...journey,
-    vehicle,
-    owner: owner
-      ? {
-          id: getString(owner, "id", ownerId),
-          name: getString(owner, "full_name") || getString(owner, "name", "Owner"),
-          email: getString(owner, "email"),
-        }
-      : { id: ownerId, name: "Owner" },
+    id: returnDeal.id,
+    vehicle_id: returnDeal.vehicle_id,
+    owner_id: ownerId,
+    vehicle_name: returnDeal.vehicle_name,
+    vehicle_type: returnDeal.vehicle_type,
+    from_city: returnDeal.from_city,
+    to_city: returnDeal.to_city,
+    pickup_city: returnDeal.from_city,
+    drop_city: returnDeal.to_city,
+    journey_date: returnDeal.journey_date,
+    available_seats: returnDeal.available_seats,
+    price: returnDeal.price,
+    price_per_seat: returnDeal.price,
+    discount_percent: returnDeal.discount_percent,
+    status: "available",
+    vehicle: row,
+    owner: { id: ownerId, name: returnDeal.owner_name },
   };
 }
 
 export async function getSelfDriveListingById(id: string): Promise<SelfDriveResult | null> {
   const { data, error } = await db()
-    .from("self_drive_vehicles")
+    .from("vehicles")
     .select("*")
     .eq("id", id)
-    .single();
+    .eq("approval_status", "approved")
+    .maybeSingle();
 
   if (error) {
     console.error("[getSelfDriveListingById]", error.message);
     return null;
   }
+  if (!data) return null;
 
   const row = data as Row;
-  const [vehicleMap, ownerMap, userMap] = await Promise.all([
-    getVehicleMap([getString(row, "vehicle_id")]),
-    getLegacyVehicleOwnerMap([getString(row, "owner_id")]),
-    getUserMap([getString(row, "owner_id")]),
-  ]);
-  const vehicle = vehicleMap.get(getString(row, "vehicle_id")) ?? null;
-  const owner = ownerMap.get(getString(row, "owner_id")) ?? userMap.get(getString(row, "owner_id")) ?? null;
-  const photos = Array.isArray(row.photos) ? (row.photos as string[]) : [];
-  const pickupCity = getString(row, "pickup_city") || getString(row, "location");
-  const price = getNumber(row, "price") || getNumber(row, "daily_rent");
+  if (!isServiceEnabled(row, "service_self_drive")) return null;
 
-  return {
-    id: getString(row, "id"),
-    booking_type: "self_drive",
-    vehicle_id: getString(row, "vehicle_id"),
-    vehicle_name: getString(row, "vehicle_name") || getString(vehicle, "vehicle_name", getString(vehicle, "vehicle_number", "Vehicle")),
-    vehicle_type: getString(row, "vehicle_type") || getString(vehicle, "vehicle_type", "-"),
-    owner_name: getString(owner, "owner_name") || getString(owner, "name") || getString(owner, "full_name", "Owner"),
-    pickup_city: pickupCity,
-    drop_city: getString(row, "drop_city"),
-    journey_date: getString(row, "journey_date"),
-    journey_time: getString(row, "journey_time"),
-    available_seats: getNumber(row, "available_seats") || getNumber(vehicle, "seats") || 1,
-    price,
-    status: getString(row, "status") || getString(row, "availability", "available"),
-    location: pickupCity,
-    daily_rent: getNumber(row, "daily_rent") || price,
-    security_deposit: getNumber(row, "security_deposit"),
-    availability: getString(row, "availability", "available"),
-    photos: photos.length > 0 ? photos : Array.isArray(vehicle?.photos) ? (vehicle?.photos as string[]) : [],
-    seats: getNumber(vehicle, "seats"),
-  };
+  const ownerId = getString(row, "owner_id");
+  const [ownerCityMap, ownerNameMap] = await Promise.all([
+    resolveOwnerCities([ownerId]),
+    resolveOwnerNames([ownerId]),
+  ]);
+
+  return mapVehicleRowToSelfDriveResult(
+    row,
+    ownerCityMap.get(ownerId) ?? "",
+    ownerNameMap.get(ownerId) ?? "Owner"
+  );
 }
 
 export async function getDriverListingById(id: string): Promise<DriverVehicleResult | null> {
   const { data, error } = await db()
-    .from("driver_vehicles")
+    .from("vehicles")
     .select("*")
     .eq("id", id)
-    .single();
+    .eq("approval_status", "approved")
+    .maybeSingle();
 
   if (error) {
     console.error("[getDriverListingById]", error.message);
     return null;
   }
+  if (!data) return null;
 
   const row = data as Row;
-  const [vehicleMap, ownerMap, userMap] = await Promise.all([
-    getVehicleMap([getString(row, "vehicle_id")]),
-    getLegacyVehicleOwnerMap([getString(row, "owner_id")]),
-    getUserMap([getString(row, "owner_id")]),
-  ]);
-  const vehicle = vehicleMap.get(getString(row, "vehicle_id")) ?? null;
-  const owner = ownerMap.get(getString(row, "owner_id")) ?? userMap.get(getString(row, "owner_id")) ?? null;
-  const pickupCity = getString(row, "pickup_city") || getString(row, "base_location");
-  const price = getNumber(row, "price") || getNumber(row, "rate_per_km");
+  if (!isServiceEnabled(row, "service_with_driver") && !isServiceEnabled(row, "service_local_rental")) {
+    return null;
+  }
 
-  return {
-    id: getString(row, "id"),
-    booking_type: "with_driver",
-    vehicle_id: getString(row, "vehicle_id"),
-    vehicle_name: getString(row, "vehicle_name") || getString(vehicle, "vehicle_name", getString(vehicle, "vehicle_number", "Vehicle")),
-    vehicle_type: getString(row, "vehicle_type") || getString(vehicle, "vehicle_type", "-"),
-    owner_name: getString(owner, "owner_name") || getString(owner, "name") || getString(owner, "full_name", "Owner"),
-    pickup_city: pickupCity,
-    drop_city: getString(row, "drop_city"),
-    journey_date: getString(row, "journey_date"),
-    journey_time: getString(row, "journey_time"),
-    available_seats: getNumber(row, "available_seats") || getNumber(vehicle, "seats") || 1,
-    price,
-    status: getString(row, "status") || getString(row, "availability", "available"),
-    driver_name: getString(row, "driver_name"),
-    driver_phone: getString(row, "driver_phone"),
-    rate_per_km: getNumber(row, "rate_per_km") || price,
-    base_location: pickupCity,
-    availability: getString(row, "availability", "available"),
-    seats: getNumber(vehicle, "seats"),
-  };
+  const ownerId = getString(row, "owner_id");
+  const [ownerCityMap, ownerNameMap, ownerMobileMap] = await Promise.all([
+    resolveOwnerCities([ownerId]),
+    resolveOwnerNames([ownerId]),
+    resolveOwnerMobiles([ownerId]),
+  ]);
+
+  return mapVehicleRowToDriverResult(
+    row,
+    ownerCityMap.get(ownerId) ?? "",
+    ownerNameMap.get(ownerId) ?? "Owner",
+    ownerMobileMap.get(ownerId) ?? ""
+  );
 }
 
 export async function getVehicleListingById(id: string): Promise<VehicleDetail | null> {

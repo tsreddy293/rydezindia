@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Calendar, Car, CheckCircle, Clock, DollarSign, Plus, Route } from "lucide-react";
 import PageLayout from "@/components/layout/PageLayout";
 import OwnerDashboardNav from "@/components/dashboard/OwnerDashboardNav";
@@ -107,10 +108,9 @@ export default async function OwnerDashboardPage({ searchParams }: Props) {
           <section className="rounded-2xl bg-white border border-gray-100 p-6 shadow-sm">
             <div className="mb-5 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-secondary">Recent Vehicles</h2>
-              <Button href="/owner/add-vehicle" variant="ghost" size="sm">
-                <Plus className="h-4 w-4" />
-                Add
-              </Button>
+              <Link href="/owner/my-vehicles" className="text-sm font-medium text-primary hover:underline">
+                View all
+              </Link>
             </div>
             {(stats.recentVehicles ?? []).length === 0 ? (
               <p className="rounded-xl bg-gray-50 p-6 text-center text-sm text-gray-500">No vehicles yet</p>

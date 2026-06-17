@@ -410,36 +410,25 @@ function SearchWithMapsInner(props: SearchWithMapsProps) {
                 <ReturnJourneyDealCard key={result.id} journey={result} distanceKm={distanceKm} />
               ))
             : props.mode === "self_drive"
-              ? props.results.map((result) => {
-                  const pricing = calculateAiPricing({
-                    distanceKm: distanceKm || 100,
-                    tripType: "one_way",
-                    vehicleType: result.vehicle_type,
-                  });
-                  return (
-                    <VehicleSearchResultCard
-                      key={result.id}
-                      result={{
-                        id: result.id,
-                        vehicle_id: result.vehicle_id,
-                        vehicle_name: result.vehicle_name,
-                        vehicle_type: result.vehicle_type,
-                        fuel_type: result.fuel_type,
-                        has_ac: result.has_ac,
-                        rating: result.rating,
-                        seats: result.seats,
-                        photos: result.photos,
-                        price: result.price,
-                        priceLabel: "/ day",
-                        bookingType: "self_drive",
-                        pickup_city: result.pickup_city,
-                        drop_city: result.drop_city,
-                      }}
-                      distanceKm={distanceKm}
-                      estimatedFare={result.price || result.daily_rent}
-                    />
-                  );
-                })
+              ? props.results.map((result) => (
+                  <VehicleSearchResultCard
+                    key={result.id}
+                    result={{
+                      id: result.id,
+                      vehicle_id: result.vehicle_id,
+                      vehicle_name: result.vehicle_name,
+                      vehicle_number: result.registration_number,
+                      vehicle_type: result.vehicle_type,
+                      photos: result.photos,
+                      price: result.daily_rent || result.price,
+                      priceLabel: "/ day",
+                      bookingType: "self_drive",
+                      owner_city: result.owner_city ?? result.pickup_city,
+                      pickup_city: result.pickup_city,
+                      security_deposit: result.security_deposit,
+                    }}
+                  />
+                ))
               : props.results.map((result) => {
                   const tripPricingType = mapDriverTripTypeLabel(tripType) ?? "one_way";
                   const pricing = calculateAiPricing({

@@ -48,11 +48,17 @@ export async function logApproval(input: {
   remarks?: string;
 }) {
   const db = createAdminClient();
-  await db.from("approval_logs").insert({
+  const { error } = await db.from("approval_logs").insert({
     entity_type: input.entityType,
     entity_id: input.entityId,
     action: input.action,
     approved_by: input.approvedBy ?? null,
     remarks: input.remarks ?? null,
   });
+  if (error) {
+    const msg = error.message.toLowerCase();
+    if (!msg.includes("could not find the table") && !msg.includes("does not exist")) {
+      console.warn("[logApproval]", error.message);
+    }
+  }
 }
