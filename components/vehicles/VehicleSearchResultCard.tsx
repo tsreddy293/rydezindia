@@ -13,7 +13,9 @@ import {
   Users,
 } from "lucide-react";
 import Button from "@/components/ui/Button";
+import TrustBadgeDisplay from "@/components/trust/TrustBadgeDisplay";
 import { formatINR } from "@/lib/utils";
+import type { TrustBadges } from "@/lib/services/trust-badges";
 
 export interface VehicleSearchCardData {
   id: string;
@@ -42,6 +44,7 @@ interface Props {
   estimatedFare?: number;
   showReturnDeal?: boolean;
   discountPercent?: number;
+  trustBadges?: Partial<TrustBadges>;
 }
 
 export default function VehicleSearchResultCard({
@@ -50,6 +53,7 @@ export default function VehicleSearchResultCard({
   estimatedFare,
   showReturnDeal,
   discountPercent,
+  trustBadges,
 }: Props) {
   const [imgError, setImgError] = useState(false);
   const imageUrl = result.photos?.[0];
@@ -99,6 +103,7 @@ export default function VehicleSearchResultCard({
       <div className="flex flex-1 flex-col p-5">
         <div className="mb-3">
           <h3 className="font-semibold text-lg text-secondary">{result.vehicle_name}</h3>
+          {trustBadges && <div className="mt-2"><TrustBadgeDisplay badges={trustBadges} /></div>}
           {result.vehicle_number && (
             <p className="text-xs text-gray-400 mt-0.5">{result.vehicle_number}</p>
           )}

@@ -5,7 +5,8 @@ export type KycDocumentKey =
   | "pan_url"
   | "license_url"
   | "rc_url"
-  | "insurance_url";
+  | "insurance_url"
+  | "selfie_url";
 
 const BUCKET = "owner-kyc";
 
@@ -30,6 +31,7 @@ export async function upsertOwnerKyc(input: {
   licenseUrl?: string;
   rcUrl?: string;
   insuranceUrl?: string;
+  selfieUrl?: string;
   vehiclePhotos?: string[];
 }) {
   const db = createAdminClient();
@@ -42,8 +44,11 @@ export async function upsertOwnerKyc(input: {
       license_url: input.licenseUrl || null,
       rc_url: input.rcUrl || null,
       insurance_url: input.insuranceUrl || null,
+      selfie_url: input.selfieUrl || null,
       vehicle_photos: input.vehiclePhotos ?? [],
       status: "pending",
+      reupload_requested: false,
+      reupload_reason: null,
       updated_at: new Date().toISOString(),
     })
     .select("id")

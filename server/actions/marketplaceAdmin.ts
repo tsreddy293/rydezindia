@@ -123,6 +123,10 @@ export async function setVehicleEnabled(table: ListingTable, id: string, enabled
 export async function updateKycStatus(id: string, status: "approved" | "rejected", remarks?: string) {
   const { user } = await requireRole("admin");
   const db = createAdminClient();
+
+  const { data: kyc } = await db.from("owner_kyc").select("owner_id").eq("id", id).single();
+  const ownerId = (kyc as { owner_id: string } | null)?.owner_id;
+
   const { error } = await db
     .from("owner_kyc")
     .update({
@@ -134,6 +138,31 @@ export async function updateKycStatus(id: string, status: "approved" | "rejected
     })
     .eq("id", id);
   if (error) return { success: false, error: error.message };
+
+  if (ownerId && status === "approved") {
+    await db.from("owners").update({ kyc_verified: true }).eq("id", ownerId);
+    await createNotification({
+      recipientId: ownerId,
+      recipientRole: "owner",
+      actorId: user.id,
+      actorRole: "admin",
+      type: "kyc_verified",
+      title: "KYC Verified",
+      message: "Your owner KYC is verified. You can now receive bookings.",
+      metadata: { kycId: id },
+    });
+  } else if (ownerId) {
+    await db.from("owners").update({ kyc_verified: false }).eq("id", ownerId);
+    await createNotification({
+      recipientId: ownerId,
+      recipientRole: "owner",
+      type: "kyc_rejected",
+      title: "KYC Rejected",
+      message: remarks || "Please re-upload your documents.",
+      metadata: { kycId: id },
+    });
+  }
+
   revalidatePath("/admin/kyc");
   return { success: true };
 }

@@ -14,8 +14,13 @@ export function generateOtp() {
 }
 
 async function deliverOtp(mobile: string, otp: string) {
-  // Production SMS providers can be plugged in here using env vars.
-  // The OTP is intentionally not returned by the API in production.
+  const { dispatchMessage } = await import("@/lib/services/messaging");
+  await dispatchMessage({
+    channel: "sms",
+    recipient: mobile,
+    template: "otp",
+    payload: { otp },
+  });
   if (process.env.NODE_ENV !== "production") {
     console.log(`[OTP] ${mobile}: ${otp}`);
   }

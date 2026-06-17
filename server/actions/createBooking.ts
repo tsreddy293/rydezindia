@@ -6,6 +6,9 @@ import { getJourneyById } from "@/lib/supabase/queries";
 import { getSupabaseConfigError } from "@/lib/supabase/env";
 import { generateBookingReference } from "@/lib/services/booking-id";
 import { createNotification } from "@/lib/services/notifications";
+import { assertOwnerCanReceiveBookings } from "@/lib/services/verification";
+import { bookReturnJourneySeats, initializeReturnJourneySeats } from "@/lib/services/return-journey-seats";
+import { dispatchBookingEvent } from "@/lib/services/messaging";
 import type { ActionResult, CreateBookingInput, CreateMarketplaceBookingInput } from "@/types/database";
 
 const MOBILE_REGEX = /^[6-9]\d{9}$/;
@@ -41,6 +44,11 @@ export async function createBooking(
   if (availableSeats < input.seats_booked) {
     return { success: false, error: `Only ${availableSeats} seats available` };
   }
+
+  const ownerKycError = await assertOwnerCanReceiveBookings(ownerId);
+  if (ownerKycError) return { success: false, error: ownerKycError };
+
+  await initializeReturnJourneySeats(input.ride_id, availableSeats + input.seats_booked);
 
   const db = createAdminClient();
   const mobile = input.mobile.replace(/\s/g, "");
@@ -138,13 +146,28 @@ export async function createBooking(
     return { success: false, error: bookingError.message };
   }
 
-  await db
-    .from("return_journeys")
-    .update({
-      available_seats: availableSeats - input.seats_booked,
-      status: availableSeats - input.seats_booked <= 0 ? "booked" : "available",
-    })
-    .eq("id", input.ride_id);
+  const seatNumbers = input.seat_numbers?.length
+    ? input.seat_numbers
+    : Array.from({ length: input.seats_booked }, (_, i) => i + 1);
+
+  try {
+    await bookReturnJourneySeats({
+      returnJourneyId: input.ride_id,
+      seatNumbers,
+      bookingId: booking!.id as string,
+    });
+  } catch {
+    await db
+      .from("return_journeys")
+      .update({
+        available_seats: availableSeats - input.seats_booked,
+        status: availableSeats - input.seats_booked <= 0 ? "booked" : "available",
+      })
+      .eq("id", input.ride_id);
+  }
+
+  const bookingPayload2: Record<string, unknown> = { seat_numbers: seatNumbers };
+  await db.from("bookings").update(bookingPayload2).eq("id", booking!.id);
 
   revalidatePath("/");
   revalidatePath("/search");
@@ -156,6 +179,12 @@ export async function createBooking(
     title: "New booking request",
     message: `${input.passenger_name.trim()} requested ${input.seats_booked} seat(s).`,
     metadata: { bookingId: booking!.id, rideId: input.ride_id },
+  });
+
+  await dispatchBookingEvent({
+    event: "booking_confirmed",
+    customerMobile: mobile,
+    payload: { bookingReference, seats: input.seats_booked, amount },
   });
 
   return { success: true, data: { id: booking!.id as string } };
@@ -174,6 +203,9 @@ export async function createUnifiedBooking(
     platform_fee?: number;
     discount_amount?: number;
     owner_id?: string;
+    coupon_code?: string;
+    wallet_amount_used?: number;
+    rural_pickup_point_id?: string;
   }
 ): Promise<ActionResult<{ id: string; bookingReference: string }>> {
   const configError = getSupabaseConfigError();
@@ -187,6 +219,11 @@ export async function createUnifiedBooking(
   }
   if (input.amount < 0) {
     return { success: false, error: "Amount must be positive" };
+  }
+
+  if (input.owner_id) {
+    const ownerKycError = await assertOwnerCanReceiveBookings(input.owner_id);
+    if (ownerKycError) return { success: false, error: ownerKycError };
   }
 
   const db = createAdminClient();
@@ -219,35 +256,90 @@ export async function createUnifiedBooking(
     userId = newUser.id as string;
   }
 
+  let finalAmount = input.amount;
+  let couponDiscount = 0;
+  let couponId: string | null = null;
+
+  if (input.coupon_code?.trim()) {
+    const { validateCoupon, redeemCoupon } = await import("@/lib/services/coupons");
+    const couponResult = await validateCoupon({
+      code: input.coupon_code,
+      userId,
+      orderAmount: input.amount,
+    });
+    if (!couponResult.valid) {
+      return { success: false, error: couponResult.error ?? "Invalid coupon" };
+    }
+    couponDiscount = couponResult.discountAmount;
+    couponId = couponResult.couponId ?? null;
+    finalAmount = Math.max(0, input.amount - couponDiscount);
+  }
+
+  let walletUsed = 0;
+  if (input.wallet_amount_used && input.wallet_amount_used > 0) {
+    const { getWalletBalance, debitWallet } = await import("@/lib/services/wallet");
+    const balance = await getWalletBalance(userId);
+    walletUsed = Math.min(balance, input.wallet_amount_used, finalAmount);
+    if (walletUsed > 0) {
+      finalAmount -= walletUsed;
+    }
+  }
+
+  const bookingInsert: Record<string, unknown> = {
+    booking_type: input.booking_type,
+    user_id: userId,
+    owner_id: input.owner_id ?? null,
+    vehicle_id: input.vehicle_id,
+    reference_id: input.reference_id,
+    amount: finalAmount,
+    booking_status: "pending",
+    payment_status: "pending",
+    booking_reference: bookingReference,
+    passenger_name: input.passenger_name.trim(),
+    mobile,
+    pickup_location: input.pickup_location ?? null,
+    drop_location: input.drop_location ?? null,
+    pickup_date: input.pickup_date ?? null,
+    pickup_time: input.pickup_time ?? null,
+    trip_type: input.trip_type ?? null,
+    driver_required: input.driver_required ?? true,
+    special_instructions: input.special_instructions ?? null,
+    base_fare: input.base_fare ?? input.amount,
+    platform_fee: input.platform_fee ?? Math.round(input.amount * 0.05),
+    discount_amount: (input.discount_amount ?? 0) + couponDiscount,
+    coupon_id: couponId,
+    wallet_amount_used: walletUsed,
+    rural_pickup_point_id: input.rural_pickup_point_id ?? null,
+  };
+
   const { data: booking, error } = await db
     .from("bookings")
-    .insert({
-      booking_type: input.booking_type,
-      user_id: userId,
-      owner_id: input.owner_id ?? null,
-      vehicle_id: input.vehicle_id,
-      reference_id: input.reference_id,
-      amount: input.amount,
-      booking_status: "pending",
-      payment_status: "pending",
-      booking_reference: bookingReference,
-      passenger_name: input.passenger_name.trim(),
-      mobile,
-      pickup_location: input.pickup_location ?? null,
-      drop_location: input.drop_location ?? null,
-      pickup_date: input.pickup_date ?? null,
-      pickup_time: input.pickup_time ?? null,
-      trip_type: input.trip_type ?? null,
-      driver_required: input.driver_required ?? true,
-      special_instructions: input.special_instructions ?? null,
-      base_fare: input.base_fare ?? input.amount,
-      platform_fee: input.platform_fee ?? Math.round(input.amount * 0.05),
-      discount_amount: input.discount_amount ?? 0,
-    } as Record<string, unknown>)
+    .insert(bookingInsert)
     .select("id")
     .single();
 
   if (error) return { success: false, error: error.message };
+
+  if (couponId && couponDiscount > 0) {
+    const { redeemCoupon } = await import("@/lib/services/coupons");
+    await redeemCoupon({
+      couponId,
+      userId,
+      bookingId: booking.id as string,
+      discountAmount: couponDiscount,
+    });
+  }
+
+  if (walletUsed > 0) {
+    const { debitWallet } = await import("@/lib/services/wallet");
+    await debitWallet({
+      userId,
+      amount: walletUsed,
+      source: "booking",
+      referenceId: booking.id as string,
+      description: `Used for booking ${bookingReference}`,
+    });
+  }
 
   revalidatePath("/admin");
   revalidatePath("/owner/dashboard");
@@ -260,6 +352,12 @@ export async function createUnifiedBooking(
     title: "New booking request",
     message: `${input.passenger_name.trim()} submitted a ${input.booking_type} booking (${bookingReference}).`,
     metadata: { bookingId: booking.id, referenceId: input.reference_id, bookingType: input.booking_type },
+  });
+
+  await dispatchBookingEvent({
+    event: "booking_confirmed",
+    customerMobile: mobile,
+    payload: { bookingReference, amount: finalAmount, bookingType: input.booking_type },
   });
 
   return { success: true, data: { id: booking.id as string, bookingReference } };

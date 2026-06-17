@@ -76,7 +76,10 @@ export default async function AdminPage() {
     { href: "/admin/vehicles", label: "Vehicle Management" },
     { href: "/admin/bookings", label: "Booking Management" },
     { href: "/admin/payments", label: "Payment Management" },
-    { href: "/admin/kyc", label: "KYC Management" },
+    { href: "/admin/kyc", label: "Owner KYC" },
+    { href: "/admin/customer-kyc", label: "Customer KYC" },
+    { href: "/admin/documents", label: "Documents" },
+    { href: "/admin/coupons", label: "Coupons" },
     { href: "/admin/notifications", label: "Notifications" },
     { href: "/admin/reports", label: "Reports" },
   ];

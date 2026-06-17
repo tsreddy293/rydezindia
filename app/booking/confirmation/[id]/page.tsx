@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { CheckCircle2 } from "lucide-react";
 import PageLayout from "@/components/layout/PageLayout";
 import Button from "@/components/ui/Button";
+import ReviewForm from "@/components/reviews/ReviewForm";
 import { getBookingConfirmationById } from "@/lib/supabase/queries";
 import { formatDate, formatINR } from "@/lib/utils";
 
@@ -17,9 +18,11 @@ export default async function BookingConfirmationPage({ params }: Props) {
 
   if (!booking) notFound();
 
+  const showReview = booking.booking_status === "completed" || booking.booking_status === "confirmed";
+
   return (
     <PageLayout>
-      <div className="mx-auto max-w-2xl px-4 py-16 md:px-6">
+      <div className="mx-auto max-w-2xl px-4 py-16 md:px-6 space-y-8">
         <div className="rounded-2xl bg-white border border-gray-100 p-8 text-center shadow-sm">
           <CheckCircle2 className="mx-auto mb-5 h-16 w-16 text-green-500" />
           <h1 className="text-3xl font-bold text-secondary">Booking Request Confirmed</h1>
@@ -57,6 +60,14 @@ export default async function BookingConfirmationPage({ params }: Props) {
             <Button href="/" variant="outline">Back to Home</Button>
           </div>
         </div>
+
+        {showReview && (
+          <ReviewForm
+            bookingId={booking.id}
+            vehicleId={booking.vehicle_id}
+            ownerId={booking.owner_id}
+          />
+        )}
       </div>
     </PageLayout>
   );

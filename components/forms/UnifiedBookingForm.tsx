@@ -37,6 +37,7 @@ export default function UnifiedBookingForm(props: Props) {
   const [paymentType, setPaymentType] = useState<"advance" | "full">("advance");
   const [customerName, setCustomerName] = useState("");
   const [customerMobile, setCustomerMobile] = useState("");
+  const [couponCode, setCouponCode] = useState("");
 
   const isSelfDrive = type === "self_drive";
   const pricingTripType = mapDriverTripTypeLabel(tripType) ?? "one_way";
@@ -87,6 +88,8 @@ export default function UnifiedBookingForm(props: Props) {
       base_fare: pricing.baseFare,
       platform_fee: pricing.platformFee,
       discount_amount: pricing.discountAmount,
+      coupon_code: couponCode.trim() || undefined,
+      wallet_amount_used: Number(form.get("wallet_amount") ?? 0) || undefined,
     });
 
     if (result.success) {
@@ -228,6 +231,24 @@ export default function UnifiedBookingForm(props: Props) {
           </>
         )}
         <FormField label="Special Instructions" name="special_instructions" as="textarea" placeholder="Any special requests..." />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Coupon Code</label>
+            <input
+              type="text"
+              value={couponCode}
+              onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+              placeholder="WELCOME100"
+              className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm uppercase"
+            />
+          </div>
+          <FormField
+            label="Use Wallet (₹)"
+            name="wallet_amount"
+            type="number"
+            placeholder="0"
+          />
+        </div>
         <Button type="submit" variant="primary" size="lg" className="w-full" disabled={loading}>
           {loading ? <><Loader2 className="h-5 w-5 animate-spin" /> Creating booking...</> : "Continue to Payment"}
         </Button>

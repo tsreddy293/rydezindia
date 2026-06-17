@@ -790,7 +790,7 @@ export async function getVehicleListingById(id: string): Promise<VehicleDetail |
 export async function getBookingConfirmationById(id: string): Promise<BookingConfirmation | null> {
   const { data, error } = await db()
     .from("bookings")
-    .select("id, booking_reference, booking_type, passenger_name, mobile, amount, booking_status, payment_status, pickup_location, drop_location, pickup_date, pickup_time, trip_type, created_at")
+    .select("id, booking_reference, booking_type, passenger_name, mobile, amount, booking_status, payment_status, pickup_location, drop_location, pickup_date, pickup_time, trip_type, vehicle_id, owner_id, created_at")
     .eq("id", id)
     .single();
 
@@ -814,6 +814,8 @@ export async function getBookingConfirmationById(id: string): Promise<BookingCon
     pickup_date: getString(row, "pickup_date") || undefined,
     pickup_time: getString(row, "pickup_time") || undefined,
     trip_type: getString(row, "trip_type") || undefined,
+    vehicle_id: getString(row, "vehicle_id") || undefined,
+    owner_id: getString(row, "owner_id") || undefined,
     created_at: getString(row, "created_at"),
   };
 }

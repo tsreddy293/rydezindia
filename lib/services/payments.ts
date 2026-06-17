@@ -123,6 +123,25 @@ export async function verifyRazorpayPayment(input: {
         status: "settled",
       });
     }
+
+    const { data: fullBooking } = await db
+      .from("bookings")
+      .select("mobile, passenger_name, booking_reference, owner_id")
+      .eq("id", input.bookingId)
+      .maybeSingle();
+
+    const mobile = (fullBooking as { mobile?: string } | null)?.mobile;
+    if (mobile) {
+      const { dispatchBookingEvent } = await import("@/lib/services/messaging");
+      await dispatchBookingEvent({
+        event: "payment_success",
+        customerMobile: mobile,
+        payload: {
+          bookingReference: (fullBooking as { booking_reference?: string }).booking_reference,
+          amount: gross,
+        },
+      });
+    }
   }
 
   return { verified: true };

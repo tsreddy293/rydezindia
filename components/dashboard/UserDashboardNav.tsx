@@ -5,10 +5,12 @@ import { usePathname } from "next/navigation";
 
 const USER_LINKS = [
   { href: "/user/dashboard", label: "Overview" },
+  { href: "/user/dashboard/verification", label: "Verification" },
   { href: "/user/bookings", label: "My Bookings" },
-  { href: "/user/trips/active", label: "Active Trips" },
-  { href: "/user/trips/completed", label: "Completed Trips" },
-  { href: "/user/saved", label: "Saved Vehicles" },
+  { href: "/user/wallet", label: "Wallet" },
+  { href: "/user/referrals", label: "Referrals" },
+  { href: "/user/profile/safety", label: "Safety" },
+  { href: "/user/saved", label: "Saved" },
   { href: "/user/profile", label: "Profile" },
 ];
 

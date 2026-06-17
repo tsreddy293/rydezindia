@@ -29,6 +29,8 @@ export async function submitOwnerKyc(formData: FormData) {
     }
   }
 
+  const selfieUrl = await uploadIfPresent(ownerId, formData, "selfie", "selfie_url");
+
   await upsertOwnerKyc({
     ownerId,
     aadhaarUrl,
@@ -36,6 +38,7 @@ export async function submitOwnerKyc(formData: FormData) {
     licenseUrl,
     rcUrl,
     insuranceUrl,
+    selfieUrl,
     vehiclePhotos,
   });
   await createNotification({

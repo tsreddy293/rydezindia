@@ -116,6 +116,8 @@ export interface BookingConfirmation {
   pickup_date?: string;
   pickup_time?: string;
   trip_type?: string;
+  vehicle_id?: string;
+  owner_id?: string;
   created_at: string;
 }
 
@@ -297,8 +299,11 @@ export interface CreateBookingInput {
   passenger_name: string;
   mobile: string;
   seats_booked: number;
+  seat_numbers?: number[];
   special_instructions?: string;
   discount_amount?: number;
+  rural_pickup_point_id?: string;
+  coupon_code?: string;
 }
 
 export interface CreateMarketplaceBookingInput {

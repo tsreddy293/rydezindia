@@ -7,6 +7,7 @@ import {
   getJourneyById,
   getSelfDriveListingById,
 } from "@/lib/supabase/queries";
+import { getReturnJourneySeats } from "@/lib/services/return-journey-seats";
 
 export const dynamic = "force-dynamic";
 
@@ -61,6 +62,7 @@ export default async function BookingPage({ params, searchParams }: Props) {
 
   const vehicle = journey.vehicle as { vehicle_model?: string; vehicle_type?: string; vehicle_number?: string } | null;
   const owner = journey.owner as { name?: string } | null;
+  const seats = await getReturnJourneySeats(String(journey.id));
 
   return (
     <PageLayout>
@@ -83,6 +85,10 @@ export default async function BookingPage({ params, searchParams }: Props) {
               : null,
             owner: owner ? { name: owner.name ?? "Owner" } : null,
           }}
+          seats={seats.map((s) => ({
+            seat_number: Number((s as { seat_number: number }).seat_number),
+            status: String((s as { status: string }).status),
+          }))}
         />
       </div>
     </PageLayout>

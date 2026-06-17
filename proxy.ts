@@ -58,7 +58,10 @@ export async function proxy(request: NextRequest) {
     path.startsWith("/user/bookings") ||
     path.startsWith("/user/trips") ||
     path.startsWith("/user/saved") ||
-    path.startsWith("/user/profile");
+    path.startsWith("/user/profile") ||
+    path.startsWith("/user/wallet") ||
+    path.startsWith("/user/referrals") ||
+    path.startsWith("/user/dashboard/verification");
   if (userOnly && !data.user) {
     return redirectTo("/login");
   }
