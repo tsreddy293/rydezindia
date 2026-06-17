@@ -5,6 +5,10 @@ import { CheckCircle2, Loader2, MapPin, Shield } from "lucide-react";
 import Button from "@/components/ui/Button";
 import FormField from "@/components/forms/FormField";
 import { createMarketplaceBooking } from "@/server/actions/createBooking";
+import {
+  calculateSelfDrivePricing,
+  resolveSelfDriveDailyRent,
+} from "@/lib/pricing/self-drive-pricing";
 import { formatINR } from "@/lib/utils";
 import type { DriverVehicleResult, SelfDriveResult } from "@/types/database";
 
@@ -18,8 +22,14 @@ export default function MarketplaceBookingForm({ type, listing }: Props) {
   const [success, setSuccess] = useState(false);
   const [bookingId, setBookingId] = useState("");
   const isSelfDrive = type === "self_drive";
+  const selfDrivePricing = isSelfDrive
+    ? calculateSelfDrivePricing(
+        resolveSelfDriveDailyRent(listing as SelfDriveResult),
+        (listing as SelfDriveResult).security_deposit ?? 0
+      )
+    : null;
   const amount = isSelfDrive
-    ? (listing.price || (listing as SelfDriveResult).daily_rent) + (listing as SelfDriveResult).security_deposit
+    ? selfDrivePricing!.payableAmount
     : listing.price || (listing as DriverVehicleResult).rate_per_km;
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -74,9 +84,38 @@ export default function MarketplaceBookingForm({ type, listing }: Props) {
             Owner: {listing.owner_name}
           </div>
         </div>
-        <div className="border-t border-white/20 pt-4">
-          <p className="text-white/70 text-sm">{isSelfDrive ? "Estimated first-day rental" : "Full vehicle booking"}</p>
-          <p className="text-2xl font-bold text-accent">{formatINR(amount)}</p>
+        <div className="border-t border-white/20 pt-4 space-y-1 text-sm">
+          {isSelfDrive && selfDrivePricing ? (
+            <>
+              <div className="flex justify-between">
+                <span>Daily Rent</span>
+                <span>{formatINR(selfDrivePricing.dailyRent)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Platform Fee</span>
+                <span>{formatINR(selfDrivePricing.platformFee)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>GST</span>
+                <span>{formatINR(selfDrivePricing.gst)}</span>
+              </div>
+              <div className="flex justify-between font-bold text-accent text-lg pt-2">
+                <span>Payable Amount</span>
+                <span>{formatINR(selfDrivePricing.payableAmount)}</span>
+              </div>
+              {selfDrivePricing.securityDeposit > 0 && (
+                <div className="flex justify-between text-white/70 pt-2 border-t border-white/10 mt-2">
+                  <span>Security Deposit (refundable)</span>
+                  <span>{formatINR(selfDrivePricing.securityDeposit)}</span>
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <p className="text-white/70 text-sm">Full vehicle booking</p>
+              <p className="text-2xl font-bold text-accent">{formatINR(amount)}</p>
+            </>
+          )}
         </div>
       </div>
 

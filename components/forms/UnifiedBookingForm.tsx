@@ -8,6 +8,10 @@ import FormField from "@/components/forms/FormField";
 import RazorpayCheckout from "@/components/payments/RazorpayCheckout";
 import { createUnifiedBooking } from "@/server/actions/createBooking";
 import { calculateAiPricing, getAdvancePaymentAmount } from "@/lib/pricing/ai-pricing-engine";
+import {
+  calculateSelfDrivePricing,
+  resolveSelfDriveDailyRent,
+} from "@/lib/pricing/self-drive-pricing";
 import { mapDriverTripTypeLabel } from "@/lib/pricing/trip-pricing";
 import { formatINR } from "@/lib/utils";
 import type { DriverVehicleResult, SelfDriveResult } from "@/types/database";
@@ -42,19 +46,28 @@ export default function UnifiedBookingForm(props: Props) {
   const isSelfDrive = type === "self_drive";
   const pricingTripType = mapDriverTripTypeLabel(tripType) ?? "one_way";
 
-  const pricing = calculateAiPricing({
-    distanceKm: distanceKm || 100,
-    tripType: isSelfDrive ? "one_way" : pricingTripType,
-    vehicleType: listing.vehicle_type,
-    fuelType: (listing as DriverVehicleResult).fuel_type,
-    driverRequired: !isSelfDrive,
-    ratePerKm: isSelfDrive ? undefined : (listing as DriverVehicleResult).rate_per_km,
-  });
+  const selfDriveListing = isSelfDrive ? (listing as SelfDriveResult) : null;
+  const selfDrivePricing = isSelfDrive
+    ? calculateSelfDrivePricing(
+        resolveSelfDriveDailyRent(selfDriveListing!),
+        selfDriveListing!.security_deposit ?? 0
+      )
+    : null;
+
+  const driverPricing = !isSelfDrive
+    ? calculateAiPricing({
+        distanceKm: distanceKm || 100,
+        tripType: pricingTripType,
+        vehicleType: listing.vehicle_type,
+        fuelType: (listing as DriverVehicleResult).fuel_type,
+        driverRequired: true,
+        ratePerKm: (listing as DriverVehicleResult).rate_per_km,
+      })
+    : null;
 
   const totalFare = isSelfDrive
-    ? (listing.price || (listing as SelfDriveResult).daily_rent) +
-      (listing as SelfDriveResult).security_deposit
-    : pricing.finalFare;
+    ? selfDrivePricing!.payableAmount
+    : driverPricing!.finalFare;
 
   const payAmount = getAdvancePaymentAmount(totalFare, paymentType);
 
@@ -85,9 +98,9 @@ export default function UnifiedBookingForm(props: Props) {
       trip_type: String(form.get("trip_type") ?? tripType ?? "One Way"),
       driver_required: form.get("driver_required") === "on" || !isSelfDrive,
       special_instructions: String(form.get("special_instructions") ?? ""),
-      base_fare: pricing.baseFare,
-      platform_fee: pricing.platformFee,
-      discount_amount: pricing.discountAmount,
+      base_fare: isSelfDrive ? selfDrivePricing!.dailyRent : driverPricing!.baseFare,
+      platform_fee: isSelfDrive ? selfDrivePricing!.platformFee : driverPricing!.platformFee,
+      discount_amount: isSelfDrive ? 0 : driverPricing!.discountAmount,
       coupon_code: couponCode.trim() || undefined,
       wallet_amount_used: Number(form.get("wallet_amount") ?? 0) || undefined,
     });
@@ -188,16 +201,53 @@ export default function UnifiedBookingForm(props: Props) {
           </div>
         </div>
         <div className="border-t border-white/20 pt-4 space-y-1 text-sm">
-          <div className="flex justify-between"><span>Base Fare</span><span>{formatINR(pricing.baseFare)}</span></div>
-          <div className="flex justify-between"><span>Platform Fee</span><span>{formatINR(pricing.platformFee)}</span></div>
-          {pricing.discountAmount > 0 && (
-            <div className="flex justify-between text-green-300">
-              <span>Discount</span><span>-{formatINR(pricing.discountAmount)}</span>
-            </div>
-          )}
-          <div className="flex justify-between font-bold text-accent text-lg pt-2">
-            <span>Final Fare</span><span>{formatINR(totalFare)}</span>
-          </div>
+          {isSelfDrive && selfDrivePricing ? (
+            <>
+              <div className="flex justify-between">
+                <span>Daily Rent</span>
+                <span>{formatINR(selfDrivePricing.dailyRent)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Platform Fee</span>
+                <span>{formatINR(selfDrivePricing.platformFee)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>GST</span>
+                <span>{formatINR(selfDrivePricing.gst)}</span>
+              </div>
+              <div className="flex justify-between font-bold text-accent text-lg pt-2">
+                <span>Payable Amount</span>
+                <span>{formatINR(selfDrivePricing.payableAmount)}</span>
+              </div>
+              {selfDrivePricing.securityDeposit > 0 && (
+                <div className="flex justify-between text-white/70 pt-2 border-t border-white/10 mt-2">
+                  <span>Security Deposit (refundable)</span>
+                  <span>{formatINR(selfDrivePricing.securityDeposit)}</span>
+                </div>
+              )}
+            </>
+          ) : driverPricing ? (
+            <>
+              <div className="flex justify-between">
+                <span>Base Fare</span>
+                <span>{formatINR(driverPricing.baseFare)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Platform Fee</span>
+                <span>{formatINR(driverPricing.platformFee)}</span>
+              </div>
+              {driverPricing.discountAmount > 0 && (
+                <div className="flex justify-between text-green-300">
+                  <span>Discount</span>
+                  <span>-{formatINR(driverPricing.discountAmount)}</span>
+                </div>
+              )}
+              <div className="flex justify-between font-bold text-accent text-lg pt-2">
+                <span>Final Fare</span>
+                <span>{formatINR(totalFare)}</span>
+              </div>
+            </>
+          ) : null}
         </div>
       </div>
 
