@@ -48,7 +48,17 @@ export default function RoleLoginForm({
         <input type="hidden" name="role" value={role} />
         <input type="hidden" name="loginPath" value={loginPath} />
         {error && (
-          <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-600">{error}</div>
+          <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-600">
+            {error}
+            {role === "admin" && error.includes("registered as") && (
+              <p className="mt-2 text-xs text-red-700">
+                Owner account?{" "}
+                <Link href="/login/owner" className="font-medium underline">
+                  Login as Vehicle Owner
+                </Link>
+              </p>
+            )}
+          </div>
         )}
         {(success || verified) && (
           <div className="rounded-xl bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-700">

@@ -139,9 +139,11 @@ export async function signInWithRole(formData: FormData) {
 
   if (expectedRole && role !== expectedRole) {
     await supabase.auth.signOut();
-    redirect(
-      `${loginPath}?error=${encodeURIComponent("This account does not have access to this area.")}`
-    );
+    const message =
+      expectedRole === "admin"
+        ? `This account is registered as "${role}", not admin. Vehicle owners should use /login/owner. To grant admin access, run supabase/RUN_MAKE_ADMIN.sql in Supabase SQL Editor.`
+        : "This account does not have access to this area.";
+    redirect(`${loginPath}?error=${encodeURIComponent(message)}`);
   }
 
   redirect(ROLE_REDIRECTS[role]);
