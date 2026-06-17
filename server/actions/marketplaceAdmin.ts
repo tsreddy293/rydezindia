@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createNotification } from "@/lib/services/notifications";
+import { publishVehicleToMarketplace, unpublishVehicleFromMarketplace } from "@/lib/services/vehicle-onboarding";
 import { requireRole } from "@/server/actions/auth";
 import type { UserRole } from "@/types/database";
 
@@ -23,6 +24,15 @@ export async function approveVehicle(table: ListingTable, id: string) {
     .eq("id", id);
 
   if (error) return { success: false, error: error.message };
+
+  if (table === "vehicles") {
+    try {
+      await publishVehicleToMarketplace(id);
+    } catch {
+      /* listing sync best-effort */
+    }
+  }
+
   await createNotification({
     recipientRole: "owner",
     actorId: user.id,
@@ -50,6 +60,11 @@ export async function rejectVehicle(table: ListingTable, id: string, reason: str
     .eq("id", id);
 
   if (error) return { success: false, error: error.message };
+
+  if (table === "vehicles") {
+    await unpublishVehicleFromMarketplace(id);
+  }
+
   revalidatePath("/admin");
   await createNotification({
     recipientRole: "owner",

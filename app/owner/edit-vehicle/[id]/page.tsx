@@ -42,6 +42,12 @@ export default async function EditVehiclePage({ params }: Props) {
             transmission: v.transmission as string | null,
             seats: Number(v.seats),
             has_ac: v.has_ac !== false,
+            rate_per_km: v.rate_per_km != null ? Number(v.rate_per_km) : null,
+            base_location: v.base_location ? String(v.base_location) : null,
+            vehicle_approval_status: String(v.vehicle_approval_status ?? v.status ?? "draft"),
+            rejection_reason: v.rejection_reason ? String(v.rejection_reason) : null,
+            reupload_requested: Boolean(v.reupload_requested),
+            reupload_reason: v.reupload_reason ? String(v.reupload_reason) : null,
             images: vehicle.images,
             documents: vehicle.documents,
           }}

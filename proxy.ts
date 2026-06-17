@@ -67,6 +67,7 @@ export async function proxy(request: NextRequest) {
     path.startsWith("/owner/dashboard") ||
     path.startsWith("/owner/kyc") ||
     path.startsWith("/owner/vehicles") ||
+    path.startsWith("/owner/my-vehicles") ||
     path.startsWith("/owner/add-vehicle") ||
     path.startsWith("/owner/edit-vehicle") ||
     path.startsWith("/owner/bookings") ||

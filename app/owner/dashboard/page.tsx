@@ -45,6 +45,7 @@ export default async function OwnerDashboardPage({ searchParams }: Props) {
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
+            <Button href="/owner/my-vehicles" variant="outline" size="sm">My Vehicles</Button>
             <Button href="/owner/add-vehicle" variant="primary" size="sm">Add Vehicle</Button>
             <Button href="/return-journeys" variant="outline" size="sm">Return Journeys</Button>
             <form action={signOutUser}>
@@ -56,6 +57,17 @@ export default async function OwnerDashboardPage({ searchParams }: Props) {
         </div>
 
         <OwnerDashboardNav />
+
+        {metrics.totalVehicles === 0 && (
+          <div className="mb-8 rounded-2xl border border-primary/20 bg-primary/5 p-6 md:p-8">
+            <h2 className="text-lg font-bold text-secondary mb-2">Start Vehicle Onboarding</h2>
+            <p className="text-sm text-gray-600 mb-4 max-w-2xl">
+              Add your vehicle, upload photos and documents (RC, Insurance, Pollution), then submit for admin approval.
+              Once approved, your vehicle becomes searchable for riders across India.
+            </p>
+            <Button href="/owner/add-vehicle" variant="primary">Add Your First Vehicle</Button>
+          </div>
+        )}
 
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-5 mb-8">
           {cards.map(({ icon: Icon, label, value }) => (

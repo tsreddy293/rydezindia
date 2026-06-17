@@ -44,17 +44,21 @@ export async function saveVehicleImages(vehicleId: string, urls: string[]) {
 export async function saveVehicleDocument(
   vehicleId: string,
   documentType: VehicleDocumentType,
-  url: string
+  url: string,
+  expiryDate?: string | null
 ) {
   const db = createAdminClient();
-  const { error } = await db.from("vehicle_documents").upsert(
-    {
-      vehicle_id: vehicleId,
-      document_type: documentType,
-      document_url: url,
-    },
-    { onConflict: "vehicle_id,document_type" }
-  );
+  const payload: Record<string, unknown> = {
+    vehicle_id: vehicleId,
+    document_type: documentType,
+    document_url: url,
+    verified: false,
+  };
+  if (expiryDate) payload.expiry_date = expiryDate;
+
+  const { error } = await db.from("vehicle_documents").upsert(payload, {
+    onConflict: "vehicle_id,document_type",
+  });
 
   if (error && !error.message.includes("does not exist")) throw new Error(error.message);
 }

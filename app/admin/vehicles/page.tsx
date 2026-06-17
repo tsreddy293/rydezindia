@@ -1,6 +1,6 @@
-import { AdminPageShell, AdminTable } from "@/components/admin/AdminTable";
+import { AdminPageShell } from "@/components/admin/AdminTable";
+import AdminVehiclesClient from "@/components/admin/AdminVehiclesClient";
 import { getAdminRows, getVehicleDocumentsForAdmin } from "@/lib/supabase/queries";
-import { approveVehicle, rejectVehicle, setVehicleEnabled } from "@/server/actions/marketplaceAdmin";
 import { requireRole } from "@/server/actions/auth";
 
 export const dynamic = "force-dynamic";
@@ -13,66 +13,29 @@ export default async function AdminVehiclesPage() {
     100
   );
 
-  const vehiclesWithDocs = await Promise.all(
-    vehicles.map(async (vehicle) => ({
-      vehicle,
-      documents: await getVehicleDocumentsForAdmin(String(vehicle.id)),
-    }))
-  );
+  const documentsByVehicle: Record<string, { document_type: string; document_url: string }[]> = {};
+  for (const vehicle of vehicles) {
+    const id = String(vehicle.id);
+    const docs = await getVehicleDocumentsForAdmin(id);
+    documentsByVehicle[id] = docs.map((d) => ({
+      document_type: String((d as { document_type: string }).document_type),
+      document_url: String((d as { document_url: string }).document_url),
+    }));
+  }
 
   return (
-    <AdminPageShell title="Vehicle Management" description="Approve, reject, and review vehicle documents">
-      <AdminTable
-        headers={["Vehicle", "Type", "Number", "Status", "Approval", "Documents", "Actions"]}
-        rows={vehiclesWithDocs.map(({ vehicle, documents }) => [
-          String(vehicle.vehicle_name ?? "Vehicle"),
-          String(vehicle.vehicle_type ?? "-"),
-          String(vehicle.vehicle_number ?? "-"),
-          String(vehicle.status ?? "pending"),
-          String(vehicle.vehicle_approval_status ?? "pending"),
-          documents.length > 0 ? (
-            <div key="docs" className="flex flex-wrap gap-1">
-              {documents.map((doc) => {
-                const d = doc as { document_type: string; document_url: string };
-                return (
-                  <a
-                    key={d.document_type}
-                    href={d.document_url}
-                    target="_blank"
-                    rel="noopener"
-                    className="text-xs text-primary underline"
-                  >
-                    {d.document_type}
-                  </a>
-                );
-              })}
-            </div>
-          ) : (
-            <span key="no-docs" className="text-xs text-gray-400">No docs</span>
-          ),
-          <div key="actions" className="flex flex-wrap gap-2">
-            <form action={async () => {
-              "use server";
-              await approveVehicle("vehicles", String(vehicle.id));
-            }}>
-              <button className="rounded-lg border px-3 py-1 text-xs text-secondary hover:bg-gray-50">Approve</button>
-            </form>
-            <form action={async () => {
-              "use server";
-              await rejectVehicle("vehicles", String(vehicle.id), "Rejected by admin");
-            }}>
-              <button className="rounded-lg border px-3 py-1 text-xs text-red-600 hover:bg-red-50">Reject</button>
-            </form>
-            <form action={async () => {
-              "use server";
-              await setVehicleEnabled("vehicles", String(vehicle.id), String(vehicle.status) !== "available");
-            }}>
-              <button className="rounded-lg border px-3 py-1 text-xs text-secondary hover:bg-gray-50">
-                {String(vehicle.status) === "available" ? "Disable" : "Enable"}
-              </button>
-            </form>
-          </div>,
-        ])}
+    <AdminPageShell title="Vehicle Onboarding Review" description="Approve, reject, or request document re-upload">
+      <AdminVehiclesClient
+        vehicles={vehicles.map((v) => ({
+          id: String(v.id),
+          vehicle_name: String(v.vehicle_name ?? "Vehicle"),
+          vehicle_type: String(v.vehicle_type ?? "-"),
+          vehicle_number: String(v.vehicle_number ?? "-"),
+          status: String(v.status ?? "draft"),
+          vehicle_approval_status: String(v.vehicle_approval_status ?? "draft"),
+          owner_id: String(v.owner_id ?? ""),
+        }))}
+        documentsByVehicle={documentsByVehicle}
       />
     </AdminPageShell>
   );
