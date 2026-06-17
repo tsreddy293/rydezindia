@@ -23,8 +23,66 @@ export const CATEGORIES: { id: VehicleCategory; name: string; icon: string; coun
   { id: "sedan", name: "Sedan", icon: "🚙", count: 2180 },
   { id: "suv", name: "SUV", icon: "🚐", count: 1560 },
   { id: "luxury", name: "Luxury", icon: "✨", count: 340 },
-  { id: "electric", name: "Electric Vehicles", icon: "⚡", count: 520 },
   { id: "tempo", name: "Tempo Traveller", icon: "🚌", count: 180 },
+  { id: "electric", name: "Electric Vehicles", icon: "⚡", count: 520 },
+];
+
+export const HOMEPAGE_CATEGORIES: {
+  id: string;
+  name: string;
+  icon: string;
+  tagline: string;
+  href: string;
+  gradient: string;
+}[] = [
+  {
+    id: "hatchback",
+    name: "Hatchback",
+    icon: "🚗",
+    tagline: "City trips & daily commutes",
+    href: "/search?category=hatchback",
+    gradient: "from-primary to-blue-400",
+  },
+  {
+    id: "sedan",
+    name: "Sedan",
+    icon: "🚙",
+    tagline: "Comfortable outstation rides",
+    href: "/search?category=sedan",
+    gradient: "from-slate-600 to-slate-400",
+  },
+  {
+    id: "suv",
+    name: "SUV",
+    icon: "🚐",
+    tagline: "Family travel & rough terrain",
+    href: "/search?category=suv",
+    gradient: "from-emerald-600 to-teal-400",
+  },
+  {
+    id: "luxury",
+    name: "Luxury",
+    icon: "✨",
+    tagline: "Premium chauffeur experiences",
+    href: "/search?category=luxury",
+    gradient: "from-amber-500 to-yellow-300",
+  },
+  {
+    id: "tempo",
+    name: "Tempo Traveller",
+    icon: "🚌",
+    tagline: "Group tours & pilgrimages",
+    href: "/search-driver?vehicleType=Tempo Traveller",
+    gradient: "from-violet-600 to-primary",
+  },
+  {
+    id: "minibus",
+    name: "Mini Bus",
+    icon: "🚍",
+    tagline: "Large groups & corporate travel",
+    href: "/search-driver?vehicleType=Mini Bus",
+    gradient: "from-orange-500 to-amber-400",
+  },
 ];
 
 export const FEATURES = [

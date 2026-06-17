@@ -10,14 +10,12 @@ import {
   unpublishVehicleFromMarketplace,
   validateVehicleForSubmission,
 } from "@/lib/services/vehicle-onboarding";
+import { uploadVehicleFile } from "@/lib/services/vehicle-upload";
 import {
-  getVehicleDocuments,
-  getVehicleImages,
-  saveVehicleDocument,
-  saveVehicleImages,
-  uploadVehicleFile,
-  type VehicleDocumentType,
-} from "@/lib/services/vehicle-upload";
+  mapVehicleRow,
+  vehicleDisplayName,
+  type OwnerVehicleRow,
+} from "@/lib/vehicles/format";
 import { requireRole } from "@/server/actions/auth";
 import type { ActionResult } from "@/types/database";
 
@@ -34,15 +32,11 @@ const VEHICLE_CATEGORIES = [
 const MOBILE_REGEX = /^[6-9]\d{9}$/;
 
 export interface VehicleFormInput {
-  vehicle_name: string;
-  vehicle_number: string;
+  vehicle_make: string;
+  vehicle_model: string;
+  registration_number: string;
+  vehicle_year: number;
   vehicle_category: string;
-  fuel_type: string;
-  transmission: string;
-  seating_capacity: number;
-  has_ac: boolean;
-  rate_per_km: number;
-  base_location: string;
 }
 
 function revalidateVehiclePaths() {
@@ -55,22 +49,26 @@ function revalidateVehiclePaths() {
 }
 
 function parseVehicleInput(formData: FormData): VehicleFormInput {
+  const yearRaw = String(formData.get("vehicle_year") ?? "").trim();
   return {
-    vehicle_name: String(formData.get("vehicle_name") ?? "").trim(),
-    vehicle_number: String(formData.get("vehicle_number") ?? "").trim().toUpperCase(),
-    vehicle_category: String(formData.get("vehicle_category") ?? ""),
-    fuel_type: String(formData.get("fuel_type") ?? ""),
-    transmission: String(formData.get("transmission") ?? ""),
-    seating_capacity: Number(formData.get("seating_capacity") ?? 0),
-    has_ac: formData.get("has_ac") === "true" || formData.get("has_ac") === "on",
-    rate_per_km: Number(formData.get("rate_per_km") ?? 0),
-    base_location: String(formData.get("base_location") ?? "").trim(),
+    vehicle_make: String(formData.get("vehicle_make") ?? "").trim(),
+    vehicle_model: String(formData.get("vehicle_model") ?? "").trim(),
+    registration_number: String(
+      formData.get("registration_number") ?? formData.get("vehicle_number") ?? ""
+    )
+      .trim()
+      .toUpperCase(),
+    vehicle_year: Number(yearRaw),
+    vehicle_category: String(formData.get("vehicle_category") ?? "").trim(),
   };
 }
 
-function validateDraftInput(input: VehicleFormInput): string | null {
-  if (!input.vehicle_name) return "Vehicle name is required";
-  if (!input.vehicle_number) return "Vehicle number is required";
+function validateFormInput(input: VehicleFormInput): string | null {
+  if (!input.vehicle_make) return "Vehicle make is required";
+  if (!input.vehicle_model) return "Vehicle model is required";
+  if (!input.registration_number) return "Registration number is required";
+  if (!input.vehicle_year || input.vehicle_year < 1990) return "Valid vehicle year is required";
+  if (!input.vehicle_category) return "Vehicle category is required";
   return null;
 }
 
@@ -78,80 +76,59 @@ async function uploadIfPresent(
   ownerId: string,
   vehicleId: string,
   formData: FormData,
-  name: string,
-  folder: "images" | VehicleDocumentType
-) {
-  const file = formData.get(name);
+  field: string,
+  folder: "images" | "rc" | "insurance"
+): Promise<string | undefined> {
+  const file = formData.get(field);
   if (!(file instanceof File) || file.size === 0) return undefined;
-  return uploadVehicleFile(ownerId, vehicleId, folder, file);
+  return uploadVehicleFile(ownerId, vehicleId, folder === "images" ? "images" : folder, file);
 }
 
 async function processUploads(
   ownerId: string,
   vehicleId: string,
   formData: FormData,
-  existingImages: string[] = []
+  existing?: OwnerVehicleRow
 ) {
   const db = createAdminClient();
-  const imageUrls = [...existingImages];
+  const updates: Record<string, string> = {};
 
-  for (const key of formData.getAll("vehicle_images")) {
-    if (key instanceof File && key.size > 0) {
-      imageUrls.push(await uploadVehicleFile(ownerId, vehicleId, "images", key));
-    }
+  const photoUrl = await uploadIfPresent(ownerId, vehicleId, formData, "vehicle_photo", "images");
+  if (photoUrl) updates.vehicle_photo_url = photoUrl;
+
+  const firstImage = formData.get("vehicle_images");
+  if (!photoUrl && firstImage instanceof File && firstImage.size > 0) {
+    updates.vehicle_photo_url = await uploadVehicleFile(ownerId, vehicleId, "images", firstImage);
   }
 
-  const docUploads: { field: VehicleDocumentType; expiryField: string }[] = [
-    { field: "rc", expiryField: "rc_expiry" },
-    { field: "insurance", expiryField: "insurance_expiry" },
-    { field: "pollution", expiryField: "pollution_expiry" },
-    { field: "fitness", expiryField: "fitness_expiry" },
-  ];
+  const rcUrl = await uploadIfPresent(ownerId, vehicleId, formData, "rc", "rc");
+  if (rcUrl) updates.rc_document_url = rcUrl;
 
-  for (const { field, expiryField } of docUploads) {
-    const url = await uploadIfPresent(ownerId, vehicleId, formData, field, field);
-    const expiry = String(formData.get(expiryField) ?? "").trim() || null;
-    if (url) await saveVehicleDocument(vehicleId, field, url, expiry);
-    else if (expiry) {
-      const docs = await getVehicleDocuments(vehicleId);
-      if (docs[field]) await saveVehicleDocument(vehicleId, field, docs[field]!, expiry);
-    }
-  }
+  const insuranceUrl = await uploadIfPresent(ownerId, vehicleId, formData, "insurance", "insurance");
+  if (insuranceUrl) updates.insurance_document_url = insuranceUrl;
 
-  if (imageUrls.length > 0) {
-    await saveVehicleImages(vehicleId, imageUrls);
-    await db.from("vehicles").update({ photos: imageUrls }).eq("id", vehicleId);
-  }
+  if (Object.keys(updates).length === 0) return;
+
+  const { error } = await db.from("vehicles").update(updates).eq("id", vehicleId).eq("owner_id", ownerId);
+  if (error) throw new Error(error.message);
 }
 
 async function upsertVehicleRecord(
   ownerId: string,
   input: VehicleFormInput,
-  vehicleId: string | null,
-  approvalStatus: "draft" | "pending"
-) {
+  vehicleId: string | null
+): Promise<string> {
   const db = createAdminClient();
-  const payload: Record<string, unknown> = {
+  const payload = {
     owner_id: ownerId,
-    vehicle_name: input.vehicle_name,
-    vehicle_number: input.vehicle_number,
-    vehicle_type: input.vehicle_category,
-    fuel_type: input.fuel_type || null,
-    transmission: input.transmission || null,
-    seats: input.seating_capacity || null,
-    has_ac: input.has_ac,
-    rate_per_km: input.rate_per_km || null,
-    base_location: input.base_location || null,
-    vehicle_approval_status: approvalStatus,
-    status: approvalStatus === "pending" ? "pending" : "draft",
-    reupload_requested: false,
-    reupload_reason: null,
+    vehicle_make: input.vehicle_make,
+    vehicle_model: input.vehicle_model,
+    registration_number: input.registration_number,
+    vehicle_year: input.vehicle_year,
+    vehicle_category: input.vehicle_category,
+    approval_status: "pending" as const,
     updated_at: new Date().toISOString(),
   };
-
-  if (approvalStatus === "pending") {
-    payload.submitted_at = new Date().toISOString();
-  }
 
   if (vehicleId) {
     const { error } = await db.from("vehicles").update(payload).eq("id", vehicleId).eq("owner_id", ownerId);
@@ -159,27 +136,30 @@ async function upsertVehicleRecord(
     return vehicleId;
   }
 
-  const { data, error } = await db
-    .from("vehicles")
-    .insert({ ...payload, photos: [] })
-    .select("id")
-    .single();
+  const { data, error } = await db.from("vehicles").insert(payload).select("id").single();
   if (error) throw new Error(error.message);
   return data.id as string;
 }
 
-export async function getOwnerVehiclesList(ownerId: string) {
+export async function getOwnerVehiclesList(ownerId: string): Promise<OwnerVehicleRow[]> {
   const db = createAdminClient();
   const { data, error } = await db
     .from("vehicles")
     .select("*")
     .eq("owner_id", ownerId)
     .order("created_at", { ascending: false });
-  if (error) return [];
-  return data ?? [];
+
+  if (error) {
+    console.error("[getOwnerVehiclesList]", error.message);
+    return [];
+  }
+  return (data ?? []).map((row) => mapVehicleRow(row as Record<string, unknown>));
 }
 
-export async function getOwnerVehicleById(vehicleId: string, ownerId: string) {
+export async function getOwnerVehicleById(
+  vehicleId: string,
+  ownerId: string
+): Promise<OwnerVehicleRow | null> {
   const db = createAdminClient();
   const { data, error } = await db
     .from("vehicles")
@@ -187,12 +167,9 @@ export async function getOwnerVehicleById(vehicleId: string, ownerId: string) {
     .eq("id", vehicleId)
     .eq("owner_id", ownerId)
     .maybeSingle();
+
   if (error || !data) return null;
-  const [images, documents] = await Promise.all([
-    getVehicleImages(vehicleId),
-    getVehicleDocuments(vehicleId),
-  ]);
-  return { ...data, images, documents };
+  return mapVehicleRow(data as Record<string, unknown>);
 }
 
 export async function saveOwnerVehicle(
@@ -202,72 +179,66 @@ export async function saveOwnerVehicle(
   if (configError) return { success: false, error: configError };
 
   const { user } = await requireRole("owner");
-  const action = String(formData.get("form_action") ?? "submit");
   const vehicleId = String(formData.get("vehicle_id") ?? "").trim() || null;
   const input = parseVehicleInput(formData);
 
-  const draftError = validateDraftInput(input);
-  if (draftError) return { success: false, error: draftError };
+  const validationError = validateFormInput(input);
+  if (validationError) return { success: false, error: validationError };
 
-  if (input.vehicle_category && !VEHICLE_CATEGORIES.includes(input.vehicle_category as (typeof VEHICLE_CATEGORIES)[number])) {
-    if (action === "submit") return { success: false, error: "Select a valid vehicle category" };
+  if (
+    input.vehicle_category &&
+    !VEHICLE_CATEGORIES.includes(input.vehicle_category as (typeof VEHICLE_CATEGORIES)[number])
+  ) {
+    return { success: false, error: "Select a valid vehicle category" };
   }
 
+  let existing: OwnerVehicleRow | null = null;
   if (vehicleId) {
-    const existing = await getOwnerVehicleById(vehicleId, user.id);
+    existing = await getOwnerVehicleById(vehicleId, user.id);
     if (!existing) return { success: false, error: "Vehicle not found" };
-    const approval = String((existing as Record<string, unknown>).vehicle_approval_status ?? "");
-    if (approval === "approved" && action === "draft") {
-      return { success: false, error: "Approved vehicles cannot be saved as draft" };
+    if (existing.approval_status === "approved") {
+      return { success: false, error: "Approved vehicles cannot be edited. Contact support." };
     }
   }
 
   try {
-    const id = await upsertVehicleRecord(
-      user.id,
-      input,
-      vehicleId,
-      action === "draft" ? "draft" : "pending"
-    );
+    const id = await upsertVehicleRecord(user.id, input, vehicleId);
+    await processUploads(user.id, id, formData, existing ?? undefined);
 
-    await processUploads(user.id, id, formData, vehicleId ? (await getOwnerVehicleById(id, user.id))?.images ?? [] : []);
-
-    if (action === "submit") {
-      const validation = await validateVehicleForSubmission(id);
-      if (!validation.valid) {
-        await createAdminClient()
-          .from("vehicles")
-          .update({ vehicle_approval_status: "draft", status: "draft" })
-          .eq("id", id);
-        return { success: false, error: validation.errors.join(". ") };
-      }
-
-      await createNotification({
-        recipientRole: "admin",
-        type: "vehicle_pending_approval",
-        title: "New vehicle submitted",
-        message: `${input.vehicle_name} (${input.vehicle_number}) is awaiting approval.`,
-        metadata: { vehicleId: id, ownerId: user.id },
-      });
+    const submissionCheck = await validateVehicleForSubmission(id);
+    if (!submissionCheck.valid) {
+      return { success: false, error: submissionCheck.errors.join(". ") };
     }
 
+    await createAdminClient()
+      .from("vehicles")
+      .update({ approval_status: "pending", updated_at: new Date().toISOString() })
+      .eq("id", id);
+
+    await createNotification({
+      recipientRole: "admin",
+      type: "vehicle_pending_approval",
+      title: "New vehicle submitted",
+      message: `${vehicleDisplayName(input)} (${input.registration_number}) is awaiting approval.`,
+      metadata: { vehicleId: id, ownerId: user.id },
+    });
+
     revalidateVehiclePaths();
-    return { success: true, data: { id } };
+    return {
+      success: true,
+      data: { id },
+      message: "Vehicle submitted successfully. Waiting for admin approval.",
+    };
   } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : "Failed to save vehicle" };
+    const message = e instanceof Error ? e.message : "Failed to save vehicle";
+    if (message.includes("Could not find the table") || message.includes("does not exist")) {
+      return {
+        success: false,
+        error: "Vehicles table not found. Run migration 012_vehicles_table_integration.sql in Supabase.",
+      };
+    }
+    return { success: false, error: message };
   }
-}
-
-/** @deprecated Use saveOwnerVehicle */
-export async function createOwnerVehicle(formData: FormData) {
-  formData.set("form_action", "submit");
-  return saveOwnerVehicle(formData);
-}
-
-/** @deprecated Use saveOwnerVehicle */
-export async function updateOwnerVehicle(vehicleId: string, formData: FormData) {
-  formData.set("vehicle_id", vehicleId);
-  return saveOwnerVehicle(formData);
 }
 
 export async function submitOwnerVehicleForApproval(vehicleId: string): Promise<ActionResult> {
@@ -279,34 +250,40 @@ export async function submitOwnerVehicleForApproval(vehicleId: string): Promise<
   if (!validation.valid) return { success: false, error: validation.errors.join(". ") };
 
   const db = createAdminClient();
-  await db
+  const { error } = await db
     .from("vehicles")
-    .update({
-      vehicle_approval_status: "pending",
-      status: "pending",
-      submitted_at: new Date().toISOString(),
-      reupload_requested: false,
-      reupload_reason: null,
-    })
+    .update({ approval_status: "pending", updated_at: new Date().toISOString() })
     .eq("id", vehicleId);
+
+  if (error) return { success: false, error: error.message };
 
   await createNotification({
     recipientRole: "admin",
     type: "vehicle_pending_approval",
     title: "Vehicle resubmitted",
-    message: `Vehicle ${String((existing as Record<string, unknown>).vehicle_name)} is awaiting review.`,
+    message: `${vehicleDisplayName(existing)} is awaiting review.`,
     metadata: { vehicleId, ownerId: user.id },
   });
 
   revalidateVehiclePaths();
-  return { success: true };
+  return {
+    success: true,
+    message: "Vehicle submitted successfully. Waiting for admin approval.",
+  };
 }
 
 export async function deleteOwnerVehicle(vehicleId: string): Promise<ActionResult> {
   const { user } = await requireRole("owner");
+  const existing = await getOwnerVehicleById(vehicleId, user.id);
+  if (!existing) return { success: false, error: "Vehicle not found" };
+  if (existing.approval_status === "approved") {
+    return { success: false, error: "Approved vehicles cannot be deleted. Contact support." };
+  }
+
   const db = createAdminClient();
   const { error } = await db.from("vehicles").delete().eq("id", vehicleId).eq("owner_id", user.id);
   if (error) return { success: false, error: error.message };
+
   await unpublishVehicleFromMarketplace(vehicleId);
   revalidateVehiclePaths();
   return { success: true };
@@ -342,23 +319,17 @@ export async function createReturnJourneyListing(
     return { success: false, error: "Enter a valid driver phone number" };
   }
 
-  const { data: vehicle } = await db
-    .from("vehicles")
-    .select("vehicle_name, vehicle_type, vehicle_approval_status")
-    .eq("id", vehicleId)
-    .eq("owner_id", user.id)
-    .maybeSingle();
-
+  const vehicle = await getOwnerVehicleById(vehicleId, user.id);
   if (!vehicle) return { success: false, error: "Vehicle not found" };
-  if ((vehicle as { vehicle_approval_status?: string }).vehicle_approval_status !== "approved") {
+  if (vehicle.approval_status !== "approved") {
     return { success: false, error: "Only approved vehicles can list return journeys" };
   }
 
   const payload: Record<string, unknown> = {
     owner_id: user.id,
     vehicle_id: vehicleId,
-    vehicle_name: (vehicle as { vehicle_name: string }).vehicle_name,
-    vehicle_type: (vehicle as { vehicle_type: string }).vehicle_type,
+    vehicle_name: vehicleDisplayName(vehicle),
+    vehicle_type: vehicle.vehicle_category,
     from_city: fromCity,
     to_city: toCity,
     pickup_city: fromCity,
@@ -398,31 +369,24 @@ export async function approveOwnerVehicle(vehicleId: string): Promise<ActionResu
 
   const { error } = await db
     .from("vehicles")
-    .update({
-      vehicle_approval_status: "approved",
-      status: "available",
-      approved_at: new Date().toISOString(),
-      approved_by: user.id,
-      rejection_reason: null,
-      reupload_requested: false,
-      reupload_reason: null,
-    })
+    .update({ approval_status: "approved", updated_at: new Date().toISOString() })
     .eq("id", vehicleId);
 
   if (error) return { success: false, error: error.message };
 
   await publishVehicleToMarketplace(vehicleId);
 
-  const { data: vehicle } = await db.from("vehicles").select("owner_id, vehicle_name").eq("id", vehicleId).maybeSingle();
+  const { data: vehicle } = await db.from("vehicles").select("owner_id, vehicle_make, vehicle_model, vehicle_year").eq("id", vehicleId).maybeSingle();
   const ownerId = (vehicle as { owner_id?: string } | null)?.owner_id;
 
-  if (ownerId) {
+  if (ownerId && vehicle) {
+    const v = mapVehicleRow(vehicle as Record<string, unknown>);
     await createNotification({
       recipientId: ownerId,
       recipientRole: "owner",
       type: "vehicle_approved",
       title: "Vehicle approved",
-      message: `Your vehicle "${(vehicle as { vehicle_name?: string }).vehicle_name}" is now live and searchable.`,
+      message: `Your vehicle "${vehicleDisplayName(v)}" is now live and searchable.`,
       metadata: { vehicleId },
     });
   }
@@ -443,16 +407,15 @@ export async function rejectOwnerVehicle(vehicleId: string, reason: string): Pro
   const { user } = await requireRole("admin");
   const db = createAdminClient();
 
-  const { data: vehicle } = await db.from("vehicles").select("owner_id, vehicle_name").eq("id", vehicleId).maybeSingle();
+  const { data: vehicle } = await db
+    .from("vehicles")
+    .select("owner_id, vehicle_make, vehicle_model, vehicle_year")
+    .eq("id", vehicleId)
+    .maybeSingle();
 
   const { error } = await db
     .from("vehicles")
-    .update({
-      vehicle_approval_status: "rejected",
-      status: "unavailable",
-      rejection_reason: reason || "Rejected by admin",
-      reupload_requested: false,
-    })
+    .update({ approval_status: "rejected", updated_at: new Date().toISOString() })
     .eq("id", vehicleId);
 
   if (error) return { success: false, error: error.message };
@@ -460,13 +423,14 @@ export async function rejectOwnerVehicle(vehicleId: string, reason: string): Pro
   await unpublishVehicleFromMarketplace(vehicleId);
 
   const ownerId = (vehicle as { owner_id?: string } | null)?.owner_id;
-  if (ownerId) {
+  if (ownerId && vehicle) {
+    const v = mapVehicleRow(vehicle as Record<string, unknown>);
     await createNotification({
       recipientId: ownerId,
       recipientRole: "owner",
       type: "vehicle_rejected",
       title: "Vehicle rejected",
-      message: reason || "Your vehicle listing was rejected.",
+      message: reason || `Your vehicle "${vehicleDisplayName(v)}" was rejected.`,
       metadata: { vehicleId },
     });
   }
@@ -488,17 +452,15 @@ export async function requestVehicleReupload(vehicleId: string, reason: string):
   const { user } = await requireRole("admin");
   const db = createAdminClient();
 
-  const { data: vehicle } = await db.from("vehicles").select("owner_id, vehicle_name").eq("id", vehicleId).maybeSingle();
+  const { data: vehicle } = await db
+    .from("vehicles")
+    .select("owner_id, vehicle_make, vehicle_model, vehicle_year")
+    .eq("id", vehicleId)
+    .maybeSingle();
 
   const { error } = await db
     .from("vehicles")
-    .update({
-      vehicle_approval_status: "draft",
-      status: "draft",
-      reupload_requested: true,
-      reupload_reason: reason || "Please re-upload your documents",
-      rejection_reason: reason || null,
-    })
+    .update({ approval_status: "pending", updated_at: new Date().toISOString() })
     .eq("id", vehicleId);
 
   if (error) return { success: false, error: error.message };
@@ -506,13 +468,14 @@ export async function requestVehicleReupload(vehicleId: string, reason: string):
   await unpublishVehicleFromMarketplace(vehicleId);
 
   const ownerId = (vehicle as { owner_id?: string } | null)?.owner_id;
-  if (ownerId) {
+  if (ownerId && vehicle) {
+    const v = mapVehicleRow(vehicle as Record<string, unknown>);
     await createNotification({
       recipientId: ownerId,
       recipientRole: "owner",
       type: "vehicle_reupload_requested",
       title: "Re-upload required",
-      message: reason || "Please update your vehicle photos or documents.",
+      message: reason || `Please update documents for "${vehicleDisplayName(v)}".`,
       metadata: { vehicleId },
     });
   }

@@ -2,14 +2,13 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Car, CheckCircle, Loader2 } from "lucide-react";
+import { Car, Loader2 } from "lucide-react";
 import PageLayout from "@/components/layout/PageLayout";
 import FormField from "@/components/forms/FormField";
 import Button from "@/components/ui/Button";
-import { registerOwner } from "@/server/actions/registerOwner";
+import { registerOwnerAndRedirect } from "@/server/actions/registerOwner";
 
 export default function OwnerSignupPage() {
-  const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -18,37 +17,26 @@ export default function OwnerSignupPage() {
     setError("");
     setLoading(true);
     const form = new FormData(e.currentTarget);
-    const result = await registerOwner({
-      name: String(form.get("name") ?? ""),
-      mobile: String(form.get("mobile") ?? ""),
-      email: String(form.get("email") ?? ""),
-      city: String(form.get("city") ?? ""),
-      password: String(form.get("password") ?? ""),
-      aadhaar_number: String(form.get("aadhaar") ?? ""),
-      license_number: String(form.get("dl") ?? ""),
-      vehicle_type: String(form.get("category") ?? ""),
-      vehicle_number: String(form.get("reg") ?? ""),
-    });
-    if (result.success) setSubmitted(true);
-    else {
-      setError(result.error ?? "Registration failed");
+
+    try {
+      await registerOwnerAndRedirect({
+        name: String(form.get("name") ?? ""),
+        mobile: String(form.get("mobile") ?? ""),
+        email: String(form.get("email") ?? ""),
+        city: String(form.get("city") ?? ""),
+        password: String(form.get("password") ?? ""),
+        address: String(form.get("address") ?? ""),
+        aadhaar_number: String(form.get("aadhaar") ?? ""),
+        pan_number: String(form.get("pan") ?? ""),
+        license_number: String(form.get("dl") ?? ""),
+        bank_account: String(form.get("account") ?? ""),
+        ifsc_code: String(form.get("ifsc") ?? ""),
+        bank_name: String(form.get("bank") ?? ""),
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Registration failed");
       setLoading(false);
     }
-  }
-
-  if (submitted) {
-    return (
-      <PageLayout>
-        <div className="mx-auto max-w-lg px-4 py-20 text-center">
-          <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-6" />
-          <h1 className="text-3xl font-bold text-secondary mb-4">Registration Submitted!</h1>
-          <p className="text-gray-600 mb-8">
-            Please verify your email before logging in. Our team will verify your documents within 24 hours.
-          </p>
-          <Button href="/login/owner" variant="primary">Go to Owner Login</Button>
-        </div>
-      </PageLayout>
-    );
   }
 
   return (
@@ -59,7 +47,9 @@ export default function OwnerSignupPage() {
             <Car className="h-8 w-8 text-primary" />
           </div>
           <h1 className="text-3xl font-bold text-secondary">Register as Vehicle Owner</h1>
-          <p className="text-gray-600 mt-2">Start earning from your idle vehicle today</p>
+          <p className="text-gray-600 mt-2">
+            Create your account first — add vehicles from your dashboard after signup.
+          </p>
           <Link href="/signup" className="text-sm text-primary hover:underline mt-2 inline-block">
             Change account type
           </Link>
@@ -69,60 +59,43 @@ export default function OwnerSignupPage() {
           {error && (
             <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-600">{error}</div>
           )}
+
           <h2 className="text-lg font-semibold text-secondary border-b pb-3">Personal Details</h2>
           <div className="grid gap-6 sm:grid-cols-2">
             <FormField label="Full Name" name="name" required />
-            <FormField label="Mobile Number (optional)" name="mobile" type="tel" />
+            <FormField label="Mobile Number" name="mobile" type="tel" placeholder="9876543210" />
             <FormField label="Email" name="email" type="email" required />
             <FormField label="City" name="city" required />
-            <FormField label="Password" name="password" type="password" required />
+            <FormField label="Password" name="password" type="password" required placeholder="Minimum 8 characters" />
           </div>
           <FormField label="Address" name="address" as="textarea" required />
 
           <h2 className="text-lg font-semibold text-secondary border-b pb-3 pt-4">KYC Documents</h2>
           <div className="grid gap-6 sm:grid-cols-2">
-            <FormField label="Aadhaar Number" name="aadhaar" required />
-            <FormField label="PAN Number" name="pan" required />
+            <FormField label="Aadhaar Number" name="aadhaar" required placeholder="12-digit Aadhaar" />
+            <FormField label="PAN Number" name="pan" required placeholder="ABCDE1234F" />
             <FormField label="Driving Licence" name="dl" required />
           </div>
 
           <h2 className="text-lg font-semibold text-secondary border-b pb-3 pt-4">Bank Details</h2>
           <div className="grid gap-6 sm:grid-cols-2">
             <FormField label="Account Number" name="account" required />
-            <FormField label="IFSC Code" name="ifsc" required />
+            <FormField label="IFSC Code" name="ifsc" required placeholder="SBIN0001234" />
             <FormField label="Bank Name" name="bank" required />
           </div>
 
-          <h2 className="text-lg font-semibold text-secondary border-b pb-3 pt-4">Vehicle Details</h2>
-          <div className="grid gap-6 sm:grid-cols-2">
-            <FormField label="Vehicle Make" name="make" required />
-            <FormField label="Vehicle Model" name="model" required />
-            <FormField label="Year" name="year" type="number" required />
-            <FormField label="Registration Number" name="reg" required />
-            <FormField
-              label="Category"
-              name="category"
-              as="select"
-              required
-              options={[
-                { value: "hatchback", label: "Hatchback" },
-                { value: "sedan", label: "Sedan" },
-                { value: "suv", label: "SUV" },
-                { value: "luxury", label: "Luxury" },
-                { value: "electric", label: "Electric" },
-                { value: "tempo", label: "Tempo Traveller" },
-              ]}
-            />
-          </div>
+          <p className="text-sm text-gray-500 rounded-xl bg-gray-50 px-4 py-3">
+            Vehicle details are added separately after registration from your owner dashboard.
+          </p>
 
-          <Button type="submit" variant="primary" size="lg" className="w-full">
+          <Button type="submit" variant="primary" size="lg" className="w-full" disabled={loading}>
             {loading ? (
               <>
                 <Loader2 className="h-5 w-5 animate-spin" />
-                Submitting...
+                Creating account...
               </>
             ) : (
-              "Register as Vehicle Owner"
+              "Create Owner Account"
             )}
           </Button>
         </form>

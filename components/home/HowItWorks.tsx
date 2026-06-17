@@ -48,7 +48,7 @@ const JOURNEYS = [
     ring: "ring-accent/25",
     iconBg: "bg-accent/15 text-secondary",
     stepBg: "bg-accent/10",
-    cta: { label: "Register Your Vehicle", href: "/owner/register", variant: "accent" as const },
+    cta: { label: "List Your Vehicle", href: "/signup/owner", variant: "accent" as const },
     steps: [
       {
         title: "Register Vehicle",
@@ -189,7 +189,7 @@ export default function HowItWorks() {
               Search Vehicles
             </Button>
             <Button
-              href="/owner/register"
+              href="/signup/owner"
               variant="outline"
               size="md"
               className="!border-white/30 !text-white hover:!bg-white/10 hover:!text-white"

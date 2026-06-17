@@ -27,8 +27,8 @@ export default function CTA() {
               <Search className="h-5 w-5" />
               Search Vehicles
             </Button>
-            <Button href="/owner/register" size="lg" className="!bg-white !text-primary hover:!bg-white/90">
-              Register Your Vehicle
+            <Button href="/signup/owner" size="lg" className="!bg-white !text-primary hover:!bg-white/90">
+              List Your Vehicle
             </Button>
           </div>
         </motion.div>

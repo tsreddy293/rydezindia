@@ -1,4 +1,4 @@
-import { Calendar, Car, DollarSign, Route } from "lucide-react";
+import { Calendar, Car, CheckCircle, Clock, DollarSign, Plus, Route } from "lucide-react";
 import PageLayout from "@/components/layout/PageLayout";
 import OwnerDashboardNav from "@/components/dashboard/OwnerDashboardNav";
 import Button from "@/components/ui/Button";
@@ -23,10 +23,17 @@ export default async function OwnerDashboardPage({ searchParams }: Props) {
     getOwnerStats(user.id),
   ]);
   const notifications = await listNotifications({ recipientId: user.id, recipientRole: "owner", limit: 10 });
-  const emailVerified = Boolean(user.email_confirmed_at || user.confirmed_at);
 
-  const cards = [
-    { icon: Car, label: "Total Vehicles", value: metrics.totalVehicles },
+  const ownerName =
+    String(user.user_metadata?.name ?? user.user_metadata?.full_name ?? "").trim() || "Owner";
+
+  const vehicleCards = [
+    { icon: Car, label: "Total Vehicles", value: metrics.totalVehicles, accent: "text-primary" },
+    { icon: CheckCircle, label: "Approved Vehicles", value: metrics.approvedVehicles, accent: "text-green-600" },
+    { icon: Clock, label: "Pending Vehicles", value: metrics.pendingVehicles, accent: "text-amber-600" },
+  ];
+
+  const activityCards = [
     { icon: Route, label: "Active Bookings", value: metrics.activeBookings },
     { icon: Calendar, label: "Upcoming Trips", value: metrics.upcomingTrips },
     { icon: DollarSign, label: "Earnings Today", value: formatINR(metrics.earningsToday) },
@@ -36,20 +43,22 @@ export default async function OwnerDashboardPage({ searchParams }: Props) {
   return (
     <PageLayout>
       <div className="mx-auto max-w-7xl px-4 py-12 md:px-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-secondary">Owner Dashboard</h1>
-            <p className="text-gray-600">Manage vehicles, bookings, and earnings</p>
-            <p className={`mt-2 text-sm ${emailVerified ? "text-green-600" : "text-yellow-600"}`}>
-              {emailVerified ? "Email verified" : "Email verification pending"}
-            </p>
+            <h1 className="text-3xl font-bold text-secondary">Welcome, {ownerName}</h1>
+            <p className="text-gray-600 mt-1">Manage your vehicles, bookings, and earnings</p>
           </div>
           <div className="flex flex-wrap gap-3">
+            <Button href="/owner/add-vehicle" variant="primary" size="sm">
+              <Plus className="h-4 w-4" />
+              Add Vehicle
+            </Button>
             <Button href="/owner/my-vehicles" variant="outline" size="sm">My Vehicles</Button>
-            <Button href="/owner/add-vehicle" variant="primary" size="sm">Add Vehicle</Button>
-            <Button href="/return-journeys" variant="outline" size="sm">Return Journeys</Button>
             <form action={signOutUser}>
-              <button type="submit" className="inline-flex items-center justify-center rounded-xl border-2 border-primary px-4 py-2 text-sm font-medium text-primary hover:bg-primary hover:text-white">
+              <button
+                type="submit"
+                className="inline-flex items-center justify-center rounded-xl border-2 border-primary px-4 py-2 text-sm font-medium text-primary hover:bg-primary hover:text-white"
+              >
                 Logout
               </button>
             </form>
@@ -59,42 +68,63 @@ export default async function OwnerDashboardPage({ searchParams }: Props) {
         <OwnerDashboardNav />
 
         {metrics.totalVehicles === 0 && (
-          <div className="mb-8 rounded-2xl border border-primary/20 bg-primary/5 p-6 md:p-8">
-            <h2 className="text-lg font-bold text-secondary mb-2">Start Vehicle Onboarding</h2>
+          <div className="mb-8 rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/5 to-accent/5 p-6 md:p-8">
+            <h2 className="text-lg font-bold text-secondary mb-2">Add your first vehicle</h2>
             <p className="text-sm text-gray-600 mb-4 max-w-2xl">
-              Add your vehicle, upload photos and documents (RC, Insurance, Pollution), then submit for admin approval.
-              Once approved, your vehicle becomes searchable for riders across India.
+              Your account is ready. Add vehicle details, upload RC, insurance, and photos — then submit for admin approval.
+              You can register unlimited vehicles on one owner account.
             </p>
-            <Button href="/owner/add-vehicle" variant="primary">Add Your First Vehicle</Button>
+            <Button href="/owner/add-vehicle" variant="primary">
+              <Plus className="h-5 w-5" />
+              Add Your First Vehicle
+            </Button>
           </div>
         )}
 
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-5 mb-8">
-          {cards.map(({ icon: Icon, label, value }) => (
+        <div className="grid gap-4 sm:grid-cols-3 mb-6">
+          {vehicleCards.map(({ icon: Icon, label, value, accent }) => (
             <div key={label} className="rounded-2xl bg-white border border-gray-100 p-6 shadow-sm">
-              <Icon className="h-8 w-8 text-primary mb-3" />
-              <p className="text-2xl font-bold text-secondary">
+              <Icon className={`h-8 w-8 mb-3 ${accent}`} />
+              <p className="text-3xl font-bold text-secondary">{value.toLocaleString("en-IN")}</p>
+              <p className="text-sm text-gray-500 mt-1">{label}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-8">
+          {activityCards.map(({ icon: Icon, label, value }) => (
+            <div key={label} className="rounded-2xl bg-white border border-gray-100 p-5 shadow-sm">
+              <Icon className="h-6 w-6 text-primary mb-2" />
+              <p className="text-xl font-bold text-secondary">
                 {typeof value === "number" ? value.toLocaleString("en-IN") : value}
               </p>
-              <p className="text-sm text-gray-500">{label}</p>
+              <p className="text-xs text-gray-500 mt-1">{label}</p>
             </div>
           ))}
         </div>
 
         <div className="grid gap-8 lg:grid-cols-2">
           <section className="rounded-2xl bg-white border border-gray-100 p-6 shadow-sm">
-            <h2 className="mb-5 text-lg font-semibold text-secondary">Recent Vehicles</h2>
+            <div className="mb-5 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-secondary">Recent Vehicles</h2>
+              <Button href="/owner/add-vehicle" variant="ghost" size="sm">
+                <Plus className="h-4 w-4" />
+                Add
+              </Button>
+            </div>
             {(stats.recentVehicles ?? []).length === 0 ? (
               <p className="rounded-xl bg-gray-50 p-6 text-center text-sm text-gray-500">No vehicles yet</p>
             ) : (
               <div className="space-y-4">
                 {stats.recentVehicles?.slice(0, 5).map((vehicle) => (
-                  <div key={vehicle.id} className="rounded-xl bg-gray-50 p-4 flex justify-between">
+                  <div key={vehicle.id} className="rounded-xl bg-gray-50 p-4 flex justify-between gap-3">
                     <div>
                       <p className="font-medium text-secondary">{vehicle.vehicle_name}</p>
                       <p className="text-sm text-gray-500">{vehicle.vehicle_type}</p>
                     </div>
-                    <span className="text-xs rounded-full bg-primary/10 px-2 py-0.5 text-primary h-fit">{vehicle.status}</span>
+                    <span className="text-xs rounded-full bg-primary/10 px-2 py-0.5 text-primary h-fit shrink-0 capitalize">
+                      {vehicle.status}
+                    </span>
                   </div>
                 ))}
               </div>

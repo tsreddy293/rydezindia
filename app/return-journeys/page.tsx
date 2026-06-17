@@ -8,6 +8,7 @@ import { createPageMetadata } from "@/lib/metadata";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserRole } from "@/server/actions/auth";
 import { getOwnerVehiclesList } from "@/server/actions/vehicles";
+import { vehicleDisplayName } from "@/lib/vehicles/format";
 
 export const dynamic = "force-dynamic";
 
@@ -72,7 +73,15 @@ export default async function ReturnJourneysPage({ searchParams }: Props) {
 
         {isOwner && ownerVehicles.length > 0 && (
           <div className="mb-10">
-            <ReturnJourneyListingForm vehicles={ownerVehicles as { id: string; vehicle_name: string; vehicle_type: string }[]} />
+            <ReturnJourneyListingForm
+              vehicles={ownerVehicles
+                .filter((v) => v.approval_status === "approved")
+                .map((v) => ({
+                  id: v.id,
+                  vehicle_name: vehicleDisplayName(v),
+                  vehicle_type: v.vehicle_category,
+                }))}
+            />
           </div>
         )}
 

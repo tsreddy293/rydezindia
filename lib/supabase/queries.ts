@@ -827,7 +827,7 @@ export async function getAdminRows(table: string, columns = "*", limit = 50): Pr
 export async function getOwnerStats(ownerId: string): Promise<OwnerStats> {
   const stats = await getPlatformStats();
   const [vehicles, returnJourneys, driverVehicles, selfDriveVehicles, bookings, payments] = await Promise.all([
-    selectRows("vehicles", "id, owner_id, vehicle_name, vehicle_type, vehicle_number, status, created_at", 500),
+    selectRows("vehicles", "id, owner_id, vehicle_make, vehicle_model, vehicle_year, registration_number, vehicle_category, approval_status, created_at", 500),
     selectRows("return_journeys", "id, owner_id, vehicle_name, vehicle_type, status, available_seats, created_at", 500),
     selectRows("driver_vehicles", "id, owner_id, vehicle_name, vehicle_type, status, available_seats, created_at", 500),
     selectRows("self_drive_vehicles", "id, owner_id, vehicle_name, vehicle_type, status, available_seats, created_at", 500),
@@ -861,14 +861,26 @@ export async function getOwnerStats(ownerId: string): Promise<OwnerStats> {
     monthlyRevenue,
     activeVehicles: ownerVehicles.filter((row) => isPublicListing(row)).length,
     bookingRequests: ownerBookings.filter((row) => getString(row, "booking_status", "pending") === "pending").length,
-    recentVehicles: ownerVehicles.slice(0, 8).map((row) => ({
-      id: getString(row, "id"),
-      vehicle_name: getString(row, "vehicle_name", getString(row, "vehicle_number", "Vehicle")),
-      vehicle_type: getString(row, "vehicle_type", "Unknown"),
-      vehicle_number: getString(row, "vehicle_number"),
-      status: getString(row, "status", "pending"),
-      created_at: getString(row, "created_at"),
-    })),
+    recentVehicles: vehicles
+      .filter((row) => getString(row, "owner_id") === ownerId)
+      .slice(0, 8)
+      .map((row) => {
+        const make = getString(row, "vehicle_make");
+        const model = getString(row, "vehicle_model");
+        const year = getString(row, "vehicle_year");
+        const name =
+          make && model
+            ? `${make} ${model}${year ? ` (${year})` : ""}`
+            : getString(row, "vehicle_name", getString(row, "registration_number", "Vehicle"));
+        return {
+          id: getString(row, "id"),
+          vehicle_name: name,
+          vehicle_type: getString(row, "vehicle_category", getString(row, "vehicle_type", "Unknown")),
+          vehicle_number: getString(row, "registration_number", getString(row, "vehicle_number")),
+          status: getString(row, "approval_status", getString(row, "status", "pending")),
+          created_at: getString(row, "created_at"),
+        };
+      }),
     recentBookings: ownerBookings.slice(0, 8).map((row) => ({
       id: getString(row, "id"),
       booking_type: getString(row, "booking_type", "booking"),
@@ -887,12 +899,19 @@ export async function getOwnerDashboardMetrics(ownerId: string): Promise<OwnerDa
   const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
 
   const [vehicles, bookings, earnings] = await Promise.all([
-    selectRows("vehicles", "id, owner_id", 500),
+    selectRows("vehicles", "id, owner_id, approval_status", 500),
     selectRows("bookings", "id, owner_id, booking_status, pickup_date, amount, created_at", 500),
     selectRows("owner_earnings", "id, owner_id, net_amount, earned_at, created_at", 500),
   ]);
 
   const ownerVehicles = vehicles.filter((r) => getString(r, "owner_id") === ownerId);
+  const approvedVehicles = ownerVehicles.filter(
+    (r) => getString(r, "approval_status", getString(r, "vehicle_approval_status")) === "approved"
+  ).length;
+  const pendingVehicles = ownerVehicles.filter((r) => {
+    const status = getString(r, "approval_status", getString(r, "vehicle_approval_status", "pending"));
+    return status === "pending";
+  }).length;
   const ownerBookings = bookings.filter((r) => getString(r, "owner_id") === ownerId);
   const ownerEarnings = earnings.filter((r) => getString(r, "owner_id") === ownerId);
 
@@ -916,6 +935,8 @@ export async function getOwnerDashboardMetrics(ownerId: string): Promise<OwnerDa
 
   return {
     totalVehicles: ownerVehicles.length,
+    approvedVehicles,
+    pendingVehicles,
     activeBookings,
     upcomingTrips,
     earningsToday,

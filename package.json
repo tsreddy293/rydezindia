@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "db:migrate:vehicles": "node scripts/apply-migration-012.mjs"
   },
   "dependencies": {
     "@radix-ui/react-avatar": "^1.1.12",
@@ -38,6 +39,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.7",
+    "pg": "^8.16.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

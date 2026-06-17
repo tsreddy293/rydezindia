@@ -26,32 +26,11 @@ export default async function EditVehiclePage({ params }: Props) {
 
   if (!vehicle) notFound();
 
-  const v = vehicle as Record<string, unknown>;
-
   return (
     <PageLayout>
       <div className="mx-auto max-w-3xl px-4 py-12 md:px-6">
         <OwnerDashboardNav />
-        <VehicleListingForm
-          vehicle={{
-            id: String(v.id),
-            vehicle_name: String(v.vehicle_name),
-            vehicle_number: String(v.vehicle_number),
-            vehicle_type: String(v.vehicle_type),
-            fuel_type: v.fuel_type as string | null,
-            transmission: v.transmission as string | null,
-            seats: Number(v.seats),
-            has_ac: v.has_ac !== false,
-            rate_per_km: v.rate_per_km != null ? Number(v.rate_per_km) : null,
-            base_location: v.base_location ? String(v.base_location) : null,
-            vehicle_approval_status: String(v.vehicle_approval_status ?? v.status ?? "draft"),
-            rejection_reason: v.rejection_reason ? String(v.rejection_reason) : null,
-            reupload_requested: Boolean(v.reupload_requested),
-            reupload_reason: v.reupload_reason ? String(v.reupload_reason) : null,
-            images: vehicle.images,
-            documents: vehicle.documents,
-          }}
-        />
+        <VehicleListingForm vehicle={vehicle} />
       </div>
     </PageLayout>
   );

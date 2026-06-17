@@ -43,13 +43,6 @@ const DRIVER_TRIP_TYPES: { key: DriverTripType; label: string }[] = [
   { key: "multi_city", label: "Multi-City" },
 ];
 
-const POPULAR_RETURN_ROUTES = [
-  { from: "Hyderabad", to: "Vijayawada" },
-  { from: "Vijayawada", to: "Hyderabad" },
-  { from: "Hyderabad", to: "Visakhapatnam" },
-  { from: "Hyderabad", to: "Tirupati" },
-];
-
 const MAX_MULTI_CITIES = 5;
 const MIN_MULTI_CITIES = 3;
 
@@ -61,15 +54,9 @@ function isMultiCityTrip(service: ServiceType, tripType: DriverTripType) {
   return service === "with_driver" && tripType === "multi_city";
 }
 
-function emptyPlace(label = ""): PlaceLocation | null {
-  return label
-    ? { label, formattedAddress: label, lat: 0, lng: 0 }
-    : null;
-}
-
 export default function HeroSearchForm() {
   const router = useRouter();
-  const [serviceType, setServiceType] = useState<ServiceType>("return_journey");
+  const [serviceType, setServiceType] = useState<ServiceType>("with_driver");
   const [selfDriveDuration, setSelfDriveDuration] = useState<SelfDriveDuration>("1_day");
   const [driverTripType, setDriverTripType] = useState<DriverTripType>("one_way");
   const [fromPlace, setFromPlace] = useState<PlaceLocation | null>(null);
@@ -154,12 +141,6 @@ export default function HeroSearchForm() {
         router.push(`/search-return?${params.toString()}`);
         break;
     }
-  };
-
-  const applyReturnRoute = (from: string, to: string) => {
-    setServiceType("return_journey");
-    setFromPlace(emptyPlace(from));
-    setToPlace(emptyPlace(to));
   };
 
   const activeService = SERVICE_TYPES.find((service) => service.key === serviceType)!;
@@ -436,28 +417,9 @@ export default function HeroSearchForm() {
           )}
 
           {serviceType === "return_journey" && (
-            <div>
-              <div className="mb-2 inline-flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent/10 px-2.5 py-1 text-[10px] font-semibold text-accent md:text-xs">
-                <Sparkles className="h-3 w-3" />
-                Save up to 40% on return journey bookings
-              </div>
-              <p className="mb-1.5 text-[11px] font-medium text-white/90 md:text-xs">
-                Popular Return Journey Deals
-              </p>
-              <div className="grid grid-cols-2 gap-1.5">
-                {POPULAR_RETURN_ROUTES.map((route) => (
-                  <button
-                    key={`${route.from}-${route.to}`}
-                    type="button"
-                    onClick={() => applyReturnRoute(route.from, route.to)}
-                    className="rounded-lg border border-white/15 bg-white/10 px-2 py-1.5 text-left text-[10px] text-white/90 transition hover:border-accent/40 hover:bg-white/15 md:text-xs"
-                  >
-                    <span className="font-semibold text-white">{route.from}</span>
-                    <span className="mx-1 text-accent">→</span>
-                    <span className="font-semibold text-white">{route.to}</span>
-                  </button>
-                ))}
-              </div>
+            <div className="inline-flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent/10 px-3 py-1.5 text-[11px] font-semibold text-accent md:text-xs">
+              <Sparkles className="h-3.5 w-3.5" />
+              Save up to 40% on return journey bookings
             </div>
           )}
         </motion.div>
@@ -469,7 +431,7 @@ export default function HeroSearchForm() {
           Search Vehicles
         </Button>
         <Button
-          href="/owner/register"
+          href="/signup/owner"
           variant="outline"
           size="lg"
           className="w-full !border-white/40 !text-white hover:!bg-white hover:!text-secondary sm:w-auto lg:hidden"

@@ -228,10 +228,13 @@ export interface RegisterOwnerInput {
   email: string;
   city: string;
   password?: string;
+  address: string;
   aadhaar_number: string;
+  pan_number: string;
   license_number: string;
-  vehicle_type: string;
-  vehicle_number: string;
+  bank_account: string;
+  ifsc_code: string;
+  bank_name: string;
 }
 
 export interface RegisterVehicleInput {
@@ -317,6 +320,8 @@ export interface CreateMarketplaceBookingInput {
 
 export interface OwnerDashboardMetrics {
   totalVehicles: number;
+  approvedVehicles: number;
+  pendingVehicles: number;
   activeBookings: number;
   upcomingTrips: number;
   earningsToday: number;
@@ -341,4 +346,5 @@ export interface ActionResult<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
+  message?: string;
 }
