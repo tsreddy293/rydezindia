@@ -54,6 +54,9 @@ export default async function AdminPage() {
 
   const cards = [
     { icon: Shield, label: "Total Owners", value: stats.vehicleOwners.toLocaleString("en-IN") },
+    { icon: CheckCircle, label: "Approved Owners", value: stats.approvedOwners.toLocaleString("en-IN") },
+    { icon: Clock, label: "Pending Owners", value: stats.pendingOwners.toLocaleString("en-IN") },
+    { icon: Shield, label: "Rejected Owners", value: stats.rejectedOwners.toLocaleString("en-IN") },
     { icon: Users, label: "Total Users", value: stats.users.toLocaleString("en-IN") },
     { icon: Car, label: "Total Vehicles", value: stats.vehicles.toLocaleString("en-IN") },
     { icon: CheckCircle, label: "Approved Vehicles", value: stats.approvedVehicles.toLocaleString("en-IN") },

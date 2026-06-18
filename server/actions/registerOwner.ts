@@ -100,10 +100,12 @@ export async function registerOwner(
       mobile: mobile || "",
       city: input.city.trim(),
       role: "owner",
+      owner_status: "pending",
     } as Record<string, unknown>;
     const profileResult = await db.from("users").upsert(profilePayload).select("id");
     if (profileResult.error?.message?.includes("column")) {
       delete profilePayload.full_name;
+      delete profilePayload.owner_status;
       await db.from("users").upsert(profilePayload).select("id");
     }
 

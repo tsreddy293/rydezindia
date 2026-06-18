@@ -1,6 +1,7 @@
 /** Rydez India — Supabase database types */
 
 export type UserRole = "rider" | "owner" | "admin";
+export type OwnerStatus = "pending" | "approved" | "rejected";
 export type VehicleOwnerStatus = "pending" | "approved" | "rejected";
 export type BookingStatus = "pending" | "confirmed" | "cancelled" | "completed";
 export type PaymentStatus = "pending" | "paid" | "refunded" | "failed";
@@ -79,6 +80,9 @@ export interface PlatformStats {
   approvedKyc: number;
   pendingDocuments: number;
   approvedDocuments: number;
+  pendingOwners: number;
+  approvedOwners: number;
+  rejectedOwners: number;
   returnJourneyRevenue: number;
   driverVehicleRevenue: number;
   selfDriveRevenue: number;
@@ -347,7 +351,7 @@ export interface AdminOwnerRecord {
   email: string;
   mobile: string;
   city: string;
-  status: string;
+  status: OwnerStatus;
   vehicleCount: number;
   created_at: string;
 }

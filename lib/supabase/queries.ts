@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getSupabaseConfigError } from "@/lib/supabase/env";
 import { normalizeRole } from "@/lib/auth/roles";
+import { normalizeOwnerStatus } from "@/lib/admin/owner-status";
 import type {
   AdminOwnerKycRecord,
   AdminCustomerKycRecord,
@@ -21,6 +22,7 @@ import type {
   SelfDriveResult,
   UserBooking,
   UserRole,
+  OwnerStatus,
   VehicleDetail,
   VehicleOwner,
 } from "@/types/database";
@@ -543,6 +545,7 @@ export async function getPlatformStats(): Promise<PlatformStats> {
     vehicleCategoryRows,
     ownerKycRecords,
     customerKycRecords,
+    ownerList,
   ] = await Promise.all([
     countTable("users"),
     countRegisteredOwners(),
@@ -565,6 +568,7 @@ export async function getPlatformStats(): Promise<PlatformStats> {
     selectRows("vehicles", "vehicle_category, vehicle_type, vehicle_name", 500),
     getAdminOwnerKycList(),
     getAdminCustomerKycList(),
+    getAdminOwnerList(),
   ]);
 
   const revenue = bookingRows.reduce((sum, row) => sum + getNumber(row, "amount"), 0);
@@ -588,7 +592,10 @@ export async function getPlatformStats(): Promise<PlatformStats> {
     customerKycRecords.filter((row) => isApprovedKycStatus(row.status)).length;
   const pendingDocuments = pendingVehicles;
   const approvedDocuments = approvedVehicles;
-  const pendingApprovals = pendingVehicles + pendingKyc;
+  const pendingOwners = ownerList.filter((owner) => owner.status === "pending").length;
+  const approvedOwners = ownerList.filter((owner) => owner.status === "approved").length;
+  const rejectedOwners = ownerList.filter((owner) => owner.status === "rejected").length;
+  const pendingApprovals = pendingVehicles + pendingKyc + pendingOwners;
 
   const categoryCounts = new Map<string, number>();
   vehicleCategoryRows.forEach((row) => {
@@ -615,6 +622,9 @@ export async function getPlatformStats(): Promise<PlatformStats> {
     approvedKyc,
     pendingDocuments,
     approvedDocuments,
+    pendingOwners,
+    approvedOwners,
+    rejectedOwners,
     returnJourneyRevenue,
     driverVehicleRevenue,
     selfDriveRevenue,
@@ -668,6 +678,9 @@ function emptyStats(error: string): PlatformStats {
     approvedKyc: 0,
     pendingDocuments: 0,
     approvedDocuments: 0,
+    pendingOwners: 0,
+    approvedOwners: 0,
+    rejectedOwners: 0,
     returnJourneyRevenue: 0,
     driverVehicleRevenue: 0,
     selfDriveRevenue: 0,
@@ -1275,11 +1288,19 @@ function normalizeKycDisplayStatus(status: string): string {
   return value || "registered";
 }
 
+function resolveOwnerStatus(row: Row | undefined, kycStatus: string): OwnerStatus {
+  return normalizeOwnerStatus(getString(row, "owner_status"), kycStatus);
+}
+
 /** All platform users — merges auth.users with public.users (same source as dashboard). */
 export async function getAdminUserList(limit = 500): Promise<AdminUserRecord[]> {
   const [{ data: authData, error: authError }, profileRows] = await Promise.all([
     db().auth.admin.listUsers({ page: 1, perPage: 1000 }),
-    selectRows("users", "id, name, email, mobile, role, is_blocked, kyc_status, created_at", limit),
+    selectRows(
+      "users",
+      "id, name, email, mobile, role, is_blocked, kyc_status, owner_status, created_at",
+      limit
+    ),
   ]);
 
   if (authError) {
@@ -1344,11 +1365,14 @@ export async function getAdminUserList(limit = 500): Promise<AdminUserRecord[]> 
 
 /** Registered owners — public.users with role owner, plus vehicle owners missing from users. */
 export async function getAdminOwnerList(): Promise<AdminOwnerRecord[]> {
-  const [allUsers, vehicleRows, profileRows] = await Promise.all([
+  const [allUsers, vehicleRows, profileRows, userStatusRows] = await Promise.all([
     getAdminUserList(),
     selectRows("vehicles", "owner_id", 500),
     selectRows("owner_profiles", "user_id, city, address", 500),
+    selectRows("users", "id, owner_status, kyc_status, role", 500),
   ]);
+
+  const userStatusMap = new Map(userStatusRows.map((row) => [getString(row, "id"), row]));
 
   const vehicleCountByOwner = new Map<string, number>();
   vehicleRows.forEach((row) => {
@@ -1368,13 +1392,14 @@ export async function getAdminOwnerList(): Promise<AdminOwnerRecord[]> {
     if (user.role !== "owner") continue;
     seen.add(user.id);
     const profile = profileMap.get(user.id);
+    const statusRow = userStatusMap.get(user.id);
     owners.push({
       id: user.id,
       name: user.name,
       email: user.email,
       mobile: user.mobile,
       city: getString(profile, "city", getString(profile, "address")),
-      status: ownerStatusFromKyc(user.kyc_status),
+      status: resolveOwnerStatus(statusRow, user.kyc_status),
       vehicleCount: vehicleCountByOwner.get(user.id) ?? 0,
       created_at: user.created_at,
     });
@@ -1384,13 +1409,14 @@ export async function getAdminOwnerList(): Promise<AdminOwnerRecord[]> {
     if (seen.has(ownerId)) continue;
     const user = userById.get(ownerId);
     const profile = profileMap.get(ownerId);
+    const statusRow = userStatusMap.get(ownerId);
     owners.push({
       id: ownerId,
       name: user?.name ?? "Owner",
       email: user?.email ?? "-",
       mobile: user?.mobile ?? "-",
       city: getString(profile, "city", getString(profile, "address")),
-      status: user ? ownerStatusFromKyc(user.kyc_status) : "registered",
+      status: resolveOwnerStatus(statusRow, user?.kyc_status ?? "pending"),
       vehicleCount,
       created_at: user?.created_at ?? "",
     });
@@ -1473,11 +1499,7 @@ export async function getAdminOwnerKycList(): Promise<AdminOwnerKycRecord[]> {
       "license_number",
       getString(legacy, "license_number")
     );
-    const kycStatus = kyc
-      ? getString(kyc, "status", owner.status)
-      : owner.status === "registered"
-        ? "registered"
-        : owner.status;
+    const kycStatus = kyc ? getString(kyc, "status", owner.status) : owner.status;
 
     const documents: AdminOwnerKycRecord["documents"] = {};
     if (getString(kyc, "aadhaar_url")) documents.aadhaar = getString(kyc, "aadhaar_url");
@@ -1494,7 +1516,7 @@ export async function getAdminOwnerKycList(): Promise<AdminOwnerKycRecord[]> {
       mobile: owner.mobile,
       aadhaar: aadhaarNumber ? maskAadhaar(aadhaarNumber) : documents.aadhaar ? "Document uploaded" : "Not provided",
       license: licenseNumber || (documents.license ? "Document uploaded" : "Not provided"),
-      status: normalizeKycDisplayStatus(kycStatus),
+      status: normalizeOwnerStatus(kycStatus, owner.status),
       documents,
     };
   });

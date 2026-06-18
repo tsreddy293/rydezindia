@@ -87,7 +87,11 @@ export async function updateOwnerKycByUserId(
 
   const { error: userError } = await db
     .from("users")
-    .update({ kyc_status: kycStatus })
+    .update({
+      kyc_status: kycStatus,
+      owner_status: status === "approved" ? "approved" : status,
+      role: "owner",
+    })
     .eq("id", userId);
 
   if (userError && !userError.message.includes("kyc_status")) {

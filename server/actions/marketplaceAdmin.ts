@@ -84,16 +84,53 @@ export async function updateOwnerStatus(ownerId: string, status: "approved" | "r
   const kycStatus =
     status === "approved" ? "verified" : status === "rejected" ? "rejected" : "pending";
 
-  let { error } = await db
-    .from("users")
-    .update({ kyc_status: kycStatus })
-    .eq("id", ownerId);
+  const payload: Record<string, unknown> = {
+    owner_status: status,
+    role: "owner",
+    kyc_status: kycStatus,
+    updated_at: new Date().toISOString(),
+  };
 
-  if (error?.message?.includes("kyc_status")) {
-    ({ error } = await db.from("users").update({ role: "owner" }).eq("id", ownerId));
+  let { data: updatedRows, error } = await db
+    .from("users")
+    .update(payload)
+    .eq("id", ownerId)
+    .select("id");
+
+  if (error?.message?.includes("owner_status")) {
+    delete payload.owner_status;
+    ({ data: updatedRows, error } = await db.from("users").update(payload).eq("id", ownerId).select("id"));
   }
 
   if (error) return { success: false, error: error.message };
+
+  const updated = (updatedRows?.length ?? 0) > 0;
+  if (!updated) {
+    const { data: authData } = await db.auth.admin.getUserById(ownerId);
+    const authUser = authData.user;
+    if (!authUser) {
+      return { success: false, error: "Owner account not found" };
+    }
+    const meta = (authUser.user_metadata ?? {}) as Record<string, unknown>;
+    const upsertPayload: Record<string, unknown> = {
+      id: ownerId,
+      email: authUser.email ?? "",
+      name: String(meta.name ?? meta.full_name ?? "Owner"),
+      mobile: String(meta.mobile ?? ""),
+      role: "owner",
+      owner_status: status,
+      kyc_status: kycStatus,
+    };
+    const upsertResult = await db.from("users").upsert(upsertPayload);
+    if (upsertResult.error?.message?.includes("owner_status")) {
+      delete upsertPayload.owner_status;
+      const retry = await db.from("users").upsert(upsertPayload);
+      if (retry.error) return { success: false, error: retry.error.message };
+    } else if (upsertResult.error) {
+      return { success: false, error: upsertResult.error.message };
+    }
+  }
+
   if (status === "approved") {
     await createNotification({
       recipientId: ownerId,
@@ -104,9 +141,21 @@ export async function updateOwnerStatus(ownerId: string, status: "approved" | "r
       title: "Owner profile approved",
       message: "Your owner profile has been approved.",
     });
+  } else if (status === "rejected") {
+    await createNotification({
+      recipientId: ownerId,
+      recipientRole: "owner",
+      actorId: user.id,
+      actorRole: "admin",
+      type: "owner_rejected",
+      title: "Owner profile rejected",
+      message: "Your owner profile was rejected. Contact support for details.",
+    });
   }
+
   revalidatePath("/admin");
   revalidatePath("/admin/owners");
+  revalidatePath("/admin/kyc");
   return { success: true };
 }
 
