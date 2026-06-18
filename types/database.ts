@@ -63,6 +63,9 @@ export interface PlatformStats {
   vehicleOwners: number;
   vehicles: number;
   vehiclesTableCount: number;
+  approvedVehicles: number;
+  pendingVehicles: number;
+  rejectedVehicles: number;
   bookings: number;
   returnJourneys: number;
   selfDriveVehicles: number;

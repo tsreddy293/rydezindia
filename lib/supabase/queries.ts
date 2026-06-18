@@ -115,6 +115,60 @@ async function countTable(table: string, options?: { createdAfter?: string }): P
   return count ?? 0;
 }
 
+async function countTableWhere(table: string, column: string, value: string): Promise<number> {
+  const { count, error } = await db()
+    .from(table)
+    .select("id", { count: "exact", head: true })
+    .eq(column, value);
+  if (error) {
+    if (isMissingTableError(error)) return 0;
+    console.error(`[countTableWhere] ${table}.${column}:`, error.message);
+    return 0;
+  }
+  return count ?? 0;
+}
+
+function getVehicleApprovalStatus(row: Row): string {
+  return getString(row, "approval_status", getString(row, "vehicle_approval_status", "pending"));
+}
+
+function formatVehicleDisplayName(row: Row): string {
+  const make = getString(row, "vehicle_make");
+  const model = getString(row, "vehicle_model");
+  const year = getString(row, "vehicle_year");
+  if (make || model) {
+    return [make, model, year].filter(Boolean).join(" ").trim();
+  }
+  return getString(row, "vehicle_name", getString(row, "registration_number", "Vehicle"));
+}
+
+async function countRegisteredOwners(): Promise<number> {
+  const ownersByRole = await countTableWhere("users", "role", "owner");
+  if (ownersByRole > 0) return ownersByRole;
+
+  const vehicleRows = await selectRows("vehicles", "owner_id", 500);
+  const uniqueOwnerIds = new Set(
+    vehicleRows.map((row) => getString(row, "owner_id")).filter(Boolean)
+  );
+  return uniqueOwnerIds.size;
+}
+
+async function selectRecentOwnerUsers(limit = 8): Promise<Row[]> {
+  const { data, error } = await db()
+    .from("users")
+    .select("id, name, mobile, role, created_at")
+    .eq("role", "owner")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    if (isMissingTableError(error)) return [];
+    console.error("[selectRecentOwnerUsers]", error.message);
+    return [];
+  }
+  return asRows(data);
+}
+
 async function selectRows(table: string, columns = "*", limit = 100): Promise<Row[]> {
   const { data, error } = await db()
     .from(table)
@@ -465,8 +519,11 @@ export async function getPlatformStats(): Promise<PlatformStats> {
 
   const [
     users,
-    owners,
+    registeredOwners,
     vehicles,
+    approvedVehicles,
+    pendingVehicles,
+    rejectedVehicles,
     returnJourneys,
     selfDriveVehicles,
     driverVehicles,
@@ -475,19 +532,28 @@ export async function getPlatformStats(): Promise<PlatformStats> {
     bookingRows,
     recentVehiclesRows,
     recentOwnersRows,
+    vehicleCategoryRows,
     ownerKycCount,
   ] = await Promise.all([
     countTable("users"),
-    countTable("owners"),
+    countRegisteredOwners(),
     countTable("vehicles"),
+    countTableWhere("vehicles", "approval_status", "approved"),
+    countTableWhere("vehicles", "approval_status", "pending"),
+    countTableWhere("vehicles", "approval_status", "rejected"),
     countTable("return_journeys"),
     countTable("self_drive_vehicles"),
     countTable("driver_vehicles"),
     countTable("bookings"),
     countTable("bookings", { createdAfter: `${today}T00:00:00.000Z` }),
     selectRows("bookings", "id, booking_type, amount, booking_status, created_at", 500),
-    selectRows("vehicles", "id, vehicle_name, vehicle_type, vehicle_number, status, vehicle_approval_status, created_at", 8),
-    selectRows("owners", "id, owner_name, mobile, verification_status, created_at", 8),
+    selectRows(
+      "vehicles",
+      "id, owner_id, vehicle_make, vehicle_model, vehicle_year, vehicle_name, vehicle_type, vehicle_category, registration_number, approval_status, vehicle_approval_status, created_at",
+      8
+    ),
+    selectRecentOwnerUsers(8),
+    selectRows("vehicles", "vehicle_category, vehicle_type, vehicle_name", 500),
     countTable("owner_kyc"),
   ]);
 
@@ -504,22 +570,22 @@ export async function getPlatformStats(): Promise<PlatformStats> {
   const monthlyRevenue = bookingRows
     .filter((row) => new Date(String(row.created_at)) >= monthStart)
     .reduce((sum, row) => sum + getNumber(row, "amount"), 0);
-  const pendingApprovals =
-    ownerKycCount +
-    recentVehiclesRows.filter((row) => getString(row, "vehicle_approval_status", "approved") === "pending").length +
-    recentOwnersRows.filter((row) => getString(row, "verification_status", "pending") === "pending").length;
+  const pendingApprovals = pendingVehicles + ownerKycCount;
 
   const categoryCounts = new Map<string, number>();
-  recentVehiclesRows.forEach((row) => {
-    const type = getString(row, "vehicle_type", "Unknown");
+  vehicleCategoryRows.forEach((row) => {
+    const type = getString(row, "vehicle_category", getString(row, "vehicle_type", "Unknown"));
     categoryCounts.set(type, (categoryCounts.get(type) ?? 0) + 1);
   });
 
   return {
     users,
-    vehicleOwners: owners,
-    vehicles: returnJourneys + driverVehicles + selfDriveVehicles,
+    vehicleOwners: registeredOwners,
+    vehicles,
     vehiclesTableCount: vehicles,
+    approvedVehicles,
+    pendingVehicles,
+    rejectedVehicles,
     bookings,
     returnJourneys,
     selfDriveVehicles,
@@ -540,17 +606,17 @@ export async function getPlatformStats(): Promise<PlatformStats> {
     })) satisfies RecentBooking[],
     recentVehicles: recentVehiclesRows.map((row) => ({
       id: getString(row, "id"),
-      vehicle_name: getString(row, "vehicle_name", getString(row, "vehicle_number", "Vehicle")),
-      vehicle_type: getString(row, "vehicle_type", "Unknown"),
-      vehicle_number: getString(row, "vehicle_number"),
-      status: getString(row, "status", "pending"),
+      vehicle_name: formatVehicleDisplayName(row),
+      vehicle_type: getString(row, "vehicle_category", getString(row, "vehicle_type", "Unknown")),
+      vehicle_number: getString(row, "registration_number", getString(row, "vehicle_number")),
+      status: getVehicleApprovalStatus(row),
       created_at: getString(row, "created_at"),
     })) satisfies RecentVehicle[],
     recentOwners: recentOwnersRows.map((row) => ({
       id: getString(row, "id"),
-      owner_name: getString(row, "owner_name", "Owner"),
+      owner_name: getString(row, "name", getString(row, "owner_name", "Owner")),
       mobile: getString(row, "mobile"),
-      verification_status: getString(row, "verification_status", "pending"),
+      verification_status: getString(row, "role", "owner"),
       created_at: getString(row, "created_at"),
     })) satisfies RecentOwner[],
     revenueTrend: bucketTrend(bookingRows, "amount"),
@@ -566,6 +632,9 @@ function emptyStats(error: string): PlatformStats {
     vehicleOwners: 0,
     vehicles: 0,
     vehiclesTableCount: 0,
+    approvedVehicles: 0,
+    pendingVehicles: 0,
+    rejectedVehicles: 0,
     bookings: 0,
     returnJourneys: 0,
     selfDriveVehicles: 0,

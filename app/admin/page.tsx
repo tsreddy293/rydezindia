@@ -3,6 +3,8 @@ import {
   CalendarCheck,
   Car,
   CarFront,
+  CheckCircle,
+  Clock,
   IndianRupee,
   Route,
   Shield,
@@ -54,6 +56,9 @@ export default async function AdminPage() {
     { icon: Shield, label: "Total Owners", value: stats.vehicleOwners.toLocaleString("en-IN") },
     { icon: Users, label: "Total Users", value: stats.users.toLocaleString("en-IN") },
     { icon: Car, label: "Total Vehicles", value: stats.vehicles.toLocaleString("en-IN") },
+    { icon: CheckCircle, label: "Approved Vehicles", value: stats.approvedVehicles.toLocaleString("en-IN") },
+    { icon: Clock, label: "Pending Vehicles", value: stats.pendingVehicles.toLocaleString("en-IN") },
+    { icon: Shield, label: "Pending Approvals", value: stats.pendingApprovals.toLocaleString("en-IN") },
     { icon: Route, label: "Return Journey Vehicles", value: stats.returnJourneys.toLocaleString("en-IN") },
     { icon: CarFront, label: "Self Drive Vehicles", value: stats.selfDriveVehicles.toLocaleString("en-IN") },
     { icon: Car, label: "Driver Vehicles", value: stats.driverVehicles.toLocaleString("en-IN") },
@@ -64,7 +69,6 @@ export default async function AdminPage() {
     { icon: IndianRupee, label: "Self Drive Revenue", value: formatINR(stats.selfDriveRevenue) },
     { icon: IndianRupee, label: "Monthly Revenue", value: formatINR(stats.monthlyRevenue) },
     { icon: IndianRupee, label: "Total Revenue", value: formatINR(stats.revenue) },
-    { icon: Shield, label: "Pending Approvals", value: stats.pendingApprovals.toLocaleString("en-IN") },
     { icon: Shield, label: "Verified Users", value: authStats.verified.toLocaleString("en-IN") },
     { icon: Shield, label: "Unverified Users", value: authStats.unverified.toLocaleString("en-IN") },
     { icon: Shield, label: "Blocked Accounts", value: authStats.blocked.toLocaleString("en-IN") },
@@ -198,6 +202,7 @@ export default async function AdminPage() {
                     <p className="mt-1 text-gray-500">
                       {vehicle.vehicle_type} - {vehicle.vehicle_number || "No number"} - {vehicle.status}
                     </p>
+                    <p className="mt-1 text-xs text-gray-400">{formatDate(vehicle.created_at)}</p>
                   </div>
                 ))
               )}
