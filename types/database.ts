@@ -323,6 +323,48 @@ export interface CreateMarketplaceBookingInput {
   amount: number;
 }
 
+export interface AdminUserRecord {
+  id: string;
+  name: string;
+  email: string;
+  mobile: string;
+  role: UserRole;
+  kyc_status: string;
+  is_blocked: boolean;
+  created_at: string;
+  verified: boolean;
+  lastLogin: string;
+  status: string;
+}
+
+export interface AdminOwnerRecord {
+  id: string;
+  name: string;
+  email: string;
+  mobile: string;
+  city: string;
+  status: string;
+  vehicleCount: number;
+  created_at: string;
+}
+
+export interface AdminVehicleRecord {
+  id: string;
+  vehicle_name: string;
+  vehicle_category: string;
+  registration_number: string;
+  approval_status: string;
+  owner_id: string;
+  owner_name: string;
+  vehicle_photo_url: string | null;
+  rc_document_url: string | null;
+  insurance_document_url: string | null;
+  service_self_drive: boolean;
+  service_with_driver: boolean;
+  service_local_rental: boolean;
+  service_return_journey: boolean;
+}
+
 export interface OwnerDashboardMetrics {
   totalVehicles: number;
   approvedVehicles: number;

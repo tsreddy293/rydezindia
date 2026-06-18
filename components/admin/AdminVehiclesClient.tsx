@@ -16,6 +16,7 @@ interface VehicleRow {
   registration_number: string;
   approval_status: string;
   owner_id: string;
+  owner_name: string;
   vehicle_photo_url: string | null;
   rc_document_url: string | null;
   insurance_document_url: string | null;
@@ -154,6 +155,7 @@ export default function AdminVehiclesClient({ vehicles }: Props) {
             <tr>
               <th className="px-4 py-3 font-medium">Vehicle</th>
               <th className="px-4 py-3 font-medium">Registration</th>
+              <th className="px-4 py-3 font-medium">Owner</th>
               <th className="px-4 py-3 font-medium">Category</th>
               <th className="px-4 py-3 font-medium">Services</th>
               <th className="px-4 py-3 font-medium">Status</th>
@@ -189,6 +191,7 @@ export default function AdminVehiclesClient({ vehicles }: Props) {
                     </div>
                   </td>
                   <td className="px-4 py-4">{vehicle.registration_number}</td>
+                  <td className="px-4 py-4">{vehicle.owner_name}</td>
                   <td className="px-4 py-4">{vehicle.vehicle_category}</td>
                   <td className="px-4 py-4 min-w-[160px]">
                     {isApproved && editingServices === vehicle.id ? (

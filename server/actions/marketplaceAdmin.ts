@@ -81,10 +81,17 @@ export async function rejectVehicle(table: ListingTable, id: string, reason: str
 export async function updateOwnerStatus(ownerId: string, status: "approved" | "rejected" | "pending") {
   const { user } = await requireRole("admin");
   const db = createAdminClient();
-  const { error } = await db
-    .from("owners")
-    .update({ verification_status: status })
+  const kycStatus =
+    status === "approved" ? "verified" : status === "rejected" ? "rejected" : "pending";
+
+  let { error } = await db
+    .from("users")
+    .update({ kyc_status: kycStatus })
     .eq("id", ownerId);
+
+  if (error?.message?.includes("kyc_status")) {
+    ({ error } = await db.from("users").update({ role: "owner" }).eq("id", ownerId));
+  }
 
   if (error) return { success: false, error: error.message };
   if (status === "approved") {
@@ -99,6 +106,7 @@ export async function updateOwnerStatus(ownerId: string, status: "approved" | "r
     });
   }
   revalidatePath("/admin");
+  revalidatePath("/admin/owners");
   return { success: true };
 }
 

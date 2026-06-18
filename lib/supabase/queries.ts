@@ -1,6 +1,10 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getSupabaseConfigError } from "@/lib/supabase/env";
+import { normalizeRole } from "@/lib/auth/roles";
 import type {
+  AdminOwnerRecord,
+  AdminUserRecord,
+  AdminVehicleRecord,
   ChartPoint,
   DriverVehicleResult,
   BookingConfirmation,
@@ -13,6 +17,7 @@ import type {
   SearchResult,
   SelfDriveResult,
   UserBooking,
+  UserRole,
   VehicleDetail,
   VehicleOwner,
 } from "@/types/database";
@@ -1188,6 +1193,209 @@ export async function getBookingConfirmationById(id: string): Promise<BookingCon
 
 export async function getAdminRows(table: string, columns = "*", limit = 50): Promise<Row[]> {
   return selectRows(table, columns, limit);
+}
+
+async function getUserNameMap(ids: string[]): Promise<Map<string, string>> {
+  const uniqueIds = [...new Set(ids.filter(Boolean))];
+  if (uniqueIds.length === 0) return new Map();
+
+  const { data, error } = await db()
+    .from("users")
+    .select("id, name, email")
+    .in("id", uniqueIds);
+
+  const map = new Map<string, string>();
+  if (!error) {
+    asRows(data).forEach((row) => {
+      map.set(getString(row, "id"), resolveUserName(row));
+    });
+  }
+
+  for (const id of uniqueIds) {
+    if (map.has(id)) continue;
+    const { data: authData } = await db().auth.admin.getUserById(id);
+    const authUser = authData.user;
+    if (!authUser) continue;
+    const meta = (authUser.user_metadata ?? {}) as Record<string, unknown>;
+    map.set(
+      id,
+      String(meta.name ?? meta.full_name ?? authUser.email ?? "User").trim() || "User"
+    );
+  }
+
+  return map;
+}
+
+function ownerStatusFromKyc(kycStatus: string): string {
+  if (kycStatus === "verified") return "approved";
+  if (kycStatus === "rejected") return "rejected";
+  if (kycStatus === "pending") return "pending";
+  return "registered";
+}
+
+/** All platform users — merges auth.users with public.users (same source as dashboard). */
+export async function getAdminUserList(limit = 500): Promise<AdminUserRecord[]> {
+  const [{ data: authData, error: authError }, profileRows] = await Promise.all([
+    db().auth.admin.listUsers({ page: 1, perPage: 1000 }),
+    selectRows("users", "id, name, email, mobile, role, is_blocked, kyc_status, created_at", limit),
+  ]);
+
+  if (authError) {
+    console.error("[getAdminUserList]", authError.message);
+  }
+
+  const profileMap = new Map(profileRows.map((row) => [getString(row, "id"), row]));
+  const seen = new Set<string>();
+  const results: AdminUserRecord[] = [];
+
+  for (const authUser of authData?.users ?? []) {
+    seen.add(authUser.id);
+    const profile = profileMap.get(authUser.id);
+    const meta = (authUser.user_metadata ?? {}) as Record<string, unknown>;
+    const role =
+      normalizeRole(getString(profile, "role") || meta.role) ?? ("rider" satisfies UserRole);
+    const isBlockedProfile = Boolean(profile?.is_blocked);
+    const isBanned =
+      Boolean(authUser.banned_until) && new Date(String(authUser.banned_until)) > new Date();
+
+    results.push({
+      id: authUser.id,
+      name:
+        getString(profile, "name") ||
+        String(meta.name ?? meta.full_name ?? authUser.email ?? "User").trim() ||
+        "User",
+      email: authUser.email ?? getString(profile, "email"),
+      mobile: getString(profile, "mobile") || String(meta.mobile ?? ""),
+      role,
+      kyc_status: getString(profile, "kyc_status", "not_submitted"),
+      is_blocked: isBlockedProfile || isBanned,
+      created_at: getString(profile, "created_at") || authUser.created_at || "",
+      verified: Boolean(authUser.email_confirmed_at || authUser.confirmed_at),
+      lastLogin: authUser.last_sign_in_at ?? "",
+      status: isBlockedProfile || isBanned ? "Blocked" : "Active",
+    });
+  }
+
+  for (const profile of profileRows) {
+    const id = getString(profile, "id");
+    if (seen.has(id)) continue;
+    const role = normalizeRole(getString(profile, "role")) ?? ("rider" satisfies UserRole);
+    results.push({
+      id,
+      name: resolveUserName(profile),
+      email: getString(profile, "email"),
+      mobile: getString(profile, "mobile"),
+      role,
+      kyc_status: getString(profile, "kyc_status", "not_submitted"),
+      is_blocked: Boolean(profile.is_blocked),
+      created_at: getString(profile, "created_at"),
+      verified: false,
+      lastLogin: "",
+      status: profile.is_blocked ? "Blocked" : "Active",
+    });
+  }
+
+  return results.sort(
+    (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+  );
+}
+
+/** Registered owners — public.users with role owner, plus vehicle owners missing from users. */
+export async function getAdminOwnerList(): Promise<AdminOwnerRecord[]> {
+  const [allUsers, vehicleRows, profileRows] = await Promise.all([
+    getAdminUserList(),
+    selectRows("vehicles", "owner_id", 500),
+    selectRows("owner_profiles", "user_id, city, address", 500),
+  ]);
+
+  const vehicleCountByOwner = new Map<string, number>();
+  vehicleRows.forEach((row) => {
+    const ownerId = getString(row, "owner_id");
+    if (!ownerId) return;
+    vehicleCountByOwner.set(ownerId, (vehicleCountByOwner.get(ownerId) ?? 0) + 1);
+  });
+
+  const profileMap = new Map(
+    profileRows.map((row) => [getString(row, "user_id"), row])
+  );
+  const userById = new Map(allUsers.map((user) => [user.id, user]));
+  const seen = new Set<string>();
+  const owners: AdminOwnerRecord[] = [];
+
+  for (const user of allUsers) {
+    if (user.role !== "owner") continue;
+    seen.add(user.id);
+    const profile = profileMap.get(user.id);
+    owners.push({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      mobile: user.mobile,
+      city: getString(profile, "city", getString(profile, "address")),
+      status: ownerStatusFromKyc(user.kyc_status),
+      vehicleCount: vehicleCountByOwner.get(user.id) ?? 0,
+      created_at: user.created_at,
+    });
+  }
+
+  for (const [ownerId, vehicleCount] of vehicleCountByOwner) {
+    if (seen.has(ownerId)) continue;
+    const user = userById.get(ownerId);
+    const profile = profileMap.get(ownerId);
+    owners.push({
+      id: ownerId,
+      name: user?.name ?? "Owner",
+      email: user?.email ?? "-",
+      mobile: user?.mobile ?? "-",
+      city: getString(profile, "city", getString(profile, "address")),
+      status: user ? ownerStatusFromKyc(user.kyc_status) : "registered",
+      vehicleCount,
+      created_at: user?.created_at ?? "",
+    });
+  }
+
+  return owners.sort(
+    (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+  );
+}
+
+/** All owner vehicles from public.vehicles — uses select * to avoid missing-column failures. */
+export async function getAdminVehicleList(limit = 200): Promise<AdminVehicleRecord[]> {
+  const { data, error } = await db()
+    .from("vehicles")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    if (isMissingTableError(error)) return [];
+    console.error("[getAdminVehicleList]", error.message);
+    return [];
+  }
+
+  const rows = asRows(data);
+  const ownerIds = rows.map((row) => getString(row, "owner_id")).filter(Boolean);
+  const ownerNames = await getUserNameMap(ownerIds);
+
+  return rows.map((row) => {
+    const mapped = mapVehicleRow(row);
+    return {
+      id: mapped.id,
+      vehicle_name: formatVehicleDisplayName(row),
+      vehicle_category: mapped.vehicle_category,
+      registration_number: mapped.registration_number,
+      approval_status: mapped.approval_status,
+      owner_id: mapped.owner_id,
+      owner_name: ownerNames.get(mapped.owner_id) ?? "Owner",
+      vehicle_photo_url: mapped.vehicle_photo_url ?? null,
+      rc_document_url: mapped.rc_document_url ?? null,
+      insurance_document_url: mapped.insurance_document_url ?? null,
+      service_self_drive: mapped.service_self_drive ?? true,
+      service_with_driver: mapped.service_with_driver ?? true,
+      service_local_rental: mapped.service_local_rental ?? true,
+      service_return_journey: mapped.service_return_journey ?? false,
+    };
+  });
 }
 
 export async function getOwnerStats(ownerId: string): Promise<OwnerStats> {
