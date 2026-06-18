@@ -74,6 +74,131 @@ export async function updateCustomerKycStatus(
   return { success: true };
 }
 
+export async function updateOwnerKycByUserId(
+  userId: string,
+  status: "approved" | "rejected" | "pending"
+): Promise<ActionResult> {
+  const { user } = await requireRole("admin");
+  const db = createAdminClient();
+  const kycStatus =
+    status === "approved" ? "verified" : status === "rejected" ? "rejected" : "pending";
+  const ownerKycStatus =
+    status === "approved" ? "approved" : status === "rejected" ? "rejected" : "pending";
+
+  const { error: userError } = await db
+    .from("users")
+    .update({ kyc_status: kycStatus })
+    .eq("id", userId);
+
+  if (userError && !userError.message.includes("kyc_status")) {
+    return { success: false, error: userError.message };
+  }
+
+  const { data: existing } = await db
+    .from("owner_kyc")
+    .select("id")
+    .eq("owner_id", userId)
+    .maybeSingle();
+
+  if (existing) {
+    await db
+      .from("owner_kyc")
+      .update({
+        status: ownerKycStatus,
+        reviewed_by: user.id,
+        reviewed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("owner_id", userId);
+  }
+
+  await createNotification({
+    recipientId: userId,
+    recipientRole: "owner",
+    type: status === "approved" ? "kyc_verified" : status === "rejected" ? "kyc_rejected" : "kyc_pending",
+    title:
+      status === "approved"
+        ? "KYC Verified"
+        : status === "rejected"
+          ? "KYC Rejected"
+          : "KYC Under Review",
+    message:
+      status === "approved"
+        ? "Your owner KYC has been approved."
+        : status === "rejected"
+          ? "Your owner KYC was rejected. Please update your documents."
+          : "Your owner KYC is pending review.",
+    metadata: { userId },
+  });
+
+  revalidatePath("/admin/kyc");
+  revalidatePath("/admin");
+  return { success: true };
+}
+
+export async function updateCustomerKycByUserId(
+  userId: string,
+  status: "verified" | "rejected" | "pending",
+  remarks?: string
+): Promise<ActionResult> {
+  const { user } = await requireRole("admin");
+  const db = createAdminClient();
+
+  const { data: existing } = await db
+    .from("customer_kyc")
+    .select("id")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (existing) {
+    const { error } = await db
+      .from("customer_kyc")
+      .update({
+        status,
+        remarks: remarks ?? null,
+        reviewed_by: user.id,
+        reviewed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", userId);
+    if (error && !error.message.includes("does not exist")) {
+      return { success: false, error: error.message };
+    }
+  } else {
+    const { error } = await db.from("customer_kyc").insert({
+      user_id: userId,
+      status,
+      remarks: remarks ?? null,
+      reviewed_by: user.id,
+      reviewed_at: new Date().toISOString(),
+    });
+    if (error && !error.message.includes("does not exist")) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  await db.from("users").update({ kyc_status: status }).eq("id", userId);
+
+  await createNotification({
+    recipientId: userId,
+    recipientRole: "rider",
+    type: status === "verified" ? "kyc_verified" : status === "rejected" ? "kyc_rejected" : "kyc_pending",
+    title: status === "verified" ? "KYC Verified" : status === "rejected" ? "KYC Rejected" : "KYC Under Review",
+    message:
+      remarks ??
+      (status === "verified"
+        ? "Your identity is verified."
+        : status === "rejected"
+          ? "Please re-upload your documents."
+          : "Your KYC is pending review."),
+    metadata: { userId },
+  });
+
+  revalidatePath("/admin/customer-kyc");
+  revalidatePath("/admin");
+  return { success: true };
+}
+
 export async function requestKycReupload(
   entityType: "owner_kyc" | "customer_kyc",
   id: string,
@@ -120,6 +245,19 @@ export async function requestKycReupload(
 }
 
 export async function approveVehicleDocument(
+  vehicleId: string,
+  approved: boolean,
+  remarks?: string
+): Promise<ActionResult> {
+  const { approveOwnerVehicle, rejectOwnerVehicle } = await import("@/server/actions/vehicles");
+  if (approved) {
+    return approveOwnerVehicle(vehicleId);
+  }
+  return rejectOwnerVehicle(vehicleId, remarks ?? "Documents rejected by admin");
+}
+
+/** @deprecated Use approveVehicleDocument(vehicleId, ...) — vehicle_documents table optional. */
+export async function approveVehicleDocumentById(
   documentId: string,
   approved: boolean,
   remarks?: string

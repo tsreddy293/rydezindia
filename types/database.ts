@@ -75,6 +75,10 @@ export interface PlatformStats {
   users: number;
   revenue: number;
   pendingApprovals: number;
+  pendingKyc: number;
+  approvedKyc: number;
+  pendingDocuments: number;
+  approvedDocuments: number;
   returnJourneyRevenue: number;
   driverVehicleRevenue: number;
   selfDriveRevenue: number;
@@ -363,6 +367,51 @@ export interface AdminVehicleRecord {
   service_with_driver: boolean;
   service_local_rental: boolean;
   service_return_journey: boolean;
+}
+
+export interface AdminOwnerKycRecord {
+  id: string;
+  kycRecordId: string | null;
+  name: string;
+  email: string;
+  mobile: string;
+  aadhaar: string;
+  license: string;
+  status: string;
+  documents: {
+    aadhaar?: string;
+    pan?: string;
+    license?: string;
+    rc?: string;
+    insurance?: string;
+  };
+}
+
+export interface AdminCustomerKycRecord {
+  id: string;
+  kycRecordId: string | null;
+  name: string;
+  email: string;
+  mobile: string;
+  aadhaar: string;
+  status: string;
+  documents: {
+    aadhaar?: string;
+    license?: string;
+    selfie?: string;
+  };
+}
+
+export interface AdminVehicleDocumentRecord {
+  id: string;
+  vehicle_name: string;
+  registration_number: string;
+  owner_name: string;
+  rc_url: string | null;
+  insurance_url: string | null;
+  pollution_url: string | null;
+  fitness_url: string | null;
+  verification_status: string;
 }
 
 export interface OwnerDashboardMetrics {
