@@ -364,6 +364,8 @@ export interface AdminVehicleRecord {
   approval_status: string;
   owner_id: string;
   owner_name: string;
+  owner_status: OwnerStatus;
+  canApprove: boolean;
   vehicle_photo_url: string | null;
   rc_document_url: string | null;
   insurance_document_url: string | null;
@@ -381,7 +383,8 @@ export interface AdminOwnerKycRecord {
   mobile: string;
   aadhaar: string;
   license: string;
-  status: string;
+  status: OwnerStatus;
+  canApprove: boolean;
   documents: {
     aadhaar?: string;
     pan?: string;

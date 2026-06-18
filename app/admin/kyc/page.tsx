@@ -1,6 +1,9 @@
 import { AdminPageShell, AdminTable } from "@/components/admin/AdminTable";
+import {
+  AdminOwnerKycActions,
+  AdminOwnerKycStatusBadge,
+} from "@/components/admin/AdminOwnerKycActions";
 import { getAdminOwnerKycList } from "@/lib/supabase/queries";
-import { updateOwnerKycByUserId } from "@/server/actions/phase2Admin";
 import { requireRole } from "@/server/actions/auth";
 
 export const dynamic = "force-dynamic";
@@ -71,30 +74,14 @@ export default async function AdminKycPage() {
           owner.mobile || "-",
           owner.aadhaar,
           owner.license,
-          owner.status,
+          <AdminOwnerKycStatusBadge key="status" status={owner.status} />,
           <DocumentLinks key="docs" documents={owner.documents} />,
-          <div key="actions" className="flex flex-wrap gap-2">
-            <form
-              action={async () => {
-                "use server";
-                await updateOwnerKycByUserId(owner.id, "approved");
-              }}
-            >
-              <button className="rounded-lg border px-3 py-1 text-xs text-green-700 hover:bg-green-50">
-                Approve
-              </button>
-            </form>
-            <form
-              action={async () => {
-                "use server";
-                await updateOwnerKycByUserId(owner.id, "rejected");
-              }}
-            >
-              <button className="rounded-lg border border-red-200 px-3 py-1 text-xs text-red-600 hover:bg-red-50">
-                Reject
-              </button>
-            </form>
-          </div>,
+          <AdminOwnerKycActions
+            key="actions"
+            ownerId={owner.id}
+            currentStatus={owner.status}
+            canApprove={owner.canApprove}
+          />,
         ])}
       />
     </AdminPageShell>

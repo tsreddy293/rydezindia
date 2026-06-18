@@ -2,6 +2,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getSupabaseConfigError } from "@/lib/supabase/env";
 import { normalizeRole } from "@/lib/auth/roles";
 import { normalizeOwnerStatus } from "@/lib/admin/owner-status";
+import { ownerKycCanApprove } from "@/lib/admin/owner-kyc";
+import { effectiveVehicleStat } from "@/lib/admin/vehicle-approval";
 import type {
   AdminOwnerKycRecord,
   AdminCustomerKycRecord,
@@ -530,10 +532,7 @@ export async function getPlatformStats(): Promise<PlatformStats> {
   const [
     users,
     registeredOwners,
-    vehicles,
-    approvedVehicles,
-    pendingVehicles,
-    rejectedVehicles,
+    vehicleCounts,
     returnJourneys,
     selfDriveVehicles,
     driverVehicles,
@@ -549,10 +548,7 @@ export async function getPlatformStats(): Promise<PlatformStats> {
   ] = await Promise.all([
     countTable("users"),
     countRegisteredOwners(),
-    countTable("vehicles"),
-    countTableWhere("vehicles", "approval_status", "approved"),
-    countTableWhere("vehicles", "approval_status", "pending"),
-    countTableWhere("vehicles", "approval_status", "rejected"),
+    getVehicleDashboardCounts(),
     countTable("return_journeys"),
     countTable("self_drive_vehicles"),
     countTable("driver_vehicles"),
@@ -585,11 +581,15 @@ export async function getPlatformStats(): Promise<PlatformStats> {
     .filter((row) => new Date(String(row.created_at)) >= monthStart)
     .reduce((sum, row) => sum + getNumber(row, "amount"), 0);
   const pendingKyc =
-    ownerKycRecords.filter((row) => isPendingKycStatus(row.status)).length +
+    ownerKycRecords.filter((row) => row.status === "pending").length +
     customerKycRecords.filter((row) => isPendingKycStatus(row.status)).length;
   const approvedKyc =
-    ownerKycRecords.filter((row) => isApprovedKycStatus(row.status)).length +
+    ownerKycRecords.filter((row) => row.status === "approved").length +
     customerKycRecords.filter((row) => isApprovedKycStatus(row.status)).length;
+  const vehicles = vehicleCounts.total;
+  const approvedVehicles = vehicleCounts.approved;
+  const pendingVehicles = vehicleCounts.pending;
+  const rejectedVehicles = vehicleCounts.rejected;
   const pendingDocuments = pendingVehicles;
   const approvedDocuments = approvedVehicles;
   const pendingOwners = ownerList.filter((owner) => owner.status === "pending").length;
@@ -1292,6 +1292,80 @@ function resolveOwnerStatus(row: Row | undefined, kycStatus: string): OwnerStatu
   return normalizeOwnerStatus(getString(row, "owner_status"), kycStatus);
 }
 
+async function getOwnerStatusMap(ownerIds: string[]): Promise<Map<string, OwnerStatus>> {
+  const uniqueIds = [...new Set(ownerIds.filter(Boolean))];
+  if (uniqueIds.length === 0) return new Map();
+
+  const { data, error } = await db()
+    .from("users")
+    .select("id, owner_status, kyc_status")
+    .in("id", uniqueIds);
+
+  const map = new Map<string, OwnerStatus>();
+  if (!error) {
+    asRows(data).forEach((row) => {
+      map.set(getString(row, "id"), resolveOwnerStatus(row, getString(row, "kyc_status")));
+    });
+  }
+
+  for (const id of uniqueIds) {
+    if (map.has(id)) continue;
+    map.set(id, "pending");
+  }
+
+  return map;
+}
+
+async function getVehicleDashboardCounts(): Promise<{
+  total: number;
+  approved: number;
+  pending: number;
+  rejected: number;
+}> {
+  const rows = await selectRows("vehicles", "id, owner_id, approval_status, vehicle_approval_status", 500);
+  const ownerIds = rows.map((row) => getString(row, "owner_id")).filter(Boolean);
+  const ownerStatusMap = await getOwnerStatusMap(ownerIds);
+
+  let approved = 0;
+  let pending = 0;
+  let rejected = 0;
+
+  rows.forEach((row) => {
+    const ownerStatus = ownerStatusMap.get(getString(row, "owner_id")) ?? "pending";
+    const stat = effectiveVehicleStat(getVehicleApprovalStatus(row), ownerStatus);
+    if (stat === "approved") approved += 1;
+    else if (stat === "rejected") rejected += 1;
+    else pending += 1;
+  });
+
+  return { total: rows.length, approved, pending, rejected };
+}
+
+export async function assertOwnerApprovedForVehicle(
+  ownerId: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { data, error } = await db()
+    .from("users")
+    .select("owner_status, kyc_status")
+    .eq("id", ownerId)
+    .maybeSingle();
+
+  if (error && !error.message.includes("owner_status")) {
+    return { ok: false, error: error.message };
+  }
+
+  const ownerStatus = resolveOwnerStatus(
+    data as Row | undefined,
+    getString(data as Row | undefined, "kyc_status")
+  );
+
+  if (ownerStatus !== "approved") {
+    return { ok: false, error: "Owner approval required" };
+  }
+
+  return { ok: true };
+}
+
 /** All platform users — merges auth.users with public.users (same source as dashboard). */
 export async function getAdminUserList(limit = 500): Promise<AdminUserRecord[]> {
   const [{ data: authData, error: authError }, profileRows] = await Promise.all([
@@ -1443,10 +1517,15 @@ export async function getAdminVehicleList(limit = 200): Promise<AdminVehicleReco
 
   const rows = asRows(data);
   const ownerIds = rows.map((row) => getString(row, "owner_id")).filter(Boolean);
-  const ownerNames = await getUserNameMap(ownerIds);
+  const [ownerNames, ownerStatusMap] = await Promise.all([
+    getUserNameMap(ownerIds),
+    getOwnerStatusMap(ownerIds),
+  ]);
 
   return rows.map((row) => {
     const mapped = mapVehicleRow(row);
+    const ownerStatus = ownerStatusMap.get(mapped.owner_id) ?? "pending";
+    const canApprove = ownerStatus === "approved";
     return {
       id: mapped.id,
       vehicle_name: formatVehicleDisplayName(row),
@@ -1455,6 +1534,8 @@ export async function getAdminVehicleList(limit = 200): Promise<AdminVehicleReco
       approval_status: mapped.approval_status,
       owner_id: mapped.owner_id,
       owner_name: ownerNames.get(mapped.owner_id) ?? "Owner",
+      owner_status: ownerStatus,
+      canApprove,
       vehicle_photo_url: mapped.vehicle_photo_url ?? null,
       rc_document_url: mapped.rc_document_url ?? null,
       insurance_document_url: mapped.insurance_document_url ?? null,
@@ -1468,7 +1549,7 @@ export async function getAdminVehicleList(limit = 200): Promise<AdminVehicleReco
 
 /** Owner KYC — merges owner profiles, users, owner_kyc, and vehicle_owners fallback. */
 export async function getAdminOwnerKycList(): Promise<AdminOwnerKycRecord[]> {
-  const [owners, ownerProfiles, kycRows, legacyOwners] = await Promise.all([
+  const [owners, ownerProfiles, kycRows, legacyOwners, userRows] = await Promise.all([
     getAdminOwnerList(),
     selectRows(
       "owner_profiles",
@@ -1477,6 +1558,7 @@ export async function getAdminOwnerKycList(): Promise<AdminOwnerKycRecord[]> {
     ),
     selectRows("owner_kyc", "id, owner_id, aadhaar_url, pan_url, license_url, rc_url, insurance_url, status", 500),
     selectRows("vehicle_owners", "owner_id, name, mobile, email, aadhaar_number, license_number, status", 500),
+    selectRows("users", "id, kyc_status", 500),
   ]);
 
   const profileMap = new Map(ownerProfiles.map((row) => [getString(row, "user_id"), row]));
@@ -1484,6 +1566,7 @@ export async function getAdminOwnerKycList(): Promise<AdminOwnerKycRecord[]> {
   const legacyMap = new Map(
     legacyOwners.map((row) => [getString(row, "owner_id", getString(row, "id")), row])
   );
+  const userKycMap = new Map(userRows.map((row) => [getString(row, "id"), getString(row, "kyc_status")]));
 
   return owners.map((owner) => {
     const profile = profileMap.get(owner.id);
@@ -1499,7 +1582,8 @@ export async function getAdminOwnerKycList(): Promise<AdminOwnerKycRecord[]> {
       "license_number",
       getString(legacy, "license_number")
     );
-    const kycStatus = kyc ? getString(kyc, "status", owner.status) : owner.status;
+    const userKycStatus = userKycMap.get(owner.id) ?? "pending";
+    const kycRowStatus = kyc ? getString(kyc, "status", userKycStatus) : userKycStatus;
 
     const documents: AdminOwnerKycRecord["documents"] = {};
     if (getString(kyc, "aadhaar_url")) documents.aadhaar = getString(kyc, "aadhaar_url");
@@ -1507,6 +1591,8 @@ export async function getAdminOwnerKycList(): Promise<AdminOwnerKycRecord[]> {
     if (getString(kyc, "license_url")) documents.license = getString(kyc, "license_url");
     if (getString(kyc, "rc_url")) documents.rc = getString(kyc, "rc_url");
     if (getString(kyc, "insurance_url")) documents.insurance = getString(kyc, "insurance_url");
+
+    const canApprove = ownerKycCanApprove(documents);
 
     return {
       id: owner.id,
@@ -1516,7 +1602,8 @@ export async function getAdminOwnerKycList(): Promise<AdminOwnerKycRecord[]> {
       mobile: owner.mobile,
       aadhaar: aadhaarNumber ? maskAadhaar(aadhaarNumber) : documents.aadhaar ? "Document uploaded" : "Not provided",
       license: licenseNumber || (documents.license ? "Document uploaded" : "Not provided"),
-      status: normalizeOwnerStatus(kycStatus, owner.status),
+      status: normalizeOwnerStatus(kycRowStatus, userKycStatus),
+      canApprove,
       documents,
     };
   });

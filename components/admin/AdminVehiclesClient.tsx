@@ -8,6 +8,8 @@ import {
   updateVehicleServiceAvailability,
 } from "@/server/actions/vehicles";
 import { VEHICLE_SERVICES, type VehicleServiceAvailability } from "@/lib/vehicles/services";
+import { OWNER_APPROVAL_REQUIRED_MESSAGE } from "@/lib/admin/vehicle-approval";
+import { ownerStatusBadgeClasses } from "@/lib/admin/owner-status";
 
 interface VehicleRow {
   id: string;
@@ -17,6 +19,8 @@ interface VehicleRow {
   approval_status: string;
   owner_id: string;
   owner_name: string;
+  owner_status: string;
+  canApprove: boolean;
   vehicle_photo_url: string | null;
   rc_document_url: string | null;
   insurance_document_url: string | null;
@@ -156,6 +160,7 @@ export default function AdminVehiclesClient({ vehicles }: Props) {
               <th className="px-4 py-3 font-medium">Vehicle</th>
               <th className="px-4 py-3 font-medium">Registration</th>
               <th className="px-4 py-3 font-medium">Owner</th>
+              <th className="px-4 py-3 font-medium">Owner Status</th>
               <th className="px-4 py-3 font-medium">Category</th>
               <th className="px-4 py-3 font-medium">Services</th>
               <th className="px-4 py-3 font-medium">Status</th>
@@ -192,6 +197,15 @@ export default function AdminVehiclesClient({ vehicles }: Props) {
                   </td>
                   <td className="px-4 py-4">{vehicle.registration_number}</td>
                   <td className="px-4 py-4">{vehicle.owner_name}</td>
+                  <td className="px-4 py-4">
+                    <span
+                      className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${ownerStatusBadgeClasses(
+                        vehicle.owner_status as "pending" | "approved" | "rejected"
+                      )}`}
+                    >
+                      {vehicle.owner_status}
+                    </span>
+                  </td>
                   <td className="px-4 py-4">{vehicle.vehicle_category}</td>
                   <td className="px-4 py-4 min-w-[160px]">
                     {isApproved && editingServices === vehicle.id ? (
@@ -263,6 +277,11 @@ export default function AdminVehiclesClient({ vehicles }: Props) {
                   <td className="px-4 py-4 min-w-[200px]">
                     {isPending ? (
                       <>
+                        {!vehicle.canApprove && (
+                          <p className="mb-2 text-xs font-medium text-amber-600">
+                            {OWNER_APPROVAL_REQUIRED_MESSAGE}
+                          </p>
+                        )}
                         <textarea
                           placeholder="Rejection reason (optional)"
                           value={reasons[vehicle.id] ?? ""}
@@ -273,9 +292,16 @@ export default function AdminVehiclesClient({ vehicles }: Props) {
                         <div className="flex flex-wrap gap-2">
                           <button
                             type="button"
-                            disabled={busy === vehicle.id}
+                            disabled={busy === vehicle.id || !vehicle.canApprove}
+                            title={
+                              !vehicle.canApprove
+                                ? "Approve the owner in Owner Management first"
+                                : undefined
+                            }
                             onClick={() => runAction(vehicle.id, "approve")}
-                            className="rounded-lg border px-3 py-1 text-xs text-green-700 hover:bg-green-50 disabled:opacity-50"
+                            className={`rounded-lg border px-3 py-1 text-xs text-green-700 hover:bg-green-50 disabled:opacity-50 disabled:cursor-not-allowed ${
+                              !vehicle.canApprove ? "opacity-50 cursor-not-allowed" : ""
+                            }`}
                           >
                             {busy === vehicle.id ? "Processing..." : "Approve"}
                           </button>

@@ -156,6 +156,7 @@ export async function updateOwnerStatus(ownerId: string, status: "approved" | "r
   revalidatePath("/admin");
   revalidatePath("/admin/owners");
   revalidatePath("/admin/kyc");
+  revalidatePath("/admin/vehicles");
   return { success: true };
 }
 

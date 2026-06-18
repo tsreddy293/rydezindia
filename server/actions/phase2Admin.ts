@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { ownerKycApprovalError } from "@/lib/admin/owner-kyc";
 import { logApproval } from "@/lib/services/verification";
 import { createNotification } from "@/lib/services/notifications";
 import { dispatchMessage } from "@/lib/services/messaging";
@@ -80,19 +81,41 @@ export async function updateOwnerKycByUserId(
 ): Promise<ActionResult> {
   const { user } = await requireRole("admin");
   const db = createAdminClient();
+
+  if (status === "approved") {
+    const { data: kyc } = await db
+      .from("owner_kyc")
+      .select("aadhaar_url, license_url")
+      .eq("owner_id", userId)
+      .maybeSingle();
+
+    const documents = {
+      aadhaar: (kyc as { aadhaar_url?: string } | null)?.aadhaar_url ?? "",
+      license: (kyc as { license_url?: string } | null)?.license_url ?? "",
+    };
+
+    const approvalError = ownerKycApprovalError(documents);
+    if (approvalError) {
+      return { success: false, error: approvalError };
+    }
+  }
+
   const kycStatus =
     status === "approved" ? "verified" : status === "rejected" ? "rejected" : "pending";
   const ownerKycStatus =
     status === "approved" ? "approved" : status === "rejected" ? "rejected" : "pending";
 
-  const { error: userError } = await db
-    .from("users")
-    .update({
-      kyc_status: kycStatus,
-      owner_status: status === "approved" ? "approved" : status,
-      role: "owner",
-    })
-    .eq("id", userId);
+  const userPayload: Record<string, unknown> = {
+    kyc_status: kycStatus,
+    role: "owner",
+  };
+
+  let { error: userError } = await db.from("users").update(userPayload).eq("id", userId);
+
+  if (userError?.message?.includes("kyc_status")) {
+    delete userPayload.kyc_status;
+    ({ error: userError } = await db.from("users").update({ role: "owner" }).eq("id", userId));
+  }
 
   if (userError && !userError.message.includes("kyc_status")) {
     return { success: false, error: userError.message };
@@ -136,6 +159,7 @@ export async function updateOwnerKycByUserId(
   });
 
   revalidatePath("/admin/kyc");
+  revalidatePath("/admin/owners");
   revalidatePath("/admin");
   return { success: true };
 }

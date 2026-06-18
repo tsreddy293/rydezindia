@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { assertOwnerApprovedForVehicle } from "@/lib/supabase/queries";
 import { getSupabaseConfigError } from "@/lib/supabase/env";
 import { createNotification } from "@/lib/services/notifications";
 import { logApproval } from "@/lib/services/verification";
@@ -394,6 +395,21 @@ export async function approveOwnerVehicle(vehicleId: string): Promise<ActionResu
   const { user } = await requireRole("admin");
   const db = createAdminClient();
 
+  const { data: vehicleRow, error: fetchError } = await db
+    .from("vehicles")
+    .select("owner_id")
+    .eq("id", vehicleId)
+    .maybeSingle();
+
+  if (fetchError) return { success: false, error: fetchError.message };
+  if (!vehicleRow) return { success: false, error: "Vehicle not found" };
+
+  const ownerId = String((vehicleRow as { owner_id: string }).owner_id);
+  const ownerCheck = await assertOwnerApprovedForVehicle(ownerId);
+  if (!ownerCheck.ok) {
+    return { success: false, error: ownerCheck.error };
+  }
+
   const validation = await validateVehicleForSubmission(vehicleId);
   if (!validation.valid) {
     return { success: false, error: `Cannot approve: ${validation.errors.join(", ")}` };
@@ -419,10 +435,13 @@ export async function approveOwnerVehicle(vehicleId: string): Promise<ActionResu
 
   await publishVehicleToMarketplace(vehicleId);
 
-  const { data: vehicle } = await db.from("vehicles").select("owner_id, vehicle_make, vehicle_model, vehicle_year").eq("id", vehicleId).maybeSingle();
-  const ownerId = (vehicle as { owner_id?: string } | null)?.owner_id;
+  const { data: vehicle } = await db
+    .from("vehicles")
+    .select("owner_id, vehicle_make, vehicle_model, vehicle_year")
+    .eq("id", vehicleId)
+    .maybeSingle();
 
-  if (ownerId && vehicle) {
+  if (vehicle) {
     const v = mapVehicleRow(vehicle as Record<string, unknown>);
     await createNotification({
       recipientId: ownerId,
@@ -443,6 +462,8 @@ export async function approveOwnerVehicle(vehicleId: string): Promise<ActionResu
 
   revalidateVehiclePaths();
   revalidatePath("/admin");
+  revalidatePath("/admin/vehicles");
+  revalidatePath("/admin/documents");
   return { success: true };
 }
 
