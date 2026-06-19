@@ -13,6 +13,7 @@ import {
 } from "@/lib/admin/marketplace-gates";
 import { ownerProfileDocumentsToSet } from "@/lib/services/owner-profile-kyc";
 import { ownerKycCanApprove } from "@/lib/admin/owner-kyc";
+import { resolveOwnerKycAdminStatus } from "@/lib/admin/owner-kyc-status";
 import { effectiveVehicleStat } from "@/lib/admin/vehicle-approval";
 import type {
   AdminOwnerKycRecord,
@@ -1839,12 +1840,34 @@ export async function getAdminOwnerManagementList(): Promise<AdminOwnerManagemen
     const kyc = kycMap.get(owner.id);
     const profile = profileMap.get(owner.id);
     const user = userMap.get(owner.id);
-    const kycStatus = normalizeManagementKycStatus(
-      getString(profile, "kyc_status", getString(user, "kyc_status", kyc?.status ?? "pending"))
-    );
+    const kycStatus = resolveOwnerKycAdminStatus({
+      profileKyc: getString(profile, "kyc_status"),
+      userKyc: getString(user, "kyc_status"),
+      legacyKyc: kyc?.status,
+    });
     const ownerStatus = normalizeManagementOwnerStatus(
       getString(profile, "status", getString(user, "owner_status", owner.status))
     );
+
+    const profileRow = profile
+      ? {
+          user_id: owner.id,
+          aadhaar_document_url: getString(profile, "aadhaar_document_url") || null,
+          license_document_url: getString(profile, "license_document_url") || null,
+          selfie_document_url: getString(profile, "selfie_document_url") || null,
+          address_proof_url: getString(profile, "address_proof_url") || null,
+          aadhaar_number: null,
+          license_number: null,
+          kyc_submitted_at: null,
+        }
+      : null;
+    const legacyDocs = {
+      aadhaar: kyc?.documents?.aadhaar,
+      license: kyc?.documents?.license,
+      selfie: kyc?.documents?.selfie,
+      address_proof: kyc?.documents?.address_proof,
+    };
+    const documents = ownerProfileDocumentsToSet(profileRow, legacyDocs);
 
     return {
       id: owner.id,
@@ -1856,9 +1879,11 @@ export async function getAdminOwnerManagementList(): Promise<AdminOwnerManagemen
       kycStatus,
       ownerStatus,
       created_at: owner.created_at,
-      canApproveKyc: Boolean(kyc?.canApprove) && kycStatus !== "approved",
+      canApproveKyc:
+        (Boolean(kyc?.canApprove) || ownerKycCanApprove(documents)) &&
+        kycStatus !== "approved",
       canApproveOwner: kycStatus === "approved" && ownerStatus !== "approved",
-      documents: kyc?.documents ?? {},
+      documents,
       aadhaar: kyc?.aadhaar ?? "Not provided",
       license: kyc?.license ?? "Not provided",
       vehicles: vehiclesByOwner.get(owner.id) ?? [],
