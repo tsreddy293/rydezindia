@@ -4,6 +4,9 @@ import { normalizeOwnerStatus, type OwnerStatus } from "@/lib/admin/owner-status
 export type DocumentsStatus = "pending" | "approved" | "rejected";
 
 export const KYC_APPROVAL_REQUIRED_MESSAGE = "KYC approval required";
+export const OWNER_KYC_REQUIRED_FOR_DOCUMENTS = "Owner KYC must be approved before document approval.";
+export const OWNER_APPROVAL_REQUIRED_FOR_VEHICLE =
+  "Owner approval required before vehicle approval.";
 export const KYC_REQUIRED_FOR_VEHICLE_MESSAGE =
   "Complete KYC verification before adding vehicles. Upload documents at /owner/kyc.";
 export const KYC_REJECTED_FOR_VEHICLE_MESSAGE =

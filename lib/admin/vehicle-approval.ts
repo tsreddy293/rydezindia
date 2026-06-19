@@ -5,7 +5,7 @@ import {
   vehicleApprovalBlockedReason as getVehicleApprovalBlockedReason,
 } from "@/lib/admin/marketplace-gates";
 
-export const OWNER_APPROVAL_REQUIRED_MESSAGE = "Owner approval required";
+export const OWNER_APPROVAL_REQUIRED_MESSAGE = "Owner approval required before vehicle approval.";
 
 export function isOwnerApprovedForVehicleApproval(ownerStatus: unknown): boolean {
   return isStrictOwnerApproved(ownerStatus);

@@ -151,6 +151,15 @@ export async function updateOwnerKycByUserId(
       .eq("owner_id", userId);
   }
 
+  await db.from("owner_profiles").upsert(
+    {
+      user_id: userId,
+      kyc_status: ownerKycStatus,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id" }
+  );
+
   await createNotification({
     recipientId: userId,
     recipientRole: "owner",
@@ -172,6 +181,7 @@ export async function updateOwnerKycByUserId(
 
   revalidatePath("/admin/kyc");
   revalidatePath("/admin/owners");
+  revalidatePath("/admin/owner-management");
   revalidatePath("/admin");
   return { success: true };
 }
@@ -301,6 +311,30 @@ export async function approveVehicleDocument(
   if (fetchError) return { success: false, error: fetchError.message };
   if (!vehicle) return { success: false, error: "Vehicle not found" };
 
+  const ownerId = String((vehicle as { owner_id: string }).owner_id);
+
+  if (approved) {
+    const { data: userRow } = await db
+      .from("users")
+      .select("kyc_status")
+      .eq("id", ownerId)
+      .maybeSingle();
+    const { data: profileRow } = await db
+      .from("owner_profiles")
+      .select("kyc_status")
+      .eq("user_id", ownerId)
+      .maybeSingle();
+
+    const kycStatus =
+      (profileRow as { kyc_status?: string } | null)?.kyc_status ??
+      (userRow as { kyc_status?: string } | null)?.kyc_status;
+
+    const { isOwnerKycApproved } = await import("@/lib/admin/marketplace-gates");
+    if (!isOwnerKycApproved(kycStatus)) {
+      return { success: false, error: "Owner KYC must be approved before document approval." };
+    }
+  }
+
   const status = approved ? "approved" : "rejected";
   let { error } = await db
     .from("vehicles")
@@ -319,7 +353,6 @@ export async function approveVehicleDocument(
 
   if (error) return { success: false, error: error.message };
 
-  const ownerId = String((vehicle as { owner_id: string }).owner_id);
   await createNotification({
     recipientId: ownerId,
     recipientRole: "owner",

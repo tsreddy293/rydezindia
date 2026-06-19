@@ -83,6 +83,11 @@ export interface PlatformStats {
   pendingOwners: number;
   approvedOwners: number;
   rejectedOwners: number;
+  pendingOwnerKyc: number;
+  pendingCustomerKyc: number;
+  pendingCustomers: number;
+  approvedCustomers: number;
+  pendingVehicleApprovals: number;
   returnJourneyRevenue: number;
   driverVehicleRevenue: number;
   selfDriveRevenue: number;
@@ -345,6 +350,47 @@ export interface AdminUserRecord {
   status: string;
 }
 
+export interface AdminOwnerManagementRecord {
+  id: string;
+  name: string;
+  email: string;
+  mobile: string;
+  city: string;
+  vehicleCount: number;
+  kycStatus: OwnerStatus;
+  ownerStatus: OwnerStatus;
+  created_at: string;
+  canApproveKyc: boolean;
+  canApproveOwner: boolean;
+  documents: AdminOwnerKycRecord["documents"];
+  aadhaar: string;
+  license: string;
+  vehicles: AdminOwnerVehicleSummary[];
+}
+
+export interface AdminOwnerVehicleSummary {
+  id: string;
+  name: string;
+  registration_number: string;
+  status: string;
+}
+
+export interface AdminCustomerManagementRecord {
+  id: string;
+  name: string;
+  email: string;
+  mobile: string;
+  kycStatus: string;
+  userStatus: string;
+  bookings: number;
+  created_at: string;
+  canApproveKyc: boolean;
+  canApproveCustomer: boolean;
+  documents: AdminCustomerKycRecord["documents"];
+  aadhaar: string;
+  is_blocked: boolean;
+}
+
 export interface AdminOwnerRecord {
   id: string;
   name: string;
@@ -424,6 +470,7 @@ export interface AdminVehicleDocumentRecord {
   pollution_url: string | null;
   fitness_url: string | null;
   verification_status: string;
+  owner_kyc_approved: boolean;
 }
 
 export interface OwnerDashboardMetrics {

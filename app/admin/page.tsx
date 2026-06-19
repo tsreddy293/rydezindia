@@ -2,19 +2,17 @@ import {
   BarChart3,
   CalendarCheck,
   Car,
-  CarFront,
   CheckCircle,
   Clock,
   IndianRupee,
-  Route,
   Shield,
   Users,
 } from "lucide-react";
 import Link from "next/link";
 import SupabaseErrorBanner from "@/components/ui/SupabaseErrorBanner";
+import { ADMIN_MODULES } from "@/lib/admin/admin-modules";
 import { testSupabaseConnection } from "@/lib/supabase/admin";
 import { getPlatformStats } from "@/lib/supabase/queries";
-import { getAuthStats } from "@/lib/services/auth-admin";
 import { formatDate, formatINR } from "@/lib/utils";
 import { requireRole, signOutUser } from "@/server/actions/auth";
 
@@ -50,50 +48,27 @@ export default async function AdminPage() {
   await requireRole("admin");
   const connection = await testSupabaseConnection();
   const stats = connection.ok ? await getPlatformStats() : await getPlatformStats();
-  const authStats = await getAuthStats();
 
   const cards = [
-    { icon: Shield, label: "Total Owners", value: stats.vehicleOwners.toLocaleString("en-IN") },
-    { icon: CheckCircle, label: "Approved Owners", value: stats.approvedOwners.toLocaleString("en-IN") },
+    { icon: Clock, label: "Pending Owner KYC", value: stats.pendingOwnerKyc.toLocaleString("en-IN") },
+    { icon: Clock, label: "Pending Customer KYC", value: stats.pendingCustomerKyc.toLocaleString("en-IN") },
     { icon: Clock, label: "Pending Owners", value: stats.pendingOwners.toLocaleString("en-IN") },
-    { icon: Shield, label: "Rejected Owners", value: stats.rejectedOwners.toLocaleString("en-IN") },
+    { icon: Clock, label: "Pending Customers", value: stats.pendingCustomers.toLocaleString("en-IN") },
+    { icon: Clock, label: "Pending Vehicle Documents", value: stats.pendingDocuments.toLocaleString("en-IN") },
+    { icon: Clock, label: "Pending Vehicle Approvals", value: stats.pendingVehicleApprovals.toLocaleString("en-IN") },
+    { icon: CheckCircle, label: "Approved Owners", value: stats.approvedOwners.toLocaleString("en-IN") },
+    { icon: CheckCircle, label: "Approved Customers", value: stats.approvedCustomers.toLocaleString("en-IN") },
+    { icon: CheckCircle, label: "Approved Vehicles", value: stats.approvedVehicles.toLocaleString("en-IN") },
+    { icon: Shield, label: "Total Owners", value: stats.vehicleOwners.toLocaleString("en-IN") },
     { icon: Users, label: "Total Users", value: stats.users.toLocaleString("en-IN") },
     { icon: Car, label: "Total Vehicles", value: stats.vehicles.toLocaleString("en-IN") },
-    { icon: CheckCircle, label: "Approved Vehicles", value: stats.approvedVehicles.toLocaleString("en-IN") },
-    { icon: Clock, label: "Pending Vehicles", value: stats.pendingVehicles.toLocaleString("en-IN") },
-    { icon: Shield, label: "Pending Approvals", value: stats.pendingApprovals.toLocaleString("en-IN") },
-    { icon: Clock, label: "Pending KYC", value: stats.pendingKyc.toLocaleString("en-IN") },
-    { icon: CheckCircle, label: "Approved KYC", value: stats.approvedKyc.toLocaleString("en-IN") },
-    { icon: Clock, label: "Pending Documents", value: stats.pendingDocuments.toLocaleString("en-IN") },
-    { icon: CheckCircle, label: "Approved Documents", value: stats.approvedDocuments.toLocaleString("en-IN") },
-    { icon: Route, label: "Return Journey Vehicles", value: stats.returnJourneys.toLocaleString("en-IN") },
-    { icon: CarFront, label: "Self Drive Vehicles", value: stats.selfDriveVehicles.toLocaleString("en-IN") },
-    { icon: Car, label: "Driver Vehicles", value: stats.driverVehicles.toLocaleString("en-IN") },
     { icon: CalendarCheck, label: "Total Bookings", value: stats.bookings.toLocaleString("en-IN") },
     { icon: CalendarCheck, label: "Today's Bookings", value: stats.todaysBookings.toLocaleString("en-IN") },
-    { icon: IndianRupee, label: "Return Journey Revenue", value: formatINR(stats.returnJourneyRevenue) },
-    { icon: IndianRupee, label: "Driver Vehicle Revenue", value: formatINR(stats.driverVehicleRevenue) },
-    { icon: IndianRupee, label: "Self Drive Revenue", value: formatINR(stats.selfDriveRevenue) },
     { icon: IndianRupee, label: "Monthly Revenue", value: formatINR(stats.monthlyRevenue) },
     { icon: IndianRupee, label: "Total Revenue", value: formatINR(stats.revenue) },
-    { icon: Shield, label: "Verified Users", value: authStats.verified.toLocaleString("en-IN") },
-    { icon: Shield, label: "Unverified Users", value: authStats.unverified.toLocaleString("en-IN") },
-    { icon: Shield, label: "Blocked Accounts", value: authStats.blocked.toLocaleString("en-IN") },
   ];
 
-  const modules = [
-    { href: "/admin/users", label: "User Management" },
-    { href: "/admin/owners", label: "Owner Management" },
-    { href: "/admin/vehicles", label: "Vehicle Management" },
-    { href: "/admin/bookings", label: "Booking Management" },
-    { href: "/admin/payments", label: "Payment Management" },
-    { href: "/admin/kyc", label: "Owner KYC" },
-    { href: "/admin/customer-kyc", label: "Customer KYC" },
-    { href: "/admin/documents", label: "Documents" },
-    { href: "/admin/coupons", label: "Coupons" },
-    { href: "/admin/notifications", label: "Notifications" },
-    { href: "/admin/reports", label: "Reports" },
-  ];
+  const modules = ADMIN_MODULES.filter((m) => m.href !== "/admin");
 
   return (
     <div className="min-h-screen bg-gray-50">
