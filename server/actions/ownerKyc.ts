@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { ownerKycCanApprove, resolveOwnerKycDisplayStatus } from "@/lib/admin/owner-kyc";
+import { resolveOwnerKycAdminStatus } from "@/lib/admin/owner-kyc-status";
+import { resolveOwnerAdminStatus } from "@/lib/admin/owner-profile-status";
 import { ownerCreateVehicleBlockedReason } from "@/lib/admin/marketplace-gates";
 import {
   getOwnerProfileKyc,
@@ -31,27 +33,41 @@ export async function getOwnerKycStatus() {
 
   const [profile, userRow] = await Promise.all([
     getOwnerProfileKyc(user.id),
-    db.from("users").select("kyc_status").eq("id", user.id).maybeSingle(),
+    db.from("users").select("kyc_status, owner_status").eq("id", user.id).maybeSingle(),
   ]);
 
-  const userKycStatus = String(
-    (userRow.data as { kyc_status?: string } | null)?.kyc_status ?? "not_submitted"
-  );
+  const userData = userRow.data as { kyc_status?: string; owner_status?: string } | null;
+  const userKycStatus = String(userData?.kyc_status ?? "not_submitted");
   const documents = ownerProfileDocumentsToSet(profile);
   const hasRequiredDocs = ownerKycCanApprove(documents);
-  const status = resolveOwnerKycDisplayStatus({
-    userKycStatus,
-    profileKycStatus: profile?.kyc_status,
-    kycSubmittedAt: profile?.kyc_submitted_at,
-    hasRequiredDocs,
+  const kycResolved = resolveOwnerKycAdminStatus({
+    profileKyc: profile?.kyc_status,
+    userKyc: userKycStatus,
+  });
+  const status =
+    kycResolved === "approved"
+      ? "verified"
+      : kycResolved === "rejected"
+        ? "rejected"
+        : resolveOwnerKycDisplayStatus({
+            userKycStatus,
+            profileKycStatus: profile?.kyc_status,
+            kycSubmittedAt: profile?.kyc_submitted_at,
+            hasRequiredDocs,
+          });
+  const ownerStatus = resolveOwnerAdminStatus({
+    profileOwnerStatus: profile?.owner_status,
+    userOwnerStatus: userData?.owner_status,
   });
 
   return {
     status,
+    ownerStatus,
     documents,
     profile,
     hasRequiredDocs,
     canSubmit: status !== "verified",
+    canAddVehicle: ownerStatus === "approved" && (status === "verified" || status === "pending"),
   };
 }
 

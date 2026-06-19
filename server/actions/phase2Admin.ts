@@ -156,6 +156,7 @@ export async function updateOwnerKycByUserId(
     {
       user_id: userId,
       kyc_status: ownerKycStatus,
+      owner_status: status === "approved" ? "approved" : status === "rejected" ? "rejected" : "pending",
       updated_at: new Date().toISOString(),
     },
     { onConflict: "user_id" }

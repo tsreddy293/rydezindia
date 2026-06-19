@@ -26,6 +26,7 @@ export interface OwnerProfileKycRow {
   aadhaar_number: string | null;
   license_number: string | null;
   kyc_status?: string | null;
+  owner_status?: string | null;
   kyc_submitted_at: string | null;
 }
 
@@ -52,9 +53,19 @@ export async function uploadOwnerProfileKycFile(
 export async function getOwnerProfileKyc(userId: string): Promise<OwnerProfileKycRow | null> {
   const db = createAdminClient();
   const columns =
-    "user_id, aadhaar_document_url, license_document_url, selfie_document_url, address_proof_url, aadhaar_number, license_number, kyc_status, kyc_submitted_at";
+    "user_id, aadhaar_document_url, license_document_url, selfie_document_url, address_proof_url, aadhaar_number, license_number, kyc_status, owner_status, kyc_submitted_at";
 
   let { data, error } = await db.from("owner_profiles").select(columns).eq("user_id", userId).maybeSingle();
+
+  if (error?.message?.includes("column") && error.message.includes("owner_status")) {
+    ({ data, error } = await db
+      .from("owner_profiles")
+      .select(
+        "user_id, aadhaar_document_url, license_document_url, selfie_document_url, address_proof_url, aadhaar_number, license_number, kyc_status, kyc_submitted_at"
+      )
+      .eq("user_id", userId)
+      .maybeSingle());
+  }
 
   if (error?.message?.includes("column") && error.message.includes("kyc_status")) {
     ({ data, error } = await db

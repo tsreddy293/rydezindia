@@ -25,8 +25,11 @@ const ADMIN_PATHS = [
   "/admin/customer-kyc",
 ];
 
+const OWNER_PATHS = ["/owner/dashboard", "/owner/kyc", "/owner/profile", "/owner/add-vehicle", "/owner/my-vehicles"];
+
 function revalidateAdmin() {
   ADMIN_PATHS.forEach((path) => revalidatePath(path));
+  OWNER_PATHS.forEach((path) => revalidatePath(path));
 }
 
 async function updateOwnerProfileKycStatus(
@@ -95,27 +98,57 @@ async function updateOwnerProfileKycStatus(
   }
 
   console.warn(
-    "[updateOwnerProfileKycStatus] owner_profiles.kyc_status not writable — KYC saved on users.kyc_status. Run supabase/RUN_FIX_KYC_APPROVAL.sql"
+    "[updateOwnerProfileKycStatus] owner_profiles.kyc_status not writable — run supabase/RUN_FIX_KYC_APPROVAL.sql"
   );
   return { data: null, error: null };
 }
 
-async function syncOwnerProfileStatus(
+async function syncOwnerProfileOwnerStatus(
   userId: string,
-  status: "pending" | "approved" | "rejected"
+  ownerStatus: "pending" | "approved" | "rejected"
 ) {
   const db = createAdminClient();
-  const payload: Record<string, unknown> = {
-    user_id: userId,
-    status,
-    updated_at: new Date().toISOString(),
-  };
-  if (status === "approved") payload.approved_at = new Date().toISOString();
-  const { error } = await db.from("owner_profiles").upsert(payload, { onConflict: "user_id" });
-  if (error && !error.message.includes("column") && !error.message.includes("does not exist")) {
-    console.error("[syncOwnerProfileStatus]", error.message);
-    throw new Error(error.message);
+  const now = new Date().toISOString();
+
+  const payloadVariants: Record<string, unknown>[] = [
+    {
+      user_id: userId,
+      owner_status: ownerStatus,
+      owner_approved_at: ownerStatus === "approved" ? now : null,
+      updated_at: now,
+    },
+    { user_id: userId, owner_status: ownerStatus, updated_at: now },
+    { user_id: userId, status: ownerStatus, updated_at: now },
+    { user_id: userId, updated_at: now },
+  ];
+
+  for (const payload of payloadVariants) {
+    const { data, error } = await db
+      .from("owner_profiles")
+      .update(payload)
+      .eq("user_id", userId)
+      .select("*");
+
+    if (!error && data && data.length > 0) return;
+
+    if (error && !isMissingColumnError(error, "owner_status", "owner_approved_at", "status", "updated_at")) {
+      console.error("[syncOwnerProfileOwnerStatus] update error", error.message);
+      throw new Error(error.message);
+    }
   }
+
+  for (const payload of payloadVariants) {
+    const { error } = await db.from("owner_profiles").upsert(payload, { onConflict: "user_id" });
+    if (!error) return;
+    if (!isMissingColumnError(error, "owner_status", "owner_approved_at", "status", "updated_at")) {
+      console.error("[syncOwnerProfileOwnerStatus] upsert error", error.message);
+      throw new Error(error.message);
+    }
+  }
+
+  console.warn(
+    "[syncOwnerProfileOwnerStatus] owner_profiles.owner_status not writable — run supabase/RUN_FIX_KYC_APPROVAL.sql"
+  );
 }
 
 async function syncCustomerProfile(userId: string, input: { kyc_status?: string; status?: string }) {
@@ -358,7 +391,7 @@ export async function approveOwnerAction(userId: string): Promise<ActionResult> 
     return { success: false, error: updateError.message };
   }
 
-  await syncOwnerProfileStatus(userId, "approved");
+  await syncOwnerProfileOwnerStatus(userId, "approved");
 
   await createNotification({
     recipientId: userId,
@@ -391,7 +424,7 @@ export async function rejectOwnerAction(userId: string, reason?: string): Promis
 
   if (error) return { success: false, error: error.message };
 
-  await syncOwnerProfileStatus(userId, "rejected");
+  await syncOwnerProfileOwnerStatus(userId, "rejected");
 
   await createNotification({
     recipientId: userId,

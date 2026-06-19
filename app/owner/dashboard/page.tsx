@@ -71,20 +71,42 @@ export default async function OwnerDashboardPage({ searchParams }: Props) {
 
         <OwnerDashboardNav />
 
-        <div className="mb-6 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <ShieldCheck className="h-8 w-8 text-primary" />
-            <div>
-              <p className="text-sm font-medium text-gray-500">KYC Status</p>
-              <KycStatusBadge status={kyc.status} />
-              {!kyc.hasRequiredDocs && kyc.status !== "verified" && (
-                <p className="text-xs text-amber-600 mt-1">Upload documents to complete verification</p>
-              )}
+        <div className="mb-6 grid gap-4 sm:grid-cols-2">
+          <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <ShieldCheck className="h-8 w-8 text-primary" />
+              <div>
+                <p className="text-sm font-medium text-gray-500">KYC Status</p>
+                <KycStatusBadge status={kyc.status} />
+                {!kyc.hasRequiredDocs && kyc.status !== "verified" && (
+                  <p className="text-xs text-amber-600 mt-1">Upload documents to complete verification</p>
+                )}
+              </div>
             </div>
+            <Button href="/owner/kyc" variant="outline" size="sm">
+              {kyc.hasRequiredDocs ? "View KYC" : "Upload KYC Documents"}
+            </Button>
           </div>
-          <Button href="/owner/kyc" variant="outline" size="sm">
-            {kyc.hasRequiredDocs ? "View KYC" : "Upload KYC Documents"}
-          </Button>
+          <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+            <p className="text-sm font-medium text-gray-500">Owner Account Status</p>
+            <p
+              className={`mt-2 inline-flex rounded-full px-3 py-1 text-sm font-medium capitalize ${
+                kyc.ownerStatus === "approved"
+                  ? "bg-green-100 text-green-700"
+                  : kyc.ownerStatus === "rejected"
+                    ? "bg-red-100 text-red-700"
+                    : "bg-amber-100 text-amber-700"
+              }`}
+            >
+              {kyc.ownerStatus}
+            </p>
+            {kyc.ownerStatus !== "approved" && kyc.status === "verified" && (
+              <p className="text-xs text-gray-500 mt-2">KYC approved — waiting for admin owner approval.</p>
+            )}
+            {kyc.ownerStatus !== "approved" && kyc.status !== "verified" && (
+              <p className="text-xs text-gray-500 mt-2">Complete KYC first, then admin will approve your owner account.</p>
+            )}
+          </div>
         </div>
 
         {metrics.totalVehicles === 0 && (
