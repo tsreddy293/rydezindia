@@ -36,40 +36,184 @@ type OwnerProfileRow = {
   owner_status: string;
   approved_at: string | null;
   approved_by: string | null;
+  updated_at?: string | null;
 };
 
-async function updateOwnerProfile(
+type WriteOwnerProfileResult = {
+  data: OwnerProfileRow | null;
+  error: string | null;
+  rowsAffected: number;
+};
+
+async function updateOwnerProfileOnly(
   userId: string,
   patch: Record<string, unknown>
-): Promise<{ data: OwnerProfileRow | null; error: string | null }> {
+): Promise<WriteOwnerProfileResult> {
   const db = createAdminClient();
   const now = new Date().toISOString();
   const payload = { ...patch, updated_at: now };
 
-  let { data, error } = await db
+  console.log("[updateOwnerProfileOnly] UPDATE owner_profiles", { userId, payload });
+
+  const updateResult = await db
     .from("owner_profiles")
     .update(payload)
     .eq("user_id", userId)
-    .select("user_id, kyc_status, owner_status, approved_at, approved_by");
+    .select("user_id, kyc_status, owner_status, approved_at, approved_by, updated_at");
 
-  if (!error && (!data || data.length === 0)) {
-    ({ data, error } = await db
-      .from("owner_profiles")
-      .upsert({ user_id: userId, ...payload }, { onConflict: "user_id" })
-      .select("user_id, kyc_status, owner_status, approved_at, approved_by"));
+  console.log("[updateOwnerProfileOnly] UPDATE response", {
+    userId,
+    error: updateResult.error,
+    rowsAffected: updateResult.data?.length ?? 0,
+    data: updateResult.data,
+  });
+
+  if (updateResult.error) {
+    console.error("[updateOwnerProfileOnly] UPDATE error", updateResult.error);
+    return { data: null, error: updateResult.error.message, rowsAffected: 0 };
   }
+
+  const rowsAffected = updateResult.data?.length ?? 0;
+  return {
+    data: (updateResult.data?.[0] as OwnerProfileRow | undefined) ?? null,
+    error: rowsAffected === 0 ? "owner_profiles update affected 0 rows." : null,
+    rowsAffected,
+  };
+}
+
+async function writeOwnerProfile(
+  userId: string,
+  patch: Record<string, unknown>,
+  existingProfile?: Record<string, unknown> | null
+): Promise<WriteOwnerProfileResult> {
+  const db = createAdminClient();
+  const now = new Date().toISOString();
+  const payload = { ...patch, updated_at: now };
+
+  console.log("[writeOwnerProfile] UPDATE owner_profiles", { userId, payload });
+
+  const updateResult = await db
+    .from("owner_profiles")
+    .update(payload)
+    .eq("user_id", userId)
+    .select("user_id, kyc_status, owner_status, approved_at, approved_by, updated_at");
+
+  console.log("[writeOwnerProfile] UPDATE response", {
+    userId,
+    error: updateResult.error,
+    rowsAffected: updateResult.data?.length ?? 0,
+    data: updateResult.data,
+  });
+
+  if (updateResult.error) {
+    console.error("[writeOwnerProfile] UPDATE error", updateResult.error);
+    return { data: null, error: updateResult.error.message, rowsAffected: 0 };
+  }
+
+  if (updateResult.data && updateResult.data.length > 0) {
+    return {
+      data: updateResult.data[0] as OwnerProfileRow,
+      error: null,
+      rowsAffected: updateResult.data.length,
+    };
+  }
+
+  console.warn("[writeOwnerProfile] UPDATE affected 0 rows — trying UPSERT", { userId });
+
+  const upsertPayload: Record<string, unknown> = {
+    user_id: userId,
+    ...(existingProfile ?? {}),
+    ...payload,
+  };
+  delete upsertPayload.id;
+
+  const upsertResult = await db
+    .from("owner_profiles")
+    .upsert(upsertPayload, { onConflict: "user_id" })
+    .select("user_id, kyc_status, owner_status, approved_at, approved_by, updated_at");
+
+  console.log("[writeOwnerProfile] UPSERT response", {
+    userId,
+    error: upsertResult.error,
+    rowsAffected: upsertResult.data?.length ?? 0,
+    data: upsertResult.data,
+  });
+
+  if (upsertResult.error) {
+    console.error("[writeOwnerProfile] UPSERT error", upsertResult.error);
+    return { data: null, error: upsertResult.error.message, rowsAffected: 0 };
+  }
+
+  if (!upsertResult.data || upsertResult.data.length === 0) {
+    return {
+      data: null,
+      error: "owner_profiles update affected 0 rows and upsert returned no data.",
+      rowsAffected: 0,
+    };
+  }
+
+  return {
+    data: upsertResult.data[0] as OwnerProfileRow,
+    error: null,
+    rowsAffected: upsertResult.data.length,
+  };
+}
+
+async function verifyOwnerProfileRow(
+  userId: string,
+  expected: { kyc_status?: string; owner_status?: string }
+): Promise<{ ok: boolean; row: OwnerProfileRow | null; error?: string }> {
+  const db = createAdminClient();
+  const { data, error } = await db
+    .from("owner_profiles")
+    .select("user_id, kyc_status, owner_status, approved_at, approved_by, updated_at")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  console.log("[verifyOwnerProfileRow] read-back", { userId, data, error });
 
   if (error) {
-    console.error("[updateOwnerProfile]", error);
-    return { data: null, error: error.message };
+    return { ok: false, row: null, error: error.message };
   }
 
-  const row = (data?.[0] ?? null) as OwnerProfileRow | null;
-  if (!row) {
-    return { data: null, error: "owner_profiles row was not created or updated." };
+  if (!data) {
+    return { ok: false, row: null, error: "owner_profiles row not found after update." };
   }
 
-  return { data: row, error: null };
+  const row = data as OwnerProfileRow;
+
+  if (expected.kyc_status && row.kyc_status !== expected.kyc_status) {
+    return {
+      ok: false,
+      row,
+      error: `Database kyc_status is "${row.kyc_status}", expected "${expected.kyc_status}".`,
+    };
+  }
+
+  if (expected.owner_status && row.owner_status !== expected.owner_status) {
+    return {
+      ok: false,
+      row,
+      error: `Database owner_status is "${row.owner_status}", expected "${expected.owner_status}".`,
+    };
+  }
+
+  return { ok: true, row };
+}
+
+async function updateOwnerProfile(
+  userId: string,
+  patch: Record<string, unknown>,
+  existingProfile?: Record<string, unknown> | null
+): Promise<{ data: OwnerProfileRow | null; error: string | null }> {
+  const result = await writeOwnerProfile(userId, patch, existingProfile);
+  if (result.error || result.rowsAffected === 0) {
+    return {
+      data: null,
+      error: result.error ?? "owner_profiles update affected 0 rows.",
+    };
+  }
+  return { data: result.data, error: null };
 }
 
 async function readOwnerProfile(userId: string) {
@@ -142,23 +286,54 @@ export async function approveOwnerKycAction(
       return { success: false, error: approvalError };
     }
 
+    if (!profileRow) {
+      return {
+        success: false,
+        error: "No owner_profiles row found. Owner must upload KYC documents first.",
+      };
+    }
+
     const now = new Date().toISOString();
-    const result = await updateOwnerProfile(userId, {
+    console.log("[approveOwnerKycAction] before UPDATE", {
+      userId,
       kyc_status: "approved",
+      owner_status: "approved",
       approved_at: now,
       approved_by: adminUser.id,
     });
 
-    if (result.error || !result.data) {
-      return { success: false, error: result.error ?? "Failed to update owner_profiles." };
+    const writeResult = await updateOwnerProfileOnly(userId, {
+      kyc_status: "approved",
+      owner_status: "approved",
+      approved_at: now,
+      approved_by: adminUser.id,
+    });
+
+    if (writeResult.error) {
+      return { success: false, error: writeResult.error };
     }
 
-    if (result.data.kyc_status !== "approved") {
+    if (writeResult.rowsAffected === 0) {
       return {
         success: false,
-        error: `KYC update did not persist. Got kyc_status="${result.data.kyc_status}".`,
+        error: "owner_profiles update affected 0 rows. No matching user_id found.",
       };
     }
+
+    const verified = await verifyOwnerProfileRow(userId, {
+      kyc_status: "approved",
+      owner_status: "approved",
+    });
+
+    if (!verified.ok) {
+      console.error("[approveOwnerKycAction] verification failed", verified);
+      return {
+        success: false,
+        error: verified.error ?? "KYC approval could not be verified in database.",
+      };
+    }
+
+    console.log("[approveOwnerKycAction] success — verified row", verified.row);
 
     await createNotification({
       recipientId: userId,
@@ -193,8 +368,16 @@ export async function approveOwnerKycAction(
 export async function rejectOwnerKycAction(userId: string, reason?: string): Promise<ActionResult> {
   try {
     const { user } = await requireRole("admin");
+    const { data: profileRow, error: readError } = await readOwnerProfile(userId);
+    if (readError) {
+      return { success: false, error: readError.message };
+    }
 
-    const result = await updateOwnerProfile(userId, { kyc_status: "rejected" });
+    const result = await updateOwnerProfile(
+      userId,
+      { kyc_status: "rejected" },
+      profileRow as Record<string, unknown> | null
+    );
     if (result.error || !result.data) {
       return { success: false, error: result.error ?? "Failed to update owner_profiles." };
     }
@@ -246,11 +429,15 @@ export async function approveOwnerAction(userId: string): Promise<ActionResult> 
     }
 
     const now = new Date().toISOString();
-    const result = await updateOwnerProfile(userId, {
-      owner_status: "approved",
-      approved_at: now,
-      approved_by: adminUser.id,
-    });
+    const result = await updateOwnerProfile(
+      userId,
+      {
+        owner_status: "approved",
+        approved_at: now,
+        approved_by: adminUser.id,
+      },
+      profileRow as Record<string, unknown> | null
+    );
 
     if (result.error || !result.data) {
       return { success: false, error: result.error ?? "Failed to update owner_profiles." };
@@ -290,8 +477,16 @@ export async function approveOwnerAction(userId: string): Promise<ActionResult> 
 export async function rejectOwnerAction(userId: string, reason?: string): Promise<ActionResult> {
   try {
     const { user } = await requireRole("admin");
+    const { data: profileRow, error: readError } = await readOwnerProfile(userId);
+    if (readError) {
+      return { success: false, error: readError.message };
+    }
 
-    const result = await updateOwnerProfile(userId, { owner_status: "rejected" });
+    const result = await updateOwnerProfile(
+      userId,
+      { owner_status: "rejected" },
+      profileRow as Record<string, unknown> | null
+    );
     if (result.error || !result.data) {
       return { success: false, error: result.error ?? "Failed to update owner_profiles." };
     }

@@ -76,6 +76,39 @@ export default function AdminOwnerManagementClient({ owners: initialOwners }: Pr
       .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
   }, [owners, filter, search]);
 
+  async function runKycApproveAction(ownerId: string) {
+    setBusy(true);
+    setError("");
+    setMessage("");
+    console.log("[AdminOwnerManagementClient] Approve KYC clicked", { ownerId });
+
+    const result = await approveOwnerKycAction(ownerId);
+    console.log("[AdminOwnerManagementClient] approveOwnerKycAction result", result);
+
+    if (!result.success) {
+      console.error("[AdminOwnerManagementClient] KYC approve failed", result.error);
+      setError(result.error ?? "KYC approval failed.");
+      setBusy(false);
+      return;
+    }
+
+    const fresh = await loadOwners();
+    const updated = fresh.find((owner) => owner.id === ownerId);
+    if (!updated || updated.kycStatus !== "approved" || updated.ownerStatus !== "approved") {
+      console.error("[AdminOwnerManagementClient] KYC approve not reflected in list", {
+        ownerId,
+        updated,
+      });
+      setError("KYC approval could not be verified in the owner list.");
+      setBusy(false);
+      return;
+    }
+
+    if (result.message) setMessage(result.message);
+    router.refresh();
+    setBusy(false);
+  }
+
   async function runAction(action: () => Promise<{ success: boolean; error?: string; message?: string }>) {
     setBusy(true);
     setError("");
@@ -232,11 +265,7 @@ export default function AdminOwnerManagementClient({ owners: initialOwners }: Pr
                 <button
                   type="button"
                   disabled={busy || selected.kycStatus === "approved"}
-                  onClick={() => {
-                    console.log("Approve KYC clicked");
-                    console.log("Owner ID:", selected.id);
-                    runAction(() => approveOwnerKycAction(selected.id));
-                  }}
+                  onClick={() => runKycApproveAction(selected.id)}
                   className="rounded-lg bg-green-600 px-4 py-2 text-xs font-medium text-white disabled:opacity-40"
                 >
                   Approve KYC
