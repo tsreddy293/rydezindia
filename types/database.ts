@@ -84,6 +84,7 @@ export interface PlatformStats {
   approvedOwners: number;
   rejectedOwners: number;
   pendingOwnerKyc: number;
+  approvedOwnerKyc: number;
   pendingCustomerKyc: number;
   pendingCustomers: number;
   approvedCustomers: number;

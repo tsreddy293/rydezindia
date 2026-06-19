@@ -2,10 +2,7 @@
 
 import { revalidatePath, unstable_noStore as noStore } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { isMissingColumnError } from "@/lib/supabase/errors";
-import { usersWritePayload } from "@/lib/supabase/users-table";
-import { isOwnerKycApproved } from "@/lib/admin/marketplace-gates";
-import { resolveOwnerKycAdminStatus } from "@/lib/admin/owner-kyc-status";
+import { profileKycIsApproved } from "@/lib/admin/owner-profile-fields";
 import { ownerKycApprovalError } from "@/lib/admin/owner-kyc";
 import { ownerProfileDocumentsToSet } from "@/lib/services/owner-profile-kyc";
 import { createNotification } from "@/lib/services/notifications";
@@ -33,123 +30,51 @@ function revalidateAdmin() {
   OWNER_PATHS.forEach((path) => revalidatePath(path));
 }
 
-async function updateOwnerProfileKycStatus(
+type OwnerProfileRow = {
+  user_id: string;
+  kyc_status: string;
+  owner_status: string;
+  approved_at: string | null;
+  approved_by: string | null;
+};
+
+async function updateOwnerProfile(
   userId: string,
-  kycStatus: "pending" | "approved" | "rejected",
-  existingProfile?: Record<string, unknown> | null
-): Promise<{ data: Record<string, unknown> | null; error: string | null }> {
+  patch: Record<string, unknown>
+): Promise<{ data: OwnerProfileRow | null; error: string | null }> {
   const db = createAdminClient();
   const now = new Date().toISOString();
+  const payload = { ...patch, updated_at: now };
 
-  const payloadVariants: Record<string, unknown>[] = [
-    {
-      user_id: userId,
-      kyc_status: kycStatus,
-      kyc_approved_at: kycStatus === "approved" ? now : null,
-      updated_at: now,
-    },
-    { user_id: userId, kyc_status: kycStatus, updated_at: now },
-    { user_id: userId, updated_at: now },
-  ];
+  let { data, error } = await db
+    .from("owner_profiles")
+    .update(payload)
+    .eq("user_id", userId)
+    .select("user_id, kyc_status, owner_status, approved_at, approved_by");
 
-  console.log("[updateOwnerProfileKycStatus] before update", { userId, kycStatus });
-
-  for (const payload of payloadVariants) {
-    const { data, error } = await db
+  if (!error && (!data || data.length === 0)) {
+    ({ data, error } = await db
       .from("owner_profiles")
-      .update(payload)
-      .eq("user_id", userId)
-      .select("*");
-
-    if (!error && data && data.length > 0) {
-      const row = data[0] as Record<string, unknown>;
-      console.log("[updateOwnerProfileKycStatus] after update", { userId, row });
-      return { data: row, error: null };
-    }
-
-    if (error && !isMissingColumnError(error, "kyc_status", "kyc_approved_at", "updated_at")) {
-      console.error("[updateOwnerProfileKycStatus] error", error);
-      return { data: null, error: error.message };
-    }
+      .upsert({ user_id: userId, ...payload }, { onConflict: "user_id" })
+      .select("user_id, kyc_status, owner_status, approved_at, approved_by"));
   }
 
-  for (const payload of payloadVariants) {
-    const upsertPayload: Record<string, unknown> = {
-      ...payload,
-      ...(existingProfile ?? {}),
-      user_id: userId,
-    };
-    delete upsertPayload.id;
-
-    const { data, error } = await db
-      .from("owner_profiles")
-      .upsert(upsertPayload, { onConflict: "user_id" })
-      .select("*");
-
-    if (!error && data && data.length > 0) {
-      const row = data[0] as Record<string, unknown>;
-      console.log("[updateOwnerProfileKycStatus] after upsert", { userId, row });
-      return { data: row, error: null };
-    }
-
-    if (error && !isMissingColumnError(error, "kyc_status", "kyc_approved_at", "updated_at")) {
-      console.error("[updateOwnerProfileKycStatus] upsert error", error);
-      return { data: null, error: error.message };
-    }
+  if (error) {
+    console.error("[updateOwnerProfile]", error);
+    return { data: null, error: error.message };
   }
 
-  console.warn(
-    "[updateOwnerProfileKycStatus] owner_profiles.kyc_status not writable — run supabase/RUN_FIX_KYC_APPROVAL.sql"
-  );
-  return { data: null, error: null };
+  const row = (data?.[0] ?? null) as OwnerProfileRow | null;
+  if (!row) {
+    return { data: null, error: "owner_profiles row was not created or updated." };
+  }
+
+  return { data: row, error: null };
 }
 
-async function syncOwnerProfileOwnerStatus(
-  userId: string,
-  ownerStatus: "pending" | "approved" | "rejected"
-) {
+async function readOwnerProfile(userId: string) {
   const db = createAdminClient();
-  const now = new Date().toISOString();
-
-  const payloadVariants: Record<string, unknown>[] = [
-    {
-      user_id: userId,
-      owner_status: ownerStatus,
-      owner_approved_at: ownerStatus === "approved" ? now : null,
-      updated_at: now,
-    },
-    { user_id: userId, owner_status: ownerStatus, updated_at: now },
-    { user_id: userId, status: ownerStatus, updated_at: now },
-    { user_id: userId, updated_at: now },
-  ];
-
-  for (const payload of payloadVariants) {
-    const { data, error } = await db
-      .from("owner_profiles")
-      .update(payload)
-      .eq("user_id", userId)
-      .select("*");
-
-    if (!error && data && data.length > 0) return;
-
-    if (error && !isMissingColumnError(error, "owner_status", "owner_approved_at", "status", "updated_at")) {
-      console.error("[syncOwnerProfileOwnerStatus] update error", error.message);
-      throw new Error(error.message);
-    }
-  }
-
-  for (const payload of payloadVariants) {
-    const { error } = await db.from("owner_profiles").upsert(payload, { onConflict: "user_id" });
-    if (!error) return;
-    if (!isMissingColumnError(error, "owner_status", "owner_approved_at", "status", "updated_at")) {
-      console.error("[syncOwnerProfileOwnerStatus] upsert error", error.message);
-      throw new Error(error.message);
-    }
-  }
-
-  console.warn(
-    "[syncOwnerProfileOwnerStatus] owner_profiles.owner_status not writable — run supabase/RUN_FIX_KYC_APPROVAL.sql"
-  );
+  return db.from("owner_profiles").select("*").eq("user_id", userId).maybeSingle();
 }
 
 async function syncCustomerProfile(userId: string, input: { kyc_status?: string; status?: string }) {
@@ -162,7 +87,6 @@ async function syncCustomerProfile(userId: string, input: { kyc_status?: string;
   if (input.status === "approved") payload.approved_at = new Date().toISOString();
   const { error } = await db.from("customer_profiles").upsert(payload, { onConflict: "user_id" });
   if (error && !error.message.includes("column") && !error.message.includes("does not exist")) {
-    console.error("[syncCustomerProfile]", error.message);
     throw new Error(error.message);
   }
 }
@@ -170,30 +94,22 @@ async function syncCustomerProfile(userId: string, input: { kyc_status?: string;
 export async function approveOwnerKycAction(
   userId: string
 ): Promise<ActionResult<{ ownerId: string; kycStatus: "approved" }>> {
-  console.log("[approveOwnerKycAction] Approve KYC clicked", { userId });
-
   try {
     const { user: adminUser } = await requireRole("admin");
     const db = createAdminClient();
 
-    const { data: profile, error: profileReadError } = await db
-      .from("owner_profiles")
-      .select("*")
-      .eq("user_id", userId)
-      .maybeSingle();
-
+    const { data: profile, error: profileReadError } = await readOwnerProfile(userId);
     if (profileReadError) {
-      console.error("[approveOwnerKycAction] profile read error", profileReadError);
       return { success: false, error: profileReadError.message };
     }
 
+    const profileRow = profile as Record<string, unknown> | null;
     const { data: kyc } = await db
       .from("owner_kyc")
       .select("aadhaar_url, license_url")
       .eq("owner_id", userId)
       .maybeSingle();
 
-    const profileRow = profile as Record<string, unknown> | null;
     const documents = ownerProfileDocumentsToSet(
       profileRow
         ? {
@@ -223,65 +139,25 @@ export async function approveOwnerKycAction(
 
     const approvalError = ownerKycApprovalError(documents);
     if (approvalError) {
-      console.error("[approveOwnerKycAction] document validation failed", approvalError);
       return { success: false, error: approvalError };
     }
 
-    console.log("[approveOwnerKycAction] before users update", { userId });
+    const now = new Date().toISOString();
+    const result = await updateOwnerProfile(userId, {
+      kyc_status: "approved",
+      approved_at: now,
+      approved_by: adminUser.id,
+    });
 
-    let { data: userRows, error: userError } = await db
-      .from("users")
-      .update(usersWritePayload({ kyc_status: "verified", role: "owner" }))
-      .eq("id", userId)
-      .select("id, kyc_status");
-
-    if (userError?.message.includes("kyc_status")) {
-      ({ data: userRows, error: userError } = await db
-        .from("users")
-        .update({ role: "owner" })
-        .eq("id", userId)
-        .select("id"));
+    if (result.error || !result.data) {
+      return { success: false, error: result.error ?? "Failed to update owner_profiles." };
     }
 
-    if (userError) {
-      console.error("[approveOwnerKycAction] users update error", userError);
-      return { success: false, error: `users table: ${userError.message}` };
-    }
-
-    if (!userRows?.length) {
-      const { data: authData } = await db.auth.admin.getUserById(userId);
-      const authUser = authData.user;
-      if (!authUser) {
-        return { success: false, error: "Owner user not found in auth or public.users." };
-      }
-      const meta = (authUser.user_metadata ?? {}) as Record<string, unknown>;
-      const { error: upsertError } = await db.from("users").upsert({
-        id: userId,
-        email: authUser.email ?? "",
-        name: String(meta.name ?? meta.full_name ?? "Owner"),
-        mobile: String(meta.mobile ?? ""),
-        role: "owner",
-        kyc_status: "verified",
-      });
-      if (upsertError) {
-        console.error("[approveOwnerKycAction] users upsert error", upsertError);
-        return { success: false, error: `users upsert: ${upsertError.message}` };
-      }
-    }
-
-    console.log("[approveOwnerKycAction] users updated", { userRows });
-
-    const profileResult = await updateOwnerProfileKycStatus(userId, "approved", profileRow);
-    if (profileResult.error) {
-      return { success: false, error: `owner_profiles: ${profileResult.error}` };
-    }
-
-    const { error: legacyKycError } = await db
-      .from("owner_kyc")
-      .update({ status: "approved", updated_at: new Date().toISOString() })
-      .eq("owner_id", userId);
-    if (legacyKycError && !legacyKycError.message.includes("does not exist")) {
-      console.warn("[approveOwnerKycAction] owner_kyc sync warning", legacyKycError.message);
+    if (result.data.kyc_status !== "approved") {
+      return {
+        success: false,
+        error: `KYC update did not persist. Got kyc_status="${result.data.kyc_status}".`,
+      };
     }
 
     await createNotification({
@@ -301,10 +177,6 @@ export async function approveOwnerKycAction(
     });
 
     revalidateAdmin();
-    console.log("[approveOwnerKycAction] success", {
-      userId,
-      profile: profileResult.data,
-    });
 
     return {
       success: true,
@@ -313,139 +185,147 @@ export async function approveOwnerKycAction(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error approving KYC";
-    console.error("[approveOwnerKycAction] exception", error);
+    console.error("[approveOwnerKycAction]", error);
     return { success: false, error: message };
   }
 }
 
 export async function rejectOwnerKycAction(userId: string, reason?: string): Promise<ActionResult> {
-  const { user } = await requireRole("admin");
-  const db = createAdminClient();
+  try {
+    const { user } = await requireRole("admin");
 
-  const { error: userError } = await db
-    .from("users")
-    .update({ kyc_status: "rejected" })
-    .eq("id", userId);
-  if (userError) {
-    console.error("[rejectOwnerKycAction] users error", userError);
-    return { success: false, error: userError.message };
+    const result = await updateOwnerProfile(userId, { kyc_status: "rejected" });
+    if (result.error || !result.data) {
+      return { success: false, error: result.error ?? "Failed to update owner_profiles." };
+    }
+
+    if (result.data.kyc_status !== "rejected") {
+      return {
+        success: false,
+        error: `KYC rejection did not persist. Got kyc_status="${result.data.kyc_status}".`,
+      };
+    }
+
+    await createNotification({
+      recipientId: userId,
+      recipientRole: "owner",
+      type: "kyc_rejected",
+      title: "KYC Rejected",
+      message: reason ?? "Please re-upload your KYC documents.",
+      metadata: { userId },
+    });
+
+    await logApproval({
+      entityType: "owner_kyc",
+      entityId: userId,
+      action: "rejected",
+      approvedBy: user.id,
+      remarks: reason,
+    });
+
+    revalidateAdmin();
+    return { success: true, message: "Owner KYC rejected." };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error rejecting KYC";
+    return { success: false, error: message };
   }
-
-  const profileResult = await updateOwnerProfileKycStatus(userId, "rejected");
-  if (profileResult.error) {
-    return { success: false, error: profileResult.error };
-  }
-
-  await createNotification({
-    recipientId: userId,
-    recipientRole: "owner",
-    type: "kyc_rejected",
-    title: "KYC Rejected",
-    message: reason ?? "Please re-upload your KYC documents.",
-    metadata: { userId },
-  });
-
-  await logApproval({
-    entityType: "owner_kyc",
-    entityId: userId,
-    action: "rejected",
-    approvedBy: user.id,
-    remarks: reason,
-  });
-
-  revalidateAdmin();
-  return { success: true, message: "Owner KYC rejected." };
 }
 
 export async function approveOwnerAction(userId: string): Promise<ActionResult> {
-  const { user } = await requireRole("admin");
-  const db = createAdminClient();
+  try {
+    const { user: adminUser } = await requireRole("admin");
 
-  const { data: userRow } = await db
-    .from("users")
-    .select("kyc_status, owner_status")
-    .eq("id", userId)
-    .maybeSingle();
+    const { data: profileRow, error: readError } = await readOwnerProfile(userId);
+    if (readError) {
+      return { success: false, error: readError.message };
+    }
 
-  const { data: profileRow } = await db
-    .from("owner_profiles")
-    .select("kyc_status")
-    .eq("user_id", userId)
-    .maybeSingle();
+    const kycStatus = (profileRow as { kyc_status?: string } | null)?.kyc_status;
+    if (!profileKycIsApproved(kycStatus)) {
+      return { success: false, error: "KYC must be approved first (owner_profiles.kyc_status = approved)." };
+    }
 
-  const kycStatus = resolveOwnerKycAdminStatus({
-    profileKyc: (profileRow as { kyc_status?: string } | null)?.kyc_status,
-    userKyc: (userRow as { kyc_status?: string } | null)?.kyc_status,
-  });
+    const now = new Date().toISOString();
+    const result = await updateOwnerProfile(userId, {
+      owner_status: "approved",
+      approved_at: now,
+      approved_by: adminUser.id,
+    });
 
-  if (!isOwnerKycApproved(kycStatus)) {
-    return { success: false, error: "KYC must be approved first." };
+    if (result.error || !result.data) {
+      return { success: false, error: result.error ?? "Failed to update owner_profiles." };
+    }
+
+    if (result.data.owner_status !== "approved") {
+      return {
+        success: false,
+        error: `Owner approval did not persist. Got owner_status="${result.data.owner_status}".`,
+      };
+    }
+
+    await createNotification({
+      recipientId: userId,
+      recipientRole: "owner",
+      type: "owner_approved",
+      title: "Owner Approved",
+      message: "Your owner account is approved. You can now list vehicles.",
+      metadata: { userId },
+    });
+
+    await logApproval({
+      entityType: "owner",
+      entityId: userId,
+      action: "approved",
+      approvedBy: adminUser.id,
+    });
+
+    revalidateAdmin();
+    return { success: true, message: "Owner approved successfully." };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error approving owner";
+    return { success: false, error: message };
   }
-
-  const { error: updateError } = await db
-    .from("users")
-    .update(usersWritePayload({ owner_status: "approved", role: "owner" }))
-    .eq("id", userId);
-
-  if (updateError) {
-    console.error("[approveOwnerAction] users error", updateError);
-    return { success: false, error: updateError.message };
-  }
-
-  await syncOwnerProfileOwnerStatus(userId, "approved");
-
-  await createNotification({
-    recipientId: userId,
-    recipientRole: "owner",
-    type: "owner_approved",
-    title: "Owner Approved",
-    message: "Your owner account is approved. You can now list vehicles.",
-    metadata: { userId },
-  });
-
-  await logApproval({
-    entityType: "owner",
-    entityId: userId,
-    action: "approved",
-    approvedBy: user.id,
-  });
-
-  revalidateAdmin();
-  return { success: true, message: "Owner approved." };
 }
 
 export async function rejectOwnerAction(userId: string, reason?: string): Promise<ActionResult> {
-  const { user } = await requireRole("admin");
-  const db = createAdminClient();
+  try {
+    const { user } = await requireRole("admin");
 
-  const { error } = await db
-    .from("users")
-    .update({ owner_status: "rejected" })
-    .eq("id", userId);
+    const result = await updateOwnerProfile(userId, { owner_status: "rejected" });
+    if (result.error || !result.data) {
+      return { success: false, error: result.error ?? "Failed to update owner_profiles." };
+    }
 
-  if (error) return { success: false, error: error.message };
+    if (result.data.owner_status !== "rejected") {
+      return {
+        success: false,
+        error: `Owner rejection did not persist. Got owner_status="${result.data.owner_status}".`,
+      };
+    }
 
-  await syncOwnerProfileOwnerStatus(userId, "rejected");
+    await createNotification({
+      recipientId: userId,
+      recipientRole: "owner",
+      type: "owner_rejected",
+      title: "Owner Rejected",
+      message: reason ?? "Your owner account was rejected.",
+      metadata: { userId },
+    });
 
-  await createNotification({
-    recipientId: userId,
-    recipientRole: "owner",
-    type: "owner_rejected",
-    title: "Owner Rejected",
-    message: reason ?? "Your owner account was rejected.",
-    metadata: { userId },
-  });
+    await logApproval({
+      entityType: "owner",
+      entityId: userId,
+      action: "rejected",
+      approvedBy: user.id,
+      remarks: reason,
+    });
 
-  await logApproval({
-    entityType: "owner",
-    entityId: userId,
-    action: "rejected",
-    approvedBy: user.id,
-    remarks: reason,
-  });
-
-  revalidateAdmin();
-  return { success: true, message: "Owner rejected." };
+    revalidateAdmin();
+    return { success: true, message: "Owner rejected." };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error rejecting owner";
+    return { success: false, error: message };
+  }
 }
 
 export async function approveCustomerKycAction(userId: string): Promise<ActionResult> {
@@ -481,7 +361,7 @@ export async function approveCustomerAction(userId: string): Promise<ActionResul
     (profileRow as { kyc_status?: string } | null)?.kyc_status ??
     (userRow as { kyc_status?: string } | null)?.kyc_status;
 
-  if (!isOwnerKycApproved(kycStatus)) {
+  if (!profileKycIsApproved(kycStatus)) {
     return { success: false, error: "KYC must be approved first." };
   }
 

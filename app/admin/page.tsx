@@ -51,6 +51,7 @@ export default async function AdminPage() {
 
   const cards = [
     { icon: Clock, label: "Pending Owner KYC", value: stats.pendingOwnerKyc.toLocaleString("en-IN") },
+    { icon: CheckCircle, label: "Approved Owner KYC", value: stats.approvedOwnerKyc.toLocaleString("en-IN") },
     { icon: Clock, label: "Pending Customer KYC", value: stats.pendingCustomerKyc.toLocaleString("en-IN") },
     { icon: Clock, label: "Pending Owners", value: stats.pendingOwners.toLocaleString("en-IN") },
     { icon: Clock, label: "Pending Customers", value: stats.pendingCustomers.toLocaleString("en-IN") },

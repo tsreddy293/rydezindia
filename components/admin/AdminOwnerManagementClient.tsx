@@ -76,16 +76,13 @@ export default function AdminOwnerManagementClient({ owners: initialOwners }: Pr
       .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
   }, [owners, filter, search]);
 
-  async function runAction(
-    action: () => Promise<{ success: boolean; error?: string; message?: string }>,
-    successMessage?: string
-  ) {
+  async function runAction(action: () => Promise<{ success: boolean; error?: string; message?: string }>) {
     setBusy(true);
     setError("");
     setMessage("");
     const result = await action();
     if (result.success) {
-      setMessage(successMessage ?? result.message ?? "Updated.");
+      if (result.message) setMessage(result.message);
       await loadOwners();
       router.refresh();
     } else {
@@ -93,20 +90,6 @@ export default function AdminOwnerManagementClient({ owners: initialOwners }: Pr
       setError(result.error ?? "Action failed.");
     }
     setBusy(false);
-  }
-
-  async function handleApproveKyc(owner: AdminOwnerManagementRecord) {
-    console.log("Approve KYC clicked");
-    console.log("Owner ID:", owner.id);
-    await runAction(() => approveOwnerKycAction(owner.id), "KYC Approved Successfully");
-  }
-
-  function openDetails(ownerId: string) {
-    setSelectedId(ownerId);
-  }
-
-  function closeDetails() {
-    setSelectedId(null);
   }
 
   return (
@@ -178,7 +161,7 @@ export default function AdminOwnerManagementClient({ owners: initialOwners }: Pr
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={() => openDetails(owner.id)}
+                      onClick={() => setSelectedId(owner.id)}
                       className="rounded-lg border px-3 py-1 text-xs text-primary hover:bg-primary/5"
                     >
                       View Details
@@ -187,7 +170,7 @@ export default function AdminOwnerManagementClient({ owners: initialOwners }: Pr
                       type="button"
                       disabled={busy || !canApproveOwnerAccount(owner)}
                       title={!isKycApproved(owner) ? "KYC must be approved first." : undefined}
-                      onClick={() => runAction(() => approveOwnerAction(owner.id), "Owner approved.")}
+                      onClick={() => runAction(() => approveOwnerAction(owner.id))}
                       className="rounded-lg border px-3 py-1 text-xs text-green-700 hover:bg-green-50 disabled:opacity-40"
                     >
                       Approve Owner
@@ -195,7 +178,7 @@ export default function AdminOwnerManagementClient({ owners: initialOwners }: Pr
                     <button
                       type="button"
                       disabled={busy || owner.ownerStatus === "rejected"}
-                      onClick={() => runAction(() => rejectOwnerAction(owner.id), "Owner rejected.")}
+                      onClick={() => runAction(() => rejectOwnerAction(owner.id))}
                       className="rounded-lg border border-red-200 px-3 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-40"
                     >
                       Reject Owner
@@ -219,7 +202,7 @@ export default function AdminOwnerManagementClient({ owners: initialOwners }: Pr
                 <h2 className="text-xl font-bold text-secondary">{selected.name}</h2>
                 <p className="text-sm text-gray-500">Owner profile & KYC review</p>
               </div>
-              <button type="button" onClick={closeDetails} className="text-gray-400 hover:text-gray-600">
+              <button type="button" onClick={() => setSelectedId(null)} className="text-gray-400 hover:text-gray-600">
                 ✕
               </button>
             </div>
@@ -249,7 +232,11 @@ export default function AdminOwnerManagementClient({ owners: initialOwners }: Pr
                 <button
                   type="button"
                   disabled={busy || selected.kycStatus === "approved"}
-                  onClick={() => handleApproveKyc(selected)}
+                  onClick={() => {
+                    console.log("Approve KYC clicked");
+                    console.log("Owner ID:", selected.id);
+                    runAction(() => approveOwnerKycAction(selected.id));
+                  }}
                   className="rounded-lg bg-green-600 px-4 py-2 text-xs font-medium text-white disabled:opacity-40"
                 >
                   Approve KYC
@@ -257,7 +244,7 @@ export default function AdminOwnerManagementClient({ owners: initialOwners }: Pr
                 <button
                   type="button"
                   disabled={busy || selected.kycStatus === "rejected"}
-                  onClick={() => runAction(() => rejectOwnerKycAction(selected.id), "Owner KYC rejected.")}
+                  onClick={() => runAction(() => rejectOwnerKycAction(selected.id))}
                   className="rounded-lg border border-red-200 px-4 py-2 text-xs text-red-600 disabled:opacity-40"
                 >
                   Reject KYC
@@ -286,7 +273,7 @@ export default function AdminOwnerManagementClient({ owners: initialOwners }: Pr
                 type="button"
                 disabled={busy || !canApproveOwnerAccount(selected)}
                 title={!isKycApproved(selected) ? "KYC must be approved first." : undefined}
-                onClick={() => runAction(() => approveOwnerAction(selected.id), "Owner approved.")}
+                onClick={() => runAction(() => approveOwnerAction(selected.id))}
                 className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
               >
                 Approve Owner
@@ -294,7 +281,7 @@ export default function AdminOwnerManagementClient({ owners: initialOwners }: Pr
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => runAction(() => rejectOwnerAction(selected.id), "Owner rejected.")}
+                onClick={() => runAction(() => rejectOwnerAction(selected.id))}
                 className="rounded-lg border border-red-200 px-4 py-2 text-sm text-red-600"
               >
                 Reject Owner

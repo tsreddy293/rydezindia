@@ -25,8 +25,8 @@ CREATE TABLE IF NOT EXISTS public.owner_profiles (
   address_proof_url TEXT,
   kyc_status TEXT NOT NULL DEFAULT 'pending',
   owner_status TEXT NOT NULL DEFAULT 'pending',
-  kyc_approved_at TIMESTAMPTZ,
-  owner_approved_at TIMESTAMPTZ,
+  approved_at TIMESTAMPTZ,
+  approved_by UUID,
   kyc_submitted_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -50,8 +50,8 @@ ALTER TABLE public.owner_profiles ADD COLUMN IF NOT EXISTS selfie_document_url T
 ALTER TABLE public.owner_profiles ADD COLUMN IF NOT EXISTS address_proof_url TEXT;
 ALTER TABLE public.owner_profiles ADD COLUMN IF NOT EXISTS kyc_status TEXT NOT NULL DEFAULT 'pending';
 ALTER TABLE public.owner_profiles ADD COLUMN IF NOT EXISTS owner_status TEXT NOT NULL DEFAULT 'pending';
-ALTER TABLE public.owner_profiles ADD COLUMN IF NOT EXISTS kyc_approved_at TIMESTAMPTZ;
-ALTER TABLE public.owner_profiles ADD COLUMN IF NOT EXISTS owner_approved_at TIMESTAMPTZ;
+ALTER TABLE public.owner_profiles ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ;
+ALTER TABLE public.owner_profiles ADD COLUMN IF NOT EXISTS approved_by UUID;
 ALTER TABLE public.owner_profiles ADD COLUMN IF NOT EXISTS kyc_submitted_at TIMESTAMPTZ;
 ALTER TABLE public.owner_profiles ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
 ALTER TABLE public.owner_profiles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();

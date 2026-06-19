@@ -1,10 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { ownerKycCanApprove, resolveOwnerKycDisplayStatus } from "@/lib/admin/owner-kyc";
-import { resolveOwnerKycAdminStatus } from "@/lib/admin/owner-kyc-status";
-import { resolveOwnerAdminStatus } from "@/lib/admin/owner-profile-status";
-import { ownerCreateVehicleBlockedReason } from "@/lib/admin/marketplace-gates";
+import { ownerKycCanApprove } from "@/lib/admin/owner-kyc";
+import { normalizeProfileStatus, profileKycIsApproved } from "@/lib/admin/owner-profile-fields";
 import {
   getOwnerProfileKyc,
   ownerProfileDocumentsToSet,
@@ -12,9 +10,11 @@ import {
   upsertOwnerProfileKycDocuments,
 } from "@/lib/services/owner-profile-kyc";
 import { createNotification } from "@/lib/services/notifications";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { requireRole } from "@/server/actions/auth";
 import type { ActionResult } from "@/types/database";
+
+const OWNER_ACCOUNT_PENDING_MESSAGE =
+  "Your owner account must be approved by admin before adding vehicles.";
 
 async function uploadIfPresent(
   ownerId: string,
@@ -29,52 +29,51 @@ async function uploadIfPresent(
 
 export async function getOwnerKycStatus() {
   const { user } = await requireRole("owner");
-  const db = createAdminClient();
-
-  const [profile, userRow] = await Promise.all([
-    getOwnerProfileKyc(user.id),
-    db.from("users").select("kyc_status, owner_status").eq("id", user.id).maybeSingle(),
-  ]);
-
-  const userData = userRow.data as { kyc_status?: string; owner_status?: string } | null;
-  const userKycStatus = String(userData?.kyc_status ?? "not_submitted");
+  const profile = await getOwnerProfileKyc(user.id);
   const documents = ownerProfileDocumentsToSet(profile);
   const hasRequiredDocs = ownerKycCanApprove(documents);
-  const kycResolved = resolveOwnerKycAdminStatus({
-    profileKyc: profile?.kyc_status,
-    userKyc: userKycStatus,
-  });
+  const kycStatus = normalizeProfileStatus(profile?.kyc_status, "pending");
+  const ownerStatus = normalizeProfileStatus(profile?.owner_status, "pending");
+
   const status =
-    kycResolved === "approved"
+    kycStatus === "approved"
       ? "verified"
-      : kycResolved === "rejected"
+      : kycStatus === "rejected"
         ? "rejected"
-        : resolveOwnerKycDisplayStatus({
-            userKycStatus,
-            profileKycStatus: profile?.kyc_status,
-            kycSubmittedAt: profile?.kyc_submitted_at,
-            hasRequiredDocs,
-          });
-  const ownerStatus = resolveOwnerAdminStatus({
-    profileOwnerStatus: profile?.owner_status,
-    userOwnerStatus: userData?.owner_status,
-  });
+        : hasRequiredDocs
+          ? "pending"
+          : "not_submitted";
 
   return {
     status,
+    kycStatus,
     ownerStatus,
     documents,
     profile,
     hasRequiredDocs,
-    canSubmit: status !== "verified",
-    canAddVehicle: ownerStatus === "approved" && (status === "verified" || status === "pending"),
+    canSubmit: kycStatus !== "approved",
+    canAddVehicle: kycStatus === "approved" && ownerStatus === "approved",
   };
 }
 
 export async function assertOwnerCanCreateVehicle(): Promise<{ ok: true } | { ok: false; error: string }> {
-  const { status } = await getOwnerKycStatus();
-  const blocked = ownerCreateVehicleBlockedReason(status);
-  if (blocked) return { ok: false, error: blocked };
+  const { kycStatus, ownerStatus, status } = await getOwnerKycStatus();
+
+  if (status === "rejected" || kycStatus === "rejected") {
+    return { ok: false, error: "KYC was rejected. Re-upload documents at /owner/kyc." };
+  }
+
+  if (!profileKycIsApproved(kycStatus)) {
+    return {
+      ok: false,
+      error: "Complete KYC verification before adding vehicles. Upload documents at /owner/kyc.",
+    };
+  }
+
+  if (ownerStatus !== "approved") {
+    return { ok: false, error: OWNER_ACCOUNT_PENDING_MESSAGE };
+  }
+
   return { ok: true };
 }
 
@@ -123,6 +122,8 @@ export async function submitOwnerProfileKyc(formData: FormData): Promise<ActionR
     revalidatePath("/owner/profile");
     revalidatePath("/owner/dashboard");
     revalidatePath("/admin/kyc");
+    revalidatePath("/admin/owner-management");
+    revalidatePath("/admin");
 
     return { success: true, message: "KYC documents submitted for admin review." };
   } catch (error) {

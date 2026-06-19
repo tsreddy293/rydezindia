@@ -100,11 +100,14 @@ export default async function OwnerDashboardPage({ searchParams }: Props) {
             >
               {kyc.ownerStatus}
             </p>
-            {kyc.ownerStatus !== "approved" && kyc.status === "verified" && (
+            {kyc.ownerStatus !== "approved" && kyc.kycStatus === "approved" && (
               <p className="text-xs text-gray-500 mt-2">KYC approved — waiting for admin owner approval.</p>
             )}
-            {kyc.ownerStatus !== "approved" && kyc.status !== "verified" && (
+            {kyc.kycStatus !== "approved" && (
               <p className="text-xs text-gray-500 mt-2">Complete KYC first, then admin will approve your owner account.</p>
+            )}
+            {kyc.canAddVehicle && (
+              <p className="text-xs text-green-600 mt-2">Your account is fully approved. You can add vehicles.</p>
             )}
           </div>
         </div>
