@@ -1,11 +1,13 @@
 import Link from "next/link";
-import { Calendar, Car, CheckCircle, Clock, DollarSign, Plus, Route } from "lucide-react";
+import { Calendar, Car, CheckCircle, Clock, DollarSign, Plus, Route, ShieldCheck } from "lucide-react";
 import PageLayout from "@/components/layout/PageLayout";
 import OwnerDashboardNav from "@/components/dashboard/OwnerDashboardNav";
 import Button from "@/components/ui/Button";
 import ChangePasswordForm from "@/components/auth/ChangePasswordForm";
 import NotificationCenter from "@/components/notifications/NotificationCenter";
+import KycStatusBadge from "@/components/trust/KycStatusBadge";
 import { getOwnerDashboardMetrics, getOwnerStats } from "@/lib/supabase/queries";
+import { getOwnerKycStatus } from "@/server/actions/ownerKyc";
 import { listNotifications } from "@/lib/services/notifications";
 import { formatINR } from "@/lib/utils";
 import { requireRole, signOutUser } from "@/server/actions/auth";
@@ -19,9 +21,10 @@ interface Props {
 export default async function OwnerDashboardPage({ searchParams }: Props) {
   const { user } = await requireRole("owner");
   const { passwordError, passwordSuccess } = await searchParams;
-  const [metrics, stats] = await Promise.all([
+  const [metrics, stats, kyc] = await Promise.all([
     getOwnerDashboardMetrics(user.id),
     getOwnerStats(user.id),
+    getOwnerKycStatus(),
   ]);
   const notifications = await listNotifications({ recipientId: user.id, recipientRole: "owner", limit: 10 });
 
@@ -67,6 +70,22 @@ export default async function OwnerDashboardPage({ searchParams }: Props) {
         </div>
 
         <OwnerDashboardNav />
+
+        <div className="mb-6 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <ShieldCheck className="h-8 w-8 text-primary" />
+            <div>
+              <p className="text-sm font-medium text-gray-500">KYC Status</p>
+              <KycStatusBadge status={kyc.status === "verified" ? "verified" : kyc.status} />
+              {!kyc.hasRequiredDocs && kyc.status !== "verified" && (
+                <p className="text-xs text-amber-600 mt-1">Upload documents to complete verification</p>
+              )}
+            </div>
+          </div>
+          <Button href="/owner/kyc" variant="outline" size="sm">
+            {kyc.hasRequiredDocs ? "View KYC" : "Upload KYC Documents"}
+          </Button>
+        </div>
 
         {metrics.totalVehicles === 0 && (
           <div className="mb-8 rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/5 to-accent/5 p-6 md:p-8">

@@ -2,6 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getSupabaseConfigError } from "@/lib/supabase/env";
 import { normalizeRole } from "@/lib/auth/roles";
 import { normalizeOwnerStatus } from "@/lib/admin/owner-status";
+import { ownerProfileDocumentsToSet } from "@/lib/services/owner-profile-kyc";
 import { ownerKycCanApprove } from "@/lib/admin/owner-kyc";
 import { effectiveVehicleStat } from "@/lib/admin/vehicle-approval";
 import type {
@@ -1553,10 +1554,10 @@ export async function getAdminOwnerKycList(): Promise<AdminOwnerKycRecord[]> {
     getAdminOwnerList(),
     selectRows(
       "owner_profiles",
-      "user_id, aadhaar_number, license_number, pan_number, city, address",
+      "user_id, aadhaar_number, license_number, pan_number, city, address, aadhaar_document_url, license_document_url, selfie_document_url, address_proof_url, kyc_submitted_at",
       500
     ),
-    selectRows("owner_kyc", "id, owner_id, aadhaar_url, pan_url, license_url, rc_url, insurance_url, status", 500),
+    selectRows("owner_kyc", "id, owner_id, aadhaar_url, pan_url, license_url, rc_url, insurance_url, selfie_url, status", 500),
     selectRows("vehicle_owners", "owner_id, name, mobile, email, aadhaar_number, license_number, status", 500),
     selectRows("users", "id, kyc_status", 500),
   ]);
@@ -1585,13 +1586,29 @@ export async function getAdminOwnerKycList(): Promise<AdminOwnerKycRecord[]> {
     const userKycStatus = userKycMap.get(owner.id) ?? "pending";
     const kycRowStatus = kyc ? getString(kyc, "status", userKycStatus) : userKycStatus;
 
-    const documents: AdminOwnerKycRecord["documents"] = {};
-    if (getString(kyc, "aadhaar_url")) documents.aadhaar = getString(kyc, "aadhaar_url");
-    if (getString(kyc, "pan_url")) documents.pan = getString(kyc, "pan_url");
-    if (getString(kyc, "license_url")) documents.license = getString(kyc, "license_url");
-    if (getString(kyc, "rc_url")) documents.rc = getString(kyc, "rc_url");
-    if (getString(kyc, "insurance_url")) documents.insurance = getString(kyc, "insurance_url");
+    const profileRow = profile
+      ? {
+          user_id: owner.id,
+          aadhaar_document_url: getString(profile, "aadhaar_document_url") || null,
+          license_document_url: getString(profile, "license_document_url") || null,
+          selfie_document_url: getString(profile, "selfie_document_url") || null,
+          address_proof_url: getString(profile, "address_proof_url") || null,
+          aadhaar_number: getString(profile, "aadhaar_number") || null,
+          license_number: getString(profile, "license_number") || null,
+          kyc_submitted_at: getString(profile, "kyc_submitted_at") || null,
+        }
+      : null;
 
+    const legacyDocs = {
+      aadhaar: getString(kyc, "aadhaar_url") || undefined,
+      license: getString(kyc, "license_url") || undefined,
+      selfie: getString(kyc, "selfie_url") || undefined,
+      pan: getString(kyc, "pan_url") || undefined,
+      rc: getString(kyc, "rc_url") || undefined,
+      insurance: getString(kyc, "insurance_url") || undefined,
+    };
+
+    const documents = ownerProfileDocumentsToSet(profileRow, legacyDocs);
     const canApprove = ownerKycCanApprove(documents);
 
     return {
@@ -1600,7 +1617,11 @@ export async function getAdminOwnerKycList(): Promise<AdminOwnerKycRecord[]> {
       name: owner.name,
       email: owner.email,
       mobile: owner.mobile,
-      aadhaar: aadhaarNumber ? maskAadhaar(aadhaarNumber) : documents.aadhaar ? "Document uploaded" : "Not provided",
+      aadhaar: aadhaarNumber
+        ? maskAadhaar(aadhaarNumber)
+        : documents.aadhaar
+          ? "Document uploaded"
+          : "Not provided",
       license: licenseNumber || (documents.license ? "Document uploaded" : "Not provided"),
       status: normalizeOwnerStatus(kycRowStatus, userKycStatus),
       canApprove,

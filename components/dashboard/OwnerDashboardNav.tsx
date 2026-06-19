@@ -8,6 +8,7 @@ const OWNER_LINKS = [
   { href: "/owner/my-vehicles", label: "My Vehicles" },
   { href: "/owner/bookings", label: "My Bookings" },
   { href: "/owner/earnings", label: "Earnings" },
+  { href: "/owner/kyc", label: "KYC Verification" },
   { href: "/owner/profile", label: "Profile" },
   { href: "/return-journeys", label: "Return Journeys" },
 ];

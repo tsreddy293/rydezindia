@@ -387,8 +387,10 @@ export interface AdminOwnerKycRecord {
   canApprove: boolean;
   documents: {
     aadhaar?: string;
-    pan?: string;
     license?: string;
+    selfie?: string;
+    address_proof?: string;
+    pan?: string;
     rc?: string;
     insurance?: string;
   };

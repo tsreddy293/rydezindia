@@ -1,22 +1,27 @@
 import { ShieldCheck } from "lucide-react";
+import Link from "next/link";
 import PageLayout from "@/components/layout/PageLayout";
 import OwnerDashboardNav from "@/components/dashboard/OwnerDashboardNav";
-import Button from "@/components/ui/Button";
+import OwnerKycUploadForm from "@/components/forms/OwnerKycUploadForm";
 import KycStatusBadge from "@/components/trust/KycStatusBadge";
+import Button from "@/components/ui/Button";
+import { getOwnerKycStatus } from "@/server/actions/ownerKyc";
+import { createPageMetadata } from "@/lib/metadata";
 import { requireRole } from "@/server/actions/auth";
-import { submitOwnerKyc } from "@/server/actions/kyc";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { isOwnerKycVerified } from "@/lib/services/verification";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = createPageMetadata({
+  title: "Owner KYC Verification",
+  description: "Upload identity documents for Rydez India owner verification.",
+  path: "/owner/kyc",
+  noIndex: true,
+});
+
 export default async function OwnerKycPage() {
-  const { user } = await requireRole("owner");
-  const db = createAdminClient();
-  const { data: kyc } = await db.from("owner_kyc").select("*").eq("owner_id", user.id).maybeSingle();
-  const verified = await isOwnerKycVerified(user.id);
-  const k = kyc as Record<string, unknown> | null;
-  const status = verified ? "verified" : String(k?.status ?? "not_submitted");
+  await requireRole("owner");
+  const { status, documents, hasRequiredDocs, canSubmit } = await getOwnerKycStatus();
+  const displayStatus = status === "verified" ? "verified" : status;
 
   return (
     <PageLayout>
@@ -24,36 +29,33 @@ export default async function OwnerKycPage() {
         <OwnerDashboardNav />
         <div className="text-center mb-10">
           <ShieldCheck className="h-12 w-12 text-primary mx-auto mb-3" />
-          <h1 className="text-3xl font-bold text-secondary">Owner KYC</h1>
-          <div className="mt-3"><KycStatusBadge status={status === "approved" ? "verified" : status} /></div>
-          {!verified && (
-            <p className="text-sm text-amber-600 mt-2">You must complete KYC before receiving bookings.</p>
+          <h1 className="text-3xl font-bold text-secondary">Owner KYC Verification</h1>
+          <div className="mt-3">
+            <KycStatusBadge status={displayStatus} />
+          </div>
+          {status === "pending" && hasRequiredDocs && (
+            <p className="text-sm text-amber-600 mt-2">Documents submitted — awaiting admin review.</p>
+          )}
+          {status === "pending" && !hasRequiredDocs && (
+            <p className="text-sm text-amber-600 mt-2">
+              Upload Aadhaar and Driving License to complete KYC verification.
+            </p>
+          )}
+          {status === "rejected" && (
+            <p className="text-sm text-red-600 mt-2">KYC was rejected. Please re-upload your documents.</p>
+          )}
+          {status === "verified" && (
+            <p className="text-sm text-green-600 mt-2">Your KYC is verified.</p>
           )}
         </div>
 
-        {k && (
-          <div className="mb-6 flex flex-wrap gap-3 text-sm">
-            {k.aadhaar_url ? <a href={String(k.aadhaar_url)} target="_blank" rel="noopener" className="text-primary underline">Preview Aadhaar</a> : null}
-            {k.pan_url ? <a href={String(k.pan_url)} target="_blank" rel="noopener" className="text-primary underline">Preview PAN</a> : null}
-            {k.selfie_url ? <a href={String(k.selfie_url)} target="_blank" rel="noopener" className="text-primary underline">Preview Selfie</a> : null}
-          </div>
-        )}
+        <OwnerKycUploadForm documents={documents} status={status} canSubmit={canSubmit} />
 
-        <form action={submitOwnerKyc} className="rounded-2xl bg-white border p-8 shadow-sm space-y-6">
-          {[
-            ["aadhaar", "Aadhaar Card"],
-            ["pan", "PAN Card"],
-            ["selfie", "Selfie Photo"],
-          ].map(([name, label]) => (
-            <div key={name}>
-              <label className="block text-sm font-medium text-gray-700 mb-2">{label}</label>
-              <input name={name} type="file" accept="image/*,.pdf" required={!k} className="w-full text-sm" />
-            </div>
-          ))}
-          <Button type="submit" variant="primary" size="lg" className="w-full">
-            {k ? "Re-upload Documents" : "Submit KYC"}
+        <div className="mt-6 text-center">
+          <Button href="/owner/profile" variant="outline" size="sm">
+            Back to Profile
           </Button>
-        </form>
+        </div>
       </div>
     </PageLayout>
   );

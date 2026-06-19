@@ -13,16 +13,20 @@ function DocumentLinks({
 }: {
   documents: {
     aadhaar?: string;
-    pan?: string;
     license?: string;
+    selfie?: string;
+    address_proof?: string;
+    pan?: string;
     rc?: string;
     insurance?: string;
   };
 }) {
   const entries = [
     { label: "Aadhaar", url: documents.aadhaar },
+    { label: "Driving License", url: documents.license },
+    { label: "Selfie", url: documents.selfie },
+    { label: "Address Proof", url: documents.address_proof },
     { label: "PAN", url: documents.pan },
-    { label: "License", url: documents.license },
     { label: "RC", url: documents.rc },
     { label: "Insurance", url: documents.insurance },
   ].filter((entry) => entry.url);

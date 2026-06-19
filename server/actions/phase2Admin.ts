@@ -83,6 +83,12 @@ export async function updateOwnerKycByUserId(
   const db = createAdminClient();
 
   if (status === "approved") {
+    const { data: profile } = await db
+      .from("owner_profiles")
+      .select("aadhaar_document_url, license_document_url")
+      .eq("user_id", userId)
+      .maybeSingle();
+
     const { data: kyc } = await db
       .from("owner_kyc")
       .select("aadhaar_url, license_url")
@@ -90,8 +96,14 @@ export async function updateOwnerKycByUserId(
       .maybeSingle();
 
     const documents = {
-      aadhaar: (kyc as { aadhaar_url?: string } | null)?.aadhaar_url ?? "",
-      license: (kyc as { license_url?: string } | null)?.license_url ?? "",
+      aadhaar:
+        (profile as { aadhaar_document_url?: string } | null)?.aadhaar_document_url ??
+        (kyc as { aadhaar_url?: string } | null)?.aadhaar_url ??
+        "",
+      license:
+        (profile as { license_document_url?: string } | null)?.license_document_url ??
+        (kyc as { license_url?: string } | null)?.license_url ??
+        "",
     };
 
     const approvalError = ownerKycApprovalError(documents);

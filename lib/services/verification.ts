@@ -1,14 +1,25 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCustomerKyc } from "@/lib/services/customer-kyc";
+import { ownerProfileDocumentsToSet, getOwnerProfileKyc } from "@/lib/services/owner-profile-kyc";
 
 export async function isOwnerKycVerified(ownerId: string): Promise<boolean> {
   const db = createAdminClient();
-  const { data } = await db
+
+  const { data: userRow } = await db
+    .from("users")
+    .select("kyc_status")
+    .eq("id", ownerId)
+    .maybeSingle();
+
+  const kycStatus = (userRow as { kyc_status?: string } | null)?.kyc_status;
+  if (kycStatus === "verified" || kycStatus === "approved") return true;
+
+  const { data: kyc } = await db
     .from("owner_kyc")
     .select("status")
     .eq("owner_id", ownerId)
     .maybeSingle();
-  if ((data as { status?: string } | null)?.status === "approved") return true;
+  if ((kyc as { status?: string } | null)?.status === "approved") return true;
 
   const { data: owner } = await db
     .from("owners")
@@ -16,6 +27,22 @@ export async function isOwnerKycVerified(ownerId: string): Promise<boolean> {
     .eq("id", ownerId)
     .maybeSingle();
   return Boolean((owner as { kyc_verified?: boolean } | null)?.kyc_verified);
+}
+
+export async function getOwnerKycDocumentSet(ownerId: string) {
+  const profile = await getOwnerProfileKyc(ownerId);
+  const db = createAdminClient();
+  const { data: kyc } = await db
+    .from("owner_kyc")
+    .select("aadhaar_url, license_url, selfie_url")
+    .eq("owner_id", ownerId)
+    .maybeSingle();
+
+  return ownerProfileDocumentsToSet(profile, {
+    aadhaar: (kyc as { aadhaar_url?: string } | null)?.aadhaar_url,
+    license: (kyc as { license_url?: string } | null)?.license_url,
+    selfie: (kyc as { selfie_url?: string } | null)?.selfie_url,
+  });
 }
 
 export async function assertOwnerCanReceiveBookings(ownerId: string): Promise<string | null> {
@@ -36,8 +63,7 @@ export async function assertCustomerCanBook(userId: string): Promise<string | nu
   if (status === "rejected") {
     return "Your KYC was rejected. Please re-upload documents at /user/profile/kyc.";
   }
-  return null; // allow booking without KYC for now; set to require KYC by uncommenting below
-  // return "Please complete KYC verification at /user/profile/kyc before booking.";
+  return null;
 }
 
 export async function logApproval(input: {
