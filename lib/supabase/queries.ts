@@ -11,7 +11,6 @@ import {
   normalizeDocumentsStatus,
   ownerMarketplaceEligibilityFromRow,
   vehicleApprovalBlockedReason,
-  vehicleCanBeApprovedByAdmin,
 } from "@/lib/admin/marketplace-gates";
 import { ownerProfileDocumentsToSet } from "@/lib/services/owner-profile-kyc";
 import { ownerKycCanApprove } from "@/lib/admin/owner-kyc";
@@ -1444,7 +1443,7 @@ function getVehicleDocumentsStatus(row: Row) {
 function isVehicleCustomerVisible(row: Row, ownerId: string, eligibilityMap: Map<string, ReturnType<typeof ownerMarketplaceEligibilityFromRow>>) {
   const eligibility = eligibilityMap.get(ownerId) ?? ownerMarketplaceEligibilityFromRow({});
   return isVehicleCustomerListable({
-    ownerStatus: eligibility.ownerApproved ? "approved" : eligibility.ownerStatus,
+    ownerStatus: eligibility.ownerStatus,
     kycStatus: eligibility.kycStatus,
     vehicleApprovalStatus: getVehicleApprovalStatus(row),
     documentsStatus: getVehicleDocumentsStatus(row),
@@ -1474,7 +1473,7 @@ async function getVehicleDashboardCounts(): Promise<{
     const eligibility = eligibilityMap.get(ownerId) ?? ownerMarketplaceEligibilityFromRow({});
     const stat = effectiveVehicleStat(
       getVehicleApprovalStatus(row),
-      eligibility.ownerApproved ? "approved" : eligibility.ownerStatus,
+      eligibility.ownerStatus,
       eligibility.kycStatus,
       getVehicleDocumentsStatus(row)
     );
@@ -1490,20 +1489,18 @@ export async function assertOwnerApprovedForVehicle(
   ownerId: string
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const { data, error } = await db()
-    .from("users")
+    .from("owner_profiles")
     .select("owner_status, kyc_status")
-    .eq("id", ownerId)
+    .eq("user_id", ownerId)
     .maybeSingle();
 
-  if (error && !error.message.includes("owner_status") && !error.message.includes("kyc_status")) {
+  if (error) {
     return { ok: false, error: error.message };
   }
 
-  const row = data as Row | undefined;
-  const blocked = vehicleApprovalBlockedReason({
-    ownerStatus: getString(row, "owner_status"),
-    kycStatus: getString(row, "kyc_status"),
-  });
+  const ownerStatus = normalizeProfileStatus(getString(data as Row | undefined, "owner_status"), "pending");
+  const kycStatus = normalizeProfileStatus(getString(data as Row | undefined, "kyc_status"), "pending");
+  const blocked = vehicleApprovalBlockedReason({ ownerStatus, kycStatus });
 
   if (blocked) {
     return { ok: false, error: blocked };
@@ -1671,12 +1668,10 @@ export async function getAdminVehicleList(limit = 200): Promise<AdminVehicleReco
   return rows.map((row) => {
     const mapped = mapVehicleRow(row);
     const eligibility = eligibilityMap.get(mapped.owner_id) ?? ownerMarketplaceEligibilityFromRow({});
-    const canApprove = vehicleCanBeApprovedByAdmin({
-      ownerStatus: eligibility.ownerApproved ? "approved" : eligibility.ownerStatus,
-      kycStatus: eligibility.kycStatus,
-    });
+    const canApprove =
+      eligibility.ownerStatus === "approved" && eligibility.kycStatus === "approved";
     const approvalBlockedReason = vehicleApprovalBlockedReason({
-      ownerStatus: eligibility.ownerApproved ? "approved" : eligibility.ownerStatus,
+      ownerStatus: eligibility.ownerStatus,
       kycStatus: eligibility.kycStatus,
     });
     return {

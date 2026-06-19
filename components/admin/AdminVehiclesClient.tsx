@@ -8,7 +8,7 @@ import {
   updateVehicleServiceAvailability,
 } from "@/server/actions/vehicles";
 import { VEHICLE_SERVICES, type VehicleServiceAvailability } from "@/lib/vehicles/services";
-import { OWNER_APPROVAL_REQUIRED_MESSAGE, vehicleApprovalBlockedReasonForOwner } from "@/lib/admin/vehicle-approval";
+import { KYC_APPROVAL_REQUIRED_MESSAGE } from "@/lib/admin/marketplace-gates";
 import { ownerStatusBadgeClasses } from "@/lib/admin/owner-status";
 
 interface VehicleRow {
@@ -35,6 +35,10 @@ interface VehicleRow {
 
 interface Props {
   vehicles: VehicleRow[];
+}
+
+function profileStatusIsApproved(status: string | undefined): boolean {
+  return String(status ?? "").toLowerCase() === "approved";
 }
 
 function ServiceBadges({ services }: { services: VehicleServiceAvailability }) {
@@ -185,6 +189,14 @@ export default function AdminVehiclesClient({ vehicles }: Props) {
                 service_return_journey: vehicle.service_return_journey,
               };
 
+              console.log("vehicle", vehicle);
+              console.log("owner_status", vehicle.owner_status);
+              console.log("kyc_status", vehicle.kyc_status);
+
+              const ownerApproved = profileStatusIsApproved(vehicle.owner_status);
+              const kycApproved = profileStatusIsApproved(vehicle.kyc_status);
+              const canApproveVehicle = ownerApproved && kycApproved;
+
               return (
                 <tr key={vehicle.id} className="align-top">
                   <td className="px-4 py-4">
@@ -289,14 +301,14 @@ export default function AdminVehiclesClient({ vehicles }: Props) {
                   <td className="px-4 py-4 min-w-[200px]">
                     {isPending ? (
                       <>
-                        {!vehicle.canApprove && (
+                        {!ownerApproved && (
                           <p className="mb-2 text-xs font-medium text-amber-600">
-                            {vehicle.approvalBlockedReason ??
-                              vehicleApprovalBlockedReasonForOwner(
-                                vehicle.owner_status,
-                                vehicle.kyc_status
-                              ) ??
-                              OWNER_APPROVAL_REQUIRED_MESSAGE}
+                            Owner approval required
+                          </p>
+                        )}
+                        {!kycApproved && (
+                          <p className="mb-2 text-xs font-medium text-amber-600">
+                            {KYC_APPROVAL_REQUIRED_MESSAGE}
                           </p>
                         )}
                         <textarea
@@ -309,15 +321,15 @@ export default function AdminVehiclesClient({ vehicles }: Props) {
                         <div className="flex flex-wrap gap-2">
                           <button
                             type="button"
-                            disabled={busy === vehicle.id || !vehicle.canApprove}
+                            disabled={busy === vehicle.id || !canApproveVehicle}
                             title={
-                              !vehicle.canApprove
-                                ? "Approve the owner in Owner Management first"
+                              !canApproveVehicle
+                                ? "Approve the owner and KYC in Owner Management first"
                                 : undefined
                             }
                             onClick={() => runAction(vehicle.id, "approve")}
                             className={`rounded-lg border px-3 py-1 text-xs text-green-700 hover:bg-green-50 disabled:opacity-50 disabled:cursor-not-allowed ${
-                              !vehicle.canApprove ? "opacity-50 cursor-not-allowed" : ""
+                              !canApproveVehicle ? "opacity-50 cursor-not-allowed" : ""
                             }`}
                           >
                             {busy === vehicle.id ? "Processing..." : "Approve"}

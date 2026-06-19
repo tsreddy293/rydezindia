@@ -1,4 +1,5 @@
 import type { OwnerKycDisplayStatus } from "@/lib/admin/owner-kyc";
+import { normalizeProfileStatus } from "@/lib/admin/owner-profile-fields";
 import { normalizeOwnerStatus, type OwnerStatus } from "@/lib/admin/owner-status";
 
 export type DocumentsStatus = "pending" | "approved" | "rejected";
@@ -47,10 +48,13 @@ export function vehicleApprovalBlockedReason(input: {
   ownerStatus: unknown;
   kycStatus: unknown;
 }): string | null {
-  if (!isStrictOwnerApproved(input.ownerStatus)) {
+  const ownerStatus = String(input.ownerStatus ?? "").toLowerCase();
+  const kycStatus = String(input.kycStatus ?? "").toLowerCase();
+
+  if (ownerStatus !== "approved") {
     return "Owner approval required";
   }
-  if (!isOwnerKycApproved(input.kycStatus)) {
+  if (kycStatus !== "approved") {
     return KYC_APPROVAL_REQUIRED_MESSAGE;
   }
   return null;
@@ -70,8 +74,10 @@ export function isVehicleCustomerListable(input: {
   vehicleApprovalStatus: unknown;
   documentsStatus: unknown;
 }): boolean {
-  if (!isStrictOwnerApproved(input.ownerStatus)) return false;
-  if (!isOwnerKycApproved(input.kycStatus)) return false;
+  const ownerStatus = String(input.ownerStatus ?? "").toLowerCase();
+  const kycStatus = String(input.kycStatus ?? "").toLowerCase();
+  if (ownerStatus !== "approved") return false;
+  if (kycStatus !== "approved") return false;
   if (String(input.vehicleApprovalStatus ?? "").toLowerCase() !== "approved") return false;
   if (normalizeDocumentsStatus(input.documentsStatus) !== "approved") return false;
   return true;
@@ -86,12 +92,12 @@ export function ownerMarketplaceEligibilityFromRow(row: {
   ownerApproved: boolean;
   kycApproved: boolean;
 } {
-  const kycStatus = String(row.kyc_status ?? "not_submitted");
-  const ownerStatus = normalizeOwnerStatus(row.owner_status, undefined);
+  const ownerStatus = normalizeProfileStatus(row.owner_status, "pending");
+  const kycStatus = normalizeProfileStatus(row.kyc_status, "pending");
   return {
     ownerStatus,
     kycStatus,
-    ownerApproved: isStrictOwnerApproved(row.owner_status),
-    kycApproved: isOwnerKycApproved(kycStatus),
+    ownerApproved: ownerStatus === "approved",
+    kycApproved: kycStatus === "approved",
   };
 }
