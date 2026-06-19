@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { usersWritePayload } from "@/lib/supabase/users-table";
 import { createNotification } from "@/lib/services/notifications";
 import { publishVehicleToMarketplace, unpublishVehicleFromMarketplace } from "@/lib/services/vehicle-onboarding";
 import { requireRole } from "@/server/actions/auth";
@@ -84,12 +85,11 @@ export async function updateOwnerStatus(ownerId: string, status: "approved" | "r
   const kycStatus =
     status === "approved" ? "verified" : status === "rejected" ? "rejected" : "pending";
 
-  const payload: Record<string, unknown> = {
+  const payload: Record<string, unknown> = usersWritePayload({
     owner_status: status,
     role: "owner",
     kyc_status: kycStatus,
-    updated_at: new Date().toISOString(),
-  };
+  });
 
   let { data: updatedRows, error } = await db
     .from("users")

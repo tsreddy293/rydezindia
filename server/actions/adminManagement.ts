@@ -2,7 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { usersWritePayload } from "@/lib/supabase/users-table";
 import { isOwnerKycApproved } from "@/lib/admin/marketplace-gates";
+import { resolveOwnerKycAdminStatus } from "@/lib/admin/owner-kyc-status";
 import { ownerKycApprovalError } from "@/lib/admin/owner-kyc";
 import { ownerProfileDocumentsToSet } from "@/lib/services/owner-profile-kyc";
 import { createNotification } from "@/lib/services/notifications";
@@ -195,14 +197,14 @@ export async function approveOwnerKycAction(
 
     let { data: userRows, error: userError } = await db
       .from("users")
-      .update({ kyc_status: "verified", role: "owner", updated_at: new Date().toISOString() })
+      .update(usersWritePayload({ kyc_status: "verified", role: "owner" }))
       .eq("id", userId)
       .select("id, kyc_status");
 
     if (userError?.message.includes("kyc_status")) {
       ({ data: userRows, error: userError } = await db
         .from("users")
-        .update({ role: "owner", updated_at: new Date().toISOString() })
+        .update({ role: "owner" })
         .eq("id", userId)
         .select("id"));
     }
@@ -337,9 +339,10 @@ export async function approveOwnerAction(userId: string): Promise<ActionResult> 
     .eq("user_id", userId)
     .maybeSingle();
 
-  const kycStatus =
-    (profileRow as { kyc_status?: string } | null)?.kyc_status ??
-    (userRow as { kyc_status?: string } | null)?.kyc_status;
+  const kycStatus = resolveOwnerKycAdminStatus({
+    profileKyc: (profileRow as { kyc_status?: string } | null)?.kyc_status,
+    userKyc: (userRow as { kyc_status?: string } | null)?.kyc_status,
+  });
 
   if (!isOwnerKycApproved(kycStatus)) {
     return { success: false, error: "KYC must be approved first." };
@@ -347,7 +350,7 @@ export async function approveOwnerAction(userId: string): Promise<ActionResult> 
 
   const { error: updateError } = await db
     .from("users")
-    .update({ owner_status: "approved", role: "owner", updated_at: new Date().toISOString() })
+    .update(usersWritePayload({ owner_status: "approved", role: "owner" }))
     .eq("id", userId);
 
   if (updateError) {
@@ -383,7 +386,7 @@ export async function rejectOwnerAction(userId: string, reason?: string): Promis
 
   const { error } = await db
     .from("users")
-    .update({ owner_status: "rejected", updated_at: new Date().toISOString() })
+    .update({ owner_status: "rejected" })
     .eq("id", userId);
 
   if (error) return { success: false, error: error.message };
@@ -448,7 +451,6 @@ export async function approveCustomerAction(userId: string): Promise<ActionResul
     return { success: false, error: "KYC must be approved first." };
   }
 
-  await db.from("users").update({ updated_at: new Date().toISOString() }).eq("id", userId);
   await syncCustomerProfile(userId, { status: "approved" });
 
   await createNotification({

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { usersWritePayload } from "@/lib/supabase/users-table";
 import { ownerKycApprovalError } from "@/lib/admin/owner-kyc";
 import { logApproval } from "@/lib/services/verification";
 import { createNotification } from "@/lib/services/notifications";
@@ -117,10 +118,10 @@ export async function updateOwnerKycByUserId(
   const ownerKycStatus =
     status === "approved" ? "approved" : status === "rejected" ? "rejected" : "pending";
 
-  const userPayload: Record<string, unknown> = {
+  const userPayload: Record<string, unknown> = usersWritePayload({
     kyc_status: kycStatus,
     role: "owner",
-  };
+  });
 
   let { error: userError } = await db.from("users").update(userPayload).eq("id", userId);
 
