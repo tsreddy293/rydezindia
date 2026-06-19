@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isMissingColumnError } from "@/lib/supabase/errors";
 import { usersWritePayload } from "@/lib/supabase/users-table";
 import { isOwnerKycApproved } from "@/lib/admin/marketplace-gates";
 import { resolveOwnerKycAdminStatus } from "@/lib/admin/owner-kyc-status";
@@ -28,13 +29,6 @@ function revalidateAdmin() {
   ADMIN_PATHS.forEach((path) => revalidatePath(path));
 }
 
-type OwnerProfileKycUpdate = {
-  user_id: string;
-  kyc_status: "pending" | "approved" | "rejected";
-  kyc_approved_at?: string | null;
-  updated_at: string;
-};
-
 async function updateOwnerProfileKycStatus(
   userId: string,
   kycStatus: "pending" | "approved" | "rejected",
@@ -43,40 +37,39 @@ async function updateOwnerProfileKycStatus(
   const db = createAdminClient();
   const now = new Date().toISOString();
 
-  const payload: OwnerProfileKycUpdate = {
-    user_id: userId,
-    kyc_status: kycStatus,
-    updated_at: now,
-  };
-  if (kycStatus === "approved") payload.kyc_approved_at = now;
-  if (kycStatus !== "approved") payload.kyc_approved_at = null;
+  const payloadVariants: Record<string, unknown>[] = [
+    {
+      user_id: userId,
+      kyc_status: kycStatus,
+      kyc_approved_at: kycStatus === "approved" ? now : null,
+      updated_at: now,
+    },
+    { user_id: userId, kyc_status: kycStatus, updated_at: now },
+    { user_id: userId, updated_at: now },
+  ];
 
-  console.log("[updateOwnerProfileKycStatus] before update", { userId, payload });
+  console.log("[updateOwnerProfileKycStatus] before update", { userId, kycStatus });
 
-  let { data, error } = await db
-    .from("owner_profiles")
-    .update(payload)
-    .eq("user_id", userId)
-    .select("user_id, kyc_status, kyc_approved_at, updated_at");
-
-  if (error?.message.includes("kyc_approved_at")) {
-    const { kyc_approved_at: _removed, ...withoutApprovedAt } = payload;
-    ({ data, error } = await db
+  for (const payload of payloadVariants) {
+    const { data, error } = await db
       .from("owner_profiles")
-      .update(withoutApprovedAt)
+      .update(payload)
       .eq("user_id", userId)
-      .select("user_id, kyc_status, updated_at"));
+      .select("*");
+
+    if (!error && data && data.length > 0) {
+      const row = data[0] as Record<string, unknown>;
+      console.log("[updateOwnerProfileKycStatus] after update", { userId, row });
+      return { data: row, error: null };
+    }
+
+    if (error && !isMissingColumnError(error, "kyc_status", "kyc_approved_at", "updated_at")) {
+      console.error("[updateOwnerProfileKycStatus] error", error);
+      return { data: null, error: error.message };
+    }
   }
 
-  if (error?.message.includes("kyc_status")) {
-    return {
-      data: null,
-      error:
-        "owner_profiles.kyc_status column missing. Run supabase/RUN_ADMIN_PROFILE_STATUS.sql in Supabase SQL Editor.",
-    };
-  }
-
-  if (!error && (!data || data.length === 0)) {
+  for (const payload of payloadVariants) {
     const upsertPayload: Record<string, unknown> = {
       ...payload,
       ...(existingProfile ?? {}),
@@ -84,20 +77,27 @@ async function updateOwnerProfileKycStatus(
     };
     delete upsertPayload.id;
 
-    ({ data, error } = await db
+    const { data, error } = await db
       .from("owner_profiles")
       .upsert(upsertPayload, { onConflict: "user_id" })
-      .select("user_id, kyc_status, kyc_approved_at, updated_at"));
+      .select("*");
+
+    if (!error && data && data.length > 0) {
+      const row = data[0] as Record<string, unknown>;
+      console.log("[updateOwnerProfileKycStatus] after upsert", { userId, row });
+      return { data: row, error: null };
+    }
+
+    if (error && !isMissingColumnError(error, "kyc_status", "kyc_approved_at", "updated_at")) {
+      console.error("[updateOwnerProfileKycStatus] upsert error", error);
+      return { data: null, error: error.message };
+    }
   }
 
-  if (error) {
-    console.error("[updateOwnerProfileKycStatus] error", error);
-    return { data: null, error: error.message };
-  }
-
-  const row = (data?.[0] ?? null) as Record<string, unknown> | null;
-  console.log("[updateOwnerProfileKycStatus] after update", { userId, row });
-  return { data: row, error: null };
+  console.warn(
+    "[updateOwnerProfileKycStatus] owner_profiles.kyc_status not writable — KYC saved on users.kyc_status. Run supabase/RUN_FIX_KYC_APPROVAL.sql"
+  );
+  return { data: null, error: null };
 }
 
 async function syncOwnerProfileStatus(

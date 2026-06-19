@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isMissingColumnError } from "@/lib/supabase/errors";
 import { getSupabaseConfigError } from "@/lib/supabase/env";
 import { normalizeRole } from "@/lib/auth/roles";
 import { normalizeOwnerStatus } from "@/lib/admin/owner-status";
@@ -207,6 +208,32 @@ async function selectRows(table: string, columns = "*", limit = 100): Promise<Ro
     return [];
   }
   return asRows(data);
+}
+
+async function selectOwnerProfilesForAdmin(limit = 500): Promise<Row[]> {
+  const client = db();
+  const withStatus =
+    "user_id, city, kyc_status, status, aadhaar_document_url, license_document_url, selfie_document_url, address_proof_url";
+  const docsOnly =
+    "user_id, city, aadhaar_document_url, license_document_url, selfie_document_url, address_proof_url";
+
+  const first = await client.from("owner_profiles").select(withStatus).limit(limit);
+  let rows: unknown = first.data;
+  let error = first.error;
+
+  if (error && isMissingColumnError(error, "kyc_status", "status")) {
+    const fallback = await client.from("owner_profiles").select(docsOnly).limit(limit);
+    rows = fallback.data;
+    error = fallback.error;
+  }
+
+  if (error) {
+    if (isMissingTableError(error)) return [];
+    console.error("[selectOwnerProfilesForAdmin]", error.message);
+    return [];
+  }
+
+  return asRows(rows);
 }
 
 async function getVehicleMap(ids: string[]) {
@@ -1801,11 +1828,7 @@ export async function getAdminOwnerManagementList(): Promise<AdminOwnerManagemen
   const [owners, kycRows, profileRows, vehicleRows, userRows] = await Promise.all([
     getAdminOwnerList(),
     getAdminOwnerKycList(),
-    selectRows(
-      "owner_profiles",
-      "user_id, city, kyc_status, status, aadhaar_document_url, license_document_url, selfie_document_url, address_proof_url",
-      500
-    ),
+    selectOwnerProfilesForAdmin(500),
     selectRows(
       "vehicles",
       "id, owner_id, vehicle_make, vehicle_model, vehicle_year, registration_number, approval_status",
