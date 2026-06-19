@@ -362,10 +362,13 @@ export interface AdminVehicleRecord {
   vehicle_category: string;
   registration_number: string;
   approval_status: string;
+  documents_status?: string;
   owner_id: string;
   owner_name: string;
   owner_status: OwnerStatus;
+  kyc_status?: string;
   canApprove: boolean;
+  approvalBlockedReason?: string | null;
   vehicle_photo_url: string | null;
   rc_document_url: string | null;
   insurance_document_url: string | null;

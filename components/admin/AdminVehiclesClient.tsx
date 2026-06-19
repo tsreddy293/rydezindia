@@ -8,7 +8,7 @@ import {
   updateVehicleServiceAvailability,
 } from "@/server/actions/vehicles";
 import { VEHICLE_SERVICES, type VehicleServiceAvailability } from "@/lib/vehicles/services";
-import { OWNER_APPROVAL_REQUIRED_MESSAGE } from "@/lib/admin/vehicle-approval";
+import { OWNER_APPROVAL_REQUIRED_MESSAGE, vehicleApprovalBlockedReasonForOwner } from "@/lib/admin/vehicle-approval";
 import { ownerStatusBadgeClasses } from "@/lib/admin/owner-status";
 
 interface VehicleRow {
@@ -17,10 +17,13 @@ interface VehicleRow {
   vehicle_category: string;
   registration_number: string;
   approval_status: string;
+  documents_status?: string;
   owner_id: string;
   owner_name: string;
   owner_status: string;
+  kyc_status?: string;
   canApprove: boolean;
+  approvalBlockedReason?: string | null;
   vehicle_photo_url: string | null;
   rc_document_url: string | null;
   insurance_document_url: string | null;
@@ -161,6 +164,7 @@ export default function AdminVehiclesClient({ vehicles }: Props) {
               <th className="px-4 py-3 font-medium">Registration</th>
               <th className="px-4 py-3 font-medium">Owner</th>
               <th className="px-4 py-3 font-medium">Owner Status</th>
+              <th className="px-4 py-3 font-medium">KYC Status</th>
               <th className="px-4 py-3 font-medium">Category</th>
               <th className="px-4 py-3 font-medium">Services</th>
               <th className="px-4 py-3 font-medium">Status</th>
@@ -206,6 +210,11 @@ export default function AdminVehiclesClient({ vehicles }: Props) {
                       {vehicle.owner_status}
                     </span>
                   </td>
+                  <td className="px-4 py-4">
+                    <span className="inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium capitalize bg-gray-100 text-gray-700">
+                      {vehicle.kyc_status ?? "not_submitted"}
+                    </span>
+                  </td>
                   <td className="px-4 py-4">{vehicle.vehicle_category}</td>
                   <td className="px-4 py-4 min-w-[160px]">
                     {isApproved && editingServices === vehicle.id ? (
@@ -248,6 +257,9 @@ export default function AdminVehiclesClient({ vehicles }: Props) {
                   </td>
                   <td className="px-4 py-4">
                     <div className="flex flex-wrap gap-2">
+                      <span className="text-xs text-gray-500 capitalize">
+                        Docs: {vehicle.documents_status ?? "pending"}
+                      </span>
                       {vehicle.rc_document_url ? (
                         <a
                           href={vehicle.rc_document_url}
@@ -279,7 +291,12 @@ export default function AdminVehiclesClient({ vehicles }: Props) {
                       <>
                         {!vehicle.canApprove && (
                           <p className="mb-2 text-xs font-medium text-amber-600">
-                            {OWNER_APPROVAL_REQUIRED_MESSAGE}
+                            {vehicle.approvalBlockedReason ??
+                              vehicleApprovalBlockedReasonForOwner(
+                                vehicle.owner_status,
+                                vehicle.kyc_status
+                              ) ??
+                              OWNER_APPROVAL_REQUIRED_MESSAGE}
                           </p>
                         )}
                         <textarea

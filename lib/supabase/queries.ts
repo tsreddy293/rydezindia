@@ -2,6 +2,13 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getSupabaseConfigError } from "@/lib/supabase/env";
 import { normalizeRole } from "@/lib/auth/roles";
 import { normalizeOwnerStatus } from "@/lib/admin/owner-status";
+import {
+  isVehicleCustomerListable,
+  normalizeDocumentsStatus,
+  ownerMarketplaceEligibilityFromRow,
+  vehicleApprovalBlockedReason,
+  vehicleCanBeApprovedByAdmin,
+} from "@/lib/admin/marketplace-gates";
 import { ownerProfileDocumentsToSet } from "@/lib/services/owner-profile-kyc";
 import { ownerKycCanApprove } from "@/lib/admin/owner-kyc";
 import { effectiveVehicleStat } from "@/lib/admin/vehicle-approval";
@@ -384,6 +391,12 @@ async function fetchApprovedMarketplaceVehicles(
   }
 
   let rows = asRows(data);
+  const ownerIds = rows.map((row) => getString(row, "owner_id")).filter(Boolean);
+  const eligibilityMap = await getOwnerMarketplaceEligibilityMap(ownerIds);
+  rows = rows.filter((row) =>
+    isVehicleCustomerVisible(row, getString(row, "owner_id"), eligibilityMap)
+  );
+
   if (service) {
     const before = rows.length;
     rows = rows.filter((row) => isServiceEnabled(row, service));
@@ -1061,6 +1074,11 @@ export async function getJourneyById(id: string): Promise<Record<string, unknown
 
   const row = vehicleData as Row;
   const ownerId = getString(row, "owner_id");
+  const eligibilityMap = await getOwnerMarketplaceEligibilityMap([ownerId]);
+  if (!isVehicleCustomerVisible(row, ownerId, eligibilityMap)) {
+    return null;
+  }
+
   const [ownerCityMap, ownerNameMap] = await Promise.all([
     resolveOwnerCities([ownerId]),
     resolveOwnerNames([ownerId]),
@@ -1111,6 +1129,9 @@ export async function getSelfDriveListingById(id: string): Promise<SelfDriveResu
   if (!isServiceEnabled(row, "service_self_drive")) return null;
 
   const ownerId = getString(row, "owner_id");
+  const eligibilityMap = await getOwnerMarketplaceEligibilityMap([ownerId]);
+  if (!isVehicleCustomerVisible(row, ownerId, eligibilityMap)) return null;
+
   const [ownerCityMap, ownerNameMap] = await Promise.all([
     resolveOwnerCities([ownerId]),
     resolveOwnerNames([ownerId]),
@@ -1143,6 +1164,9 @@ export async function getDriverListingById(id: string): Promise<DriverVehicleRes
   }
 
   const ownerId = getString(row, "owner_id");
+  const eligibilityMap = await getOwnerMarketplaceEligibilityMap([ownerId]);
+  if (!isVehicleCustomerVisible(row, ownerId, eligibilityMap)) return null;
+
   const [ownerCityMap, ownerNameMap, ownerMobileMap] = await Promise.all([
     resolveOwnerCities([ownerId]),
     resolveOwnerNames([ownerId]),
@@ -1317,23 +1341,72 @@ async function getOwnerStatusMap(ownerIds: string[]): Promise<Map<string, OwnerS
   return map;
 }
 
+async function getOwnerMarketplaceEligibilityMap(ownerIds: string[]) {
+  const uniqueIds = [...new Set(ownerIds.filter(Boolean))];
+  const map = new Map<string, ReturnType<typeof ownerMarketplaceEligibilityFromRow>>();
+  if (uniqueIds.length === 0) return map;
+
+  const { data, error } = await db()
+    .from("users")
+    .select("id, owner_status, kyc_status")
+    .in("id", uniqueIds);
+
+  if (!error) {
+    asRows(data).forEach((row) => {
+      map.set(getString(row, "id"), ownerMarketplaceEligibilityFromRow(row));
+    });
+  }
+
+  for (const id of uniqueIds) {
+    if (!map.has(id)) {
+      map.set(id, ownerMarketplaceEligibilityFromRow({}));
+    }
+  }
+
+  return map;
+}
+
+function getVehicleDocumentsStatus(row: Row) {
+  return normalizeDocumentsStatus(getString(row, "documents_status", "pending"));
+}
+
+function isVehicleCustomerVisible(row: Row, ownerId: string, eligibilityMap: Map<string, ReturnType<typeof ownerMarketplaceEligibilityFromRow>>) {
+  const eligibility = eligibilityMap.get(ownerId) ?? ownerMarketplaceEligibilityFromRow({});
+  return isVehicleCustomerListable({
+    ownerStatus: eligibility.ownerApproved ? "approved" : eligibility.ownerStatus,
+    kycStatus: eligibility.kycStatus,
+    vehicleApprovalStatus: getVehicleApprovalStatus(row),
+    documentsStatus: getVehicleDocumentsStatus(row),
+  });
+}
+
 async function getVehicleDashboardCounts(): Promise<{
   total: number;
   approved: number;
   pending: number;
   rejected: number;
 }> {
-  const rows = await selectRows("vehicles", "id, owner_id, approval_status, vehicle_approval_status", 500);
+  const rows = await selectRows(
+    "vehicles",
+    "id, owner_id, approval_status, vehicle_approval_status, documents_status",
+    500
+  );
   const ownerIds = rows.map((row) => getString(row, "owner_id")).filter(Boolean);
-  const ownerStatusMap = await getOwnerStatusMap(ownerIds);
+  const eligibilityMap = await getOwnerMarketplaceEligibilityMap(ownerIds);
 
   let approved = 0;
   let pending = 0;
   let rejected = 0;
 
   rows.forEach((row) => {
-    const ownerStatus = ownerStatusMap.get(getString(row, "owner_id")) ?? "pending";
-    const stat = effectiveVehicleStat(getVehicleApprovalStatus(row), ownerStatus);
+    const ownerId = getString(row, "owner_id");
+    const eligibility = eligibilityMap.get(ownerId) ?? ownerMarketplaceEligibilityFromRow({});
+    const stat = effectiveVehicleStat(
+      getVehicleApprovalStatus(row),
+      eligibility.ownerApproved ? "approved" : eligibility.ownerStatus,
+      eligibility.kycStatus,
+      getVehicleDocumentsStatus(row)
+    );
     if (stat === "approved") approved += 1;
     else if (stat === "rejected") rejected += 1;
     else pending += 1;
@@ -1351,17 +1424,18 @@ export async function assertOwnerApprovedForVehicle(
     .eq("id", ownerId)
     .maybeSingle();
 
-  if (error && !error.message.includes("owner_status")) {
+  if (error && !error.message.includes("owner_status") && !error.message.includes("kyc_status")) {
     return { ok: false, error: error.message };
   }
 
-  const ownerStatus = resolveOwnerStatus(
-    data as Row | undefined,
-    getString(data as Row | undefined, "kyc_status")
-  );
+  const row = data as Row | undefined;
+  const blocked = vehicleApprovalBlockedReason({
+    ownerStatus: getString(row, "owner_status"),
+    kycStatus: getString(row, "kyc_status"),
+  });
 
-  if (ownerStatus !== "approved") {
-    return { ok: false, error: "Owner approval required" };
+  if (blocked) {
+    return { ok: false, error: blocked };
   }
 
   return { ok: true };
@@ -1518,25 +1592,35 @@ export async function getAdminVehicleList(limit = 200): Promise<AdminVehicleReco
 
   const rows = asRows(data);
   const ownerIds = rows.map((row) => getString(row, "owner_id")).filter(Boolean);
-  const [ownerNames, ownerStatusMap] = await Promise.all([
+  const [ownerNames, eligibilityMap] = await Promise.all([
     getUserNameMap(ownerIds),
-    getOwnerStatusMap(ownerIds),
+    getOwnerMarketplaceEligibilityMap(ownerIds),
   ]);
 
   return rows.map((row) => {
     const mapped = mapVehicleRow(row);
-    const ownerStatus = ownerStatusMap.get(mapped.owner_id) ?? "pending";
-    const canApprove = ownerStatus === "approved";
+    const eligibility = eligibilityMap.get(mapped.owner_id) ?? ownerMarketplaceEligibilityFromRow({});
+    const canApprove = vehicleCanBeApprovedByAdmin({
+      ownerStatus: eligibility.ownerApproved ? "approved" : eligibility.ownerStatus,
+      kycStatus: eligibility.kycStatus,
+    });
+    const approvalBlockedReason = vehicleApprovalBlockedReason({
+      ownerStatus: eligibility.ownerApproved ? "approved" : eligibility.ownerStatus,
+      kycStatus: eligibility.kycStatus,
+    });
     return {
       id: mapped.id,
       vehicle_name: formatVehicleDisplayName(row),
       vehicle_category: mapped.vehicle_category,
       registration_number: mapped.registration_number,
       approval_status: mapped.approval_status,
+      documents_status: mapped.documents_status ?? "pending",
       owner_id: mapped.owner_id,
       owner_name: ownerNames.get(mapped.owner_id) ?? "Owner",
-      owner_status: ownerStatus,
+      owner_status: eligibility.ownerStatus,
+      kyc_status: eligibility.kycStatus,
       canApprove,
+      approvalBlockedReason,
       vehicle_photo_url: mapped.vehicle_photo_url ?? null,
       rc_document_url: mapped.rc_document_url ?? null,
       insurance_document_url: mapped.insurance_document_url ?? null,
@@ -1699,7 +1783,7 @@ export async function getAdminVehicleDocumentList(limit = 200): Promise<AdminVeh
       insurance_url: vehicle.insurance_document_url ?? extra.insurance ?? null,
       pollution_url: extra.pollution ?? null,
       fitness_url: extra.fitness ?? null,
-      verification_status: vehicle.approval_status,
+      verification_status: vehicle.documents_status ?? "pending",
     };
   });
 }

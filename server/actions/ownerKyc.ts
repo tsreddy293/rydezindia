@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { ownerKycCanApprove, resolveOwnerKycDisplayStatus } from "@/lib/admin/owner-kyc";
+import { ownerCreateVehicleBlockedReason } from "@/lib/admin/marketplace-gates";
 import {
   getOwnerProfileKyc,
   ownerProfileDocumentsToSet,
@@ -52,6 +53,13 @@ export async function getOwnerKycStatus() {
     hasRequiredDocs,
     canSubmit: status !== "verified",
   };
+}
+
+export async function assertOwnerCanCreateVehicle(): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { status } = await getOwnerKycStatus();
+  const blocked = ownerCreateVehicleBlockedReason(status);
+  if (blocked) return { ok: false, error: blocked };
+  return { ok: true };
 }
 
 export async function submitOwnerProfileKyc(formData: FormData): Promise<ActionResult> {

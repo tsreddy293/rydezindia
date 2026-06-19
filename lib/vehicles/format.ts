@@ -1,5 +1,6 @@
 import type { VehicleServiceAvailability } from "@/lib/vehicles/services";
 import { parseServiceAvailabilityFromRow } from "@/lib/vehicles/services";
+import { normalizeDocumentsStatus } from "@/lib/admin/marketplace-gates";
 
 export type VehicleApprovalStatus = "pending" | "approved" | "rejected";
 
@@ -14,6 +15,7 @@ export interface OwnerVehicleRow {
   vehicle_photo_url?: string | null;
   rc_document_url?: string | null;
   insurance_document_url?: string | null;
+  documents_status?: "pending" | "approved" | "rejected";
   approval_status: VehicleApprovalStatus;
   is_active?: boolean;
   city?: string | null;
@@ -69,6 +71,7 @@ export function mapVehicleRow(row: Record<string, unknown>): OwnerVehicleRow {
     vehicle_photo_url: row.vehicle_photo_url ? String(row.vehicle_photo_url) : null,
     rc_document_url: row.rc_document_url ? String(row.rc_document_url) : null,
     insurance_document_url: row.insurance_document_url ? String(row.insurance_document_url) : null,
+    documents_status: normalizeDocumentsStatus(row.documents_status),
     approval_status: normalizeApprovalStatus(row.approval_status ?? row.vehicle_approval_status),
     is_active: row.is_active === undefined ? true : Boolean(row.is_active),
     city: row.city ? String(row.city) : null,

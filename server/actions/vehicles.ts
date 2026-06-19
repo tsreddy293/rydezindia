@@ -23,6 +23,7 @@ import {
   serviceAvailabilityPayload,
   type VehicleServiceAvailability,
 } from "@/lib/vehicles/services";
+import { assertOwnerCanCreateVehicle } from "@/server/actions/ownerKyc";
 import { requireRole } from "@/server/actions/auth";
 import type { ActionResult } from "@/types/database";
 
@@ -138,6 +139,7 @@ async function upsertVehicleRecord(
     vehicle_year: input.vehicle_year,
     vehicle_category: input.vehicle_category,
     approval_status: "pending",
+    documents_status: "pending",
     updated_at: new Date().toISOString(),
     ...serviceAvailabilityPayload(services),
   };
@@ -157,6 +159,10 @@ async function upsertVehicleRecord(
   }
 
   let { data, error } = await db.from("vehicles").insert(payload).select("id").single();
+  if (error?.message?.includes("documents_status")) {
+    delete payload.documents_status;
+    ({ data, error } = await db.from("vehicles").insert(payload).select("id").single());
+  }
   if (error?.message?.includes("service_")) {
     const fallback = { ...payload };
     delete fallback.service_self_drive;
@@ -208,6 +214,10 @@ export async function saveOwnerVehicle(
   if (configError) return { success: false, error: configError };
 
   const { user } = await requireRole("owner");
+
+  const createCheck = await assertOwnerCanCreateVehicle();
+  if (!createCheck.ok) return { success: false, error: createCheck.error };
+
   const vehicleId = String(formData.get("vehicle_id") ?? "").trim() || null;
   const input = parseVehicleInput(formData);
   const services = parseServiceAvailability(formData);
@@ -240,10 +250,23 @@ export async function saveOwnerVehicle(
       return { success: false, error: submissionCheck.errors.join(". ") };
     }
 
-    await createAdminClient()
+    let { error: submitError } = await createAdminClient()
       .from("vehicles")
-      .update({ approval_status: "pending", updated_at: new Date().toISOString() })
+      .update({
+        approval_status: "pending",
+        documents_status: "pending",
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", id);
+
+    if (submitError?.message?.includes("documents_status")) {
+      ({ error: submitError } = await createAdminClient()
+        .from("vehicles")
+        .update({ approval_status: "pending", updated_at: new Date().toISOString() })
+        .eq("id", id));
+    }
+
+    if (submitError) throw new Error(submitError.message);
 
     await createNotification({
       recipientRole: "admin",
@@ -273,6 +296,10 @@ export async function saveOwnerVehicle(
 
 export async function submitOwnerVehicleForApproval(vehicleId: string): Promise<ActionResult> {
   const { user } = await requireRole("owner");
+
+  const createCheck = await assertOwnerCanCreateVehicle();
+  if (!createCheck.ok) return { success: false, error: createCheck.error };
+
   const existing = await getOwnerVehicleById(vehicleId, user.id);
   if (!existing) return { success: false, error: "Vehicle not found" };
 
@@ -280,10 +307,21 @@ export async function submitOwnerVehicleForApproval(vehicleId: string): Promise<
   if (!validation.valid) return { success: false, error: validation.errors.join(". ") };
 
   const db = createAdminClient();
-  const { error } = await db
+  let { error } = await db
     .from("vehicles")
-    .update({ approval_status: "pending", updated_at: new Date().toISOString() })
+    .update({
+      approval_status: "pending",
+      documents_status: "pending",
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", vehicleId);
+
+  if (error?.message?.includes("documents_status")) {
+    ({ error } = await db
+      .from("vehicles")
+      .update({ approval_status: "pending", updated_at: new Date().toISOString() })
+      .eq("id", vehicleId));
+  }
 
   if (error) return { success: false, error: error.message };
 

@@ -289,11 +289,59 @@ export async function approveVehicleDocument(
   approved: boolean,
   remarks?: string
 ): Promise<ActionResult> {
-  const { approveOwnerVehicle, rejectOwnerVehicle } = await import("@/server/actions/vehicles");
-  if (approved) {
-    return approveOwnerVehicle(vehicleId);
+  const { user } = await requireRole("admin");
+  const db = createAdminClient();
+
+  const { data: vehicle, error: fetchError } = await db
+    .from("vehicles")
+    .select("owner_id, vehicle_make, vehicle_model")
+    .eq("id", vehicleId)
+    .maybeSingle();
+
+  if (fetchError) return { success: false, error: fetchError.message };
+  if (!vehicle) return { success: false, error: "Vehicle not found" };
+
+  const status = approved ? "approved" : "rejected";
+  let { error } = await db
+    .from("vehicles")
+    .update({
+      documents_status: status,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", vehicleId);
+
+  if (error?.message?.includes("documents_status")) {
+    return {
+      success: false,
+      error: "documents_status column missing. Run supabase/RUN_VEHICLE_DOCUMENTS_STATUS.sql in Supabase.",
+    };
   }
-  return rejectOwnerVehicle(vehicleId, remarks ?? "Documents rejected by admin");
+
+  if (error) return { success: false, error: error.message };
+
+  const ownerId = String((vehicle as { owner_id: string }).owner_id);
+  await createNotification({
+    recipientId: ownerId,
+    recipientRole: "owner",
+    type: approved ? "vehicle_documents_approved" : "vehicle_documents_rejected",
+    title: approved ? "Vehicle documents approved" : "Vehicle documents rejected",
+    message: approved
+      ? "Your vehicle documents were approved. Vehicle approval can proceed."
+      : remarks || "Please re-upload your vehicle documents.",
+    metadata: { vehicleId },
+  });
+
+  await logApproval({
+    entityType: "vehicle_documents",
+    entityId: vehicleId,
+    action: approved ? "approved" : "rejected",
+    approvedBy: user.id,
+    remarks,
+  });
+
+  revalidatePath("/admin/documents");
+  revalidatePath("/admin/vehicles");
+  return { success: true };
 }
 
 /** @deprecated Use approveVehicleDocument(vehicleId, ...) — vehicle_documents table optional. */
