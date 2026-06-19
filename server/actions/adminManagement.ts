@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, unstable_noStore as noStore } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isMissingColumnError } from "@/lib/supabase/errors";
 import { usersWritePayload } from "@/lib/supabase/users-table";
@@ -11,7 +11,8 @@ import { ownerProfileDocumentsToSet } from "@/lib/services/owner-profile-kyc";
 import { createNotification } from "@/lib/services/notifications";
 import { logApproval } from "@/lib/services/verification";
 import { requireRole } from "@/server/actions/auth";
-import type { ActionResult } from "@/types/database";
+import { getAdminOwnerManagementList } from "@/lib/supabase/queries";
+import type { ActionResult, AdminOwnerManagementRecord } from "@/types/database";
 
 const ADMIN_PATHS = [
   "/admin",
@@ -526,6 +527,12 @@ export async function rejectCustomerAction(userId: string, reason?: string): Pro
   });
   revalidateAdmin();
   return { success: true, message: "Customer rejected." };
+}
+
+export async function fetchAdminOwnerManagementListAction(): Promise<AdminOwnerManagementRecord[]> {
+  await requireRole("admin");
+  noStore();
+  return getAdminOwnerManagementList();
 }
 
 export async function setCustomerBlockedAction(userId: string, blocked: boolean): Promise<ActionResult> {

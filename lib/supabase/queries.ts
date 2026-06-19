@@ -1,3 +1,4 @@
+import { unstable_noStore as noStore } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isMissingColumnError } from "@/lib/supabase/errors";
 import { getSupabaseConfigError } from "@/lib/supabase/env";
@@ -565,6 +566,7 @@ function bucketTrend(rows: Row[], amountKey?: string): ChartPoint[] {
 }
 
 export async function getPlatformStats(): Promise<PlatformStats> {
+  noStore();
   const configError = getSupabaseConfigError();
   if (configError) {
     console.error("[getPlatformStats]", configError);
@@ -1859,8 +1861,11 @@ function normalizeManagementOwnerStatus(status: string): OwnerStatus {
 
 /** Merged owner list + KYC + vehicles for /admin/owner-management */
 export async function getAdminOwnerManagementList(): Promise<AdminOwnerManagementRecord[]> {
-  const [owners, kycRows, profileRows, vehicleRows, userRows] = await Promise.all([
-    getAdminOwnerList(),
+  noStore();
+  const owners = await getAdminOwnerList();
+  const ownerIds = owners.map((owner) => owner.id);
+
+  const [kycRows, profileRows, vehicleRows, userRows] = await Promise.all([
     getAdminOwnerKycList(),
     selectOwnerProfilesForAdmin(500),
     selectRows(
@@ -1868,7 +1873,19 @@ export async function getAdminOwnerManagementList(): Promise<AdminOwnerManagemen
       "id, owner_id, vehicle_make, vehicle_model, vehicle_year, registration_number, approval_status",
       500
     ),
-    selectRows("users", "id, owner_status, kyc_status", 500),
+    ownerIds.length > 0
+      ? db()
+          .from("users")
+          .select("id, owner_status, kyc_status")
+          .in("id", ownerIds)
+          .then((result) => {
+            if (result.error) {
+              console.error("[getAdminOwnerManagementList] users:", result.error.message);
+              return [] as Row[];
+            }
+            return asRows(result.data);
+          })
+      : Promise.resolve([] as Row[]),
   ]);
 
   const kycMap = new Map(kycRows.map((row) => [row.id, row]));

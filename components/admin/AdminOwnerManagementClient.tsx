@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import AdminStatusBadge from "@/components/admin/AdminStatusBadge";
-import type { AdminOwnerManagementRecord, OwnerStatus } from "@/types/database";
+import type { AdminOwnerManagementRecord } from "@/types/database";
 import {
   approveOwnerAction,
   approveOwnerKycAction,
+  fetchAdminOwnerManagementListAction,
   rejectOwnerAction,
   rejectOwnerKycAction,
 } from "@/server/actions/adminManagement";
@@ -26,11 +27,12 @@ function DocLink({ url, label }: { url?: string; label: string }) {
   );
 }
 
-function patchOwnerRecord(
-  owner: AdminOwnerManagementRecord,
-  patch: Partial<AdminOwnerManagementRecord>
-): AdminOwnerManagementRecord {
-  return { ...owner, ...patch };
+function isKycApproved(owner: AdminOwnerManagementRecord): boolean {
+  return owner.kycStatus === "approved";
+}
+
+function canApproveOwnerAccount(owner: AdminOwnerManagementRecord): boolean {
+  return isKycApproved(owner) && owner.ownerStatus !== "approved";
 }
 
 export default function AdminOwnerManagementClient({ owners: initialOwners }: Props) {
@@ -38,14 +40,21 @@ export default function AdminOwnerManagementClient({ owners: initialOwners }: Pr
   const [owners, setOwners] = useState(initialOwners);
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<AdminOwnerManagementRecord | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    setOwners(initialOwners);
-  }, [initialOwners]);
+  const selected = useMemo(
+    () => (selectedId ? owners.find((owner) => owner.id === selectedId) ?? null : null),
+    [owners, selectedId]
+  );
+
+  const loadOwners = useCallback(async () => {
+    const fresh = await fetchAdminOwnerManagementListAction();
+    setOwners(fresh);
+    return fresh;
+  }, []);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -67,27 +76,17 @@ export default function AdminOwnerManagementClient({ owners: initialOwners }: Pr
       .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
   }, [owners, filter, search]);
 
-  function applyOwnerPatch(ownerId: string, patch: Partial<AdminOwnerManagementRecord>) {
-    setOwners((current) =>
-      current.map((owner) => (owner.id === ownerId ? patchOwnerRecord(owner, patch) : owner))
-    );
-    setSelected((current) =>
-      current?.id === ownerId ? patchOwnerRecord(current, patch) : current
-    );
-  }
-
   async function runAction(
-    ownerId: string,
     action: () => Promise<{ success: boolean; error?: string; message?: string }>,
-    onSuccess?: () => void
+    successMessage?: string
   ) {
     setBusy(true);
     setError("");
     setMessage("");
     const result = await action();
     if (result.success) {
-      setMessage(result.message ?? "Updated.");
-      onSuccess?.();
+      setMessage(successMessage ?? result.message ?? "Updated.");
+      await loadOwners();
       router.refresh();
     } else {
       console.error("[AdminOwnerManagementClient] action failed", result.error);
@@ -99,15 +98,15 @@ export default function AdminOwnerManagementClient({ owners: initialOwners }: Pr
   async function handleApproveKyc(owner: AdminOwnerManagementRecord) {
     console.log("Approve KYC clicked");
     console.log("Owner ID:", owner.id);
+    await runAction(() => approveOwnerKycAction(owner.id), "KYC Approved Successfully");
+  }
 
-    await runAction(owner.id, () => approveOwnerKycAction(owner.id), () => {
-      applyOwnerPatch(owner.id, {
-        kycStatus: "approved" as OwnerStatus,
-        canApproveKyc: false,
-        canApproveOwner: owner.ownerStatus !== "approved",
-      });
-      setMessage("KYC Approved Successfully");
-    });
+  function openDetails(ownerId: string) {
+    setSelectedId(ownerId);
+  }
+
+  function closeDetails() {
+    setSelectedId(null);
   }
 
   return (
@@ -179,23 +178,16 @@ export default function AdminOwnerManagementClient({ owners: initialOwners }: Pr
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={() => setSelected(owner)}
+                      onClick={() => openDetails(owner.id)}
                       className="rounded-lg border px-3 py-1 text-xs text-primary hover:bg-primary/5"
                     >
                       View Details
                     </button>
                     <button
                       type="button"
-                      disabled={busy || owner.kycStatus !== "approved" || owner.ownerStatus === "approved"}
-                      title={owner.kycStatus !== "approved" ? "KYC must be approved first." : undefined}
-                      onClick={() =>
-                        runAction(owner.id, () => approveOwnerAction(owner.id), () => {
-                          applyOwnerPatch(owner.id, {
-                            ownerStatus: "approved",
-                            canApproveOwner: false,
-                          });
-                        })
-                      }
+                      disabled={busy || !canApproveOwnerAccount(owner)}
+                      title={!isKycApproved(owner) ? "KYC must be approved first." : undefined}
+                      onClick={() => runAction(() => approveOwnerAction(owner.id), "Owner approved.")}
                       className="rounded-lg border px-3 py-1 text-xs text-green-700 hover:bg-green-50 disabled:opacity-40"
                     >
                       Approve Owner
@@ -203,11 +195,7 @@ export default function AdminOwnerManagementClient({ owners: initialOwners }: Pr
                     <button
                       type="button"
                       disabled={busy || owner.ownerStatus === "rejected"}
-                      onClick={() =>
-                        runAction(owner.id, () => rejectOwnerAction(owner.id), () => {
-                          applyOwnerPatch(owner.id, { ownerStatus: "rejected", canApproveOwner: false });
-                        })
-                      }
+                      onClick={() => runAction(() => rejectOwnerAction(owner.id), "Owner rejected.")}
                       className="rounded-lg border border-red-200 px-3 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-40"
                     >
                       Reject Owner
@@ -231,7 +219,7 @@ export default function AdminOwnerManagementClient({ owners: initialOwners }: Pr
                 <h2 className="text-xl font-bold text-secondary">{selected.name}</h2>
                 <p className="text-sm text-gray-500">Owner profile & KYC review</p>
               </div>
-              <button type="button" onClick={() => setSelected(null)} className="text-gray-400 hover:text-gray-600">
+              <button type="button" onClick={closeDetails} className="text-gray-400 hover:text-gray-600">
                 ✕
               </button>
             </div>
@@ -269,15 +257,7 @@ export default function AdminOwnerManagementClient({ owners: initialOwners }: Pr
                 <button
                   type="button"
                   disabled={busy || selected.kycStatus === "rejected"}
-                  onClick={() =>
-                    runAction(selected.id, () => rejectOwnerKycAction(selected.id), () => {
-                      applyOwnerPatch(selected.id, {
-                        kycStatus: "rejected",
-                        canApproveKyc: false,
-                        canApproveOwner: false,
-                      });
-                    })
-                  }
+                  onClick={() => runAction(() => rejectOwnerKycAction(selected.id), "Owner KYC rejected.")}
                   className="rounded-lg border border-red-200 px-4 py-2 text-xs text-red-600 disabled:opacity-40"
                 >
                   Reject KYC
@@ -304,16 +284,9 @@ export default function AdminOwnerManagementClient({ owners: initialOwners }: Pr
             <div className="flex flex-wrap gap-2 border-t pt-4">
               <button
                 type="button"
-                disabled={busy || selected.kycStatus !== "approved" || selected.ownerStatus === "approved"}
-                title={selected.kycStatus !== "approved" ? "KYC must be approved first." : undefined}
-                onClick={() =>
-                  runAction(selected.id, () => approveOwnerAction(selected.id), () => {
-                    applyOwnerPatch(selected.id, {
-                      ownerStatus: "approved",
-                      canApproveOwner: false,
-                    });
-                  })
-                }
+                disabled={busy || !canApproveOwnerAccount(selected)}
+                title={!isKycApproved(selected) ? "KYC must be approved first." : undefined}
+                onClick={() => runAction(() => approveOwnerAction(selected.id), "Owner approved.")}
                 className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
               >
                 Approve Owner
@@ -321,11 +294,7 @@ export default function AdminOwnerManagementClient({ owners: initialOwners }: Pr
               <button
                 type="button"
                 disabled={busy}
-                onClick={() =>
-                  runAction(selected.id, () => rejectOwnerAction(selected.id), () => {
-                    applyOwnerPatch(selected.id, { ownerStatus: "rejected", canApproveOwner: false });
-                  })
-                }
+                onClick={() => runAction(() => rejectOwnerAction(selected.id), "Owner rejected.")}
                 className="rounded-lg border border-red-200 px-4 py-2 text-sm text-red-600"
               >
                 Reject Owner
