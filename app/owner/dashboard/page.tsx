@@ -76,7 +76,7 @@ export default async function OwnerDashboardPage({ searchParams }: Props) {
             <ShieldCheck className="h-8 w-8 text-primary" />
             <div>
               <p className="text-sm font-medium text-gray-500">KYC Status</p>
-              <KycStatusBadge status={kyc.status === "verified" ? "verified" : kyc.status} />
+              <KycStatusBadge status={kyc.status} />
               {!kyc.hasRequiredDocs && kyc.status !== "verified" && (
                 <p className="text-xs text-amber-600 mt-1">Upload documents to complete verification</p>
               )}

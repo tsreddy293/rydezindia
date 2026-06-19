@@ -25,6 +25,7 @@ export interface OwnerProfileKycRow {
   address_proof_url: string | null;
   aadhaar_number: string | null;
   license_number: string | null;
+  kyc_status?: string | null;
   kyc_submitted_at: string | null;
 }
 
@@ -50,13 +51,20 @@ export async function uploadOwnerProfileKycFile(
 
 export async function getOwnerProfileKyc(userId: string): Promise<OwnerProfileKycRow | null> {
   const db = createAdminClient();
-  const { data, error } = await db
-    .from("owner_profiles")
-    .select(
-      "user_id, aadhaar_document_url, license_document_url, selfie_document_url, address_proof_url, aadhaar_number, license_number, kyc_submitted_at"
-    )
-    .eq("user_id", userId)
-    .maybeSingle();
+  const columns =
+    "user_id, aadhaar_document_url, license_document_url, selfie_document_url, address_proof_url, aadhaar_number, license_number, kyc_status, kyc_submitted_at";
+
+  let { data, error } = await db.from("owner_profiles").select(columns).eq("user_id", userId).maybeSingle();
+
+  if (error?.message?.includes("column") && error.message.includes("kyc_status")) {
+    ({ data, error } = await db
+      .from("owner_profiles")
+      .select(
+        "user_id, aadhaar_document_url, license_document_url, selfie_document_url, address_proof_url, aadhaar_number, license_number, kyc_submitted_at"
+      )
+      .eq("user_id", userId)
+      .maybeSingle());
+  }
 
   if (isMissingTableError(error)) return null;
   if (error) throw new Error(error.message);
@@ -88,6 +96,7 @@ export async function upsertOwnerProfileKycDocuments(input: {
   const now = new Date().toISOString();
   const payload: Record<string, unknown> = {
     user_id: input.userId,
+    kyc_status: "pending",
     kyc_submitted_at: now,
     updated_at: now,
   };
@@ -100,9 +109,13 @@ export async function upsertOwnerProfileKycDocuments(input: {
   let { error } = await db.from("owner_profiles").upsert(payload, { onConflict: "user_id" });
 
   if (error?.message?.includes("column")) {
-    const fallback = { user_id: input.userId, updated_at: now };
-    if (input.aadhaarUrl) (fallback as Record<string, string>).aadhaar_document_url = input.aadhaarUrl;
-    if (input.licenseUrl) (fallback as Record<string, string>).license_document_url = input.licenseUrl;
+    const fallback: Record<string, unknown> = { user_id: input.userId, updated_at: now };
+    if (input.aadhaarUrl) fallback.aadhaar_document_url = input.aadhaarUrl;
+    if (input.licenseUrl) fallback.license_document_url = input.licenseUrl;
+    if (input.selfieUrl) fallback.selfie_document_url = input.selfieUrl;
+    if (input.addressProofUrl) fallback.address_proof_url = input.addressProofUrl;
+    if (!error.message.includes("kyc_status")) fallback.kyc_status = "pending";
+    if (!error.message.includes("kyc_submitted_at")) fallback.kyc_submitted_at = now;
     ({ error } = await db.from("owner_profiles").upsert(fallback, { onConflict: "user_id" }));
   }
 
@@ -115,7 +128,14 @@ export async function upsertOwnerProfileKycDocuments(input: {
     throw new Error(error.message);
   }
 
-  await db.from("users").update({ kyc_status: "pending" }).eq("id", input.userId);
+  const { error: userError } = await db
+    .from("users")
+    .update({ kyc_status: "pending" })
+    .eq("id", input.userId);
+
+  if (userError && !userError.message.includes("column") && !userError.message.includes("does not exist")) {
+    console.warn("[upsertOwnerProfileKycDocuments] users.kyc_status update:", userError.message);
+  }
 
   return payload;
 }

@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS public.owner_profiles (
   license_document_url TEXT,
   selfie_document_url TEXT,
   address_proof_url TEXT,
+  kyc_status TEXT NOT NULL DEFAULT 'not_submitted',
   kyc_submitted_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -44,6 +45,7 @@ ALTER TABLE public.owner_profiles ADD COLUMN IF NOT EXISTS aadhaar_document_url 
 ALTER TABLE public.owner_profiles ADD COLUMN IF NOT EXISTS license_document_url TEXT;
 ALTER TABLE public.owner_profiles ADD COLUMN IF NOT EXISTS selfie_document_url TEXT;
 ALTER TABLE public.owner_profiles ADD COLUMN IF NOT EXISTS address_proof_url TEXT;
+ALTER TABLE public.owner_profiles ADD COLUMN IF NOT EXISTS kyc_status TEXT NOT NULL DEFAULT 'not_submitted';
 ALTER TABLE public.owner_profiles ADD COLUMN IF NOT EXISTS kyc_submitted_at TIMESTAMPTZ;
 ALTER TABLE public.owner_profiles ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
 ALTER TABLE public.owner_profiles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();

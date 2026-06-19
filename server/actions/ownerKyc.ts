@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { ownerKycCanApprove } from "@/lib/admin/owner-kyc";
+import { ownerKycCanApprove, resolveOwnerKycDisplayStatus } from "@/lib/admin/owner-kyc";
 import {
   getOwnerProfileKyc,
   ownerProfileDocumentsToSet,
@@ -33,16 +33,24 @@ export async function getOwnerKycStatus() {
     db.from("users").select("kyc_status").eq("id", user.id).maybeSingle(),
   ]);
 
-  const kycStatus = String((userRow.data as { kyc_status?: string } | null)?.kyc_status ?? "not_submitted");
+  const userKycStatus = String(
+    (userRow.data as { kyc_status?: string } | null)?.kyc_status ?? "not_submitted"
+  );
   const documents = ownerProfileDocumentsToSet(profile);
   const hasRequiredDocs = ownerKycCanApprove(documents);
+  const status = resolveOwnerKycDisplayStatus({
+    userKycStatus,
+    profileKycStatus: profile?.kyc_status,
+    kycSubmittedAt: profile?.kyc_submitted_at,
+    hasRequiredDocs,
+  });
 
   return {
-    status: kycStatus,
+    status,
     documents,
     profile,
     hasRequiredDocs,
-    canSubmit: kycStatus !== "verified" && kycStatus !== "approved",
+    canSubmit: status !== "verified",
   };
 }
 

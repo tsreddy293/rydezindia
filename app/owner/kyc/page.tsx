@@ -21,7 +21,6 @@ export const metadata = createPageMetadata({
 export default async function OwnerKycPage() {
   await requireRole("owner");
   const { status, documents, hasRequiredDocs, canSubmit } = await getOwnerKycStatus();
-  const displayStatus = status === "verified" ? "verified" : status;
 
   return (
     <PageLayout>
@@ -31,7 +30,7 @@ export default async function OwnerKycPage() {
           <ShieldCheck className="h-12 w-12 text-primary mx-auto mb-3" />
           <h1 className="text-3xl font-bold text-secondary">Owner KYC Verification</h1>
           <div className="mt-3">
-            <KycStatusBadge status={displayStatus} />
+            <KycStatusBadge status={status} />
           </div>
           {status === "pending" && hasRequiredDocs && (
             <p className="text-sm text-amber-600 mt-2">Documents submitted — awaiting admin review.</p>
