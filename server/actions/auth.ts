@@ -1,9 +1,12 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { getSupabaseConfigError } from "@/lib/supabase/env";
+import { isMissingColumnError, isMissingTableError } from "@/lib/supabase/errors";
+import { usersWritePayload } from "@/lib/supabase/users-table";
 import {
   normalizeRole,
   ROLE_LOGIN_PATHS,
@@ -22,6 +25,8 @@ type SignupInput = {
   password: string;
 };
 
+type ProfileStepResult = { ok: true } | { ok: false; step: string; error: string };
+
 function siteUrl() {
   return (process.env.NEXT_PUBLIC_SITE_URL || "https://rydezindia.com").replace(/\/$/, "");
 }
@@ -33,24 +38,186 @@ function validatePassword(password: string) {
   return null;
 }
 
-async function upsertUserProfile(input: SignupInput, role: UserRole, userId: string) {
-  const db = createAdminClient();
+function logDbResult(label: string, result: { data?: unknown; error?: { message?: string; code?: string } | null }) {
+  console.log(`[signup] ${label}`, {
+    data: result.data ?? null,
+    error: result.error?.message ?? null,
+    code: result.error?.code ?? null,
+  });
+}
+
+async function upsertPublicUsersRow(
+  db: SupabaseClient,
+  userId: string,
+  input: SignupInput,
+  role: UserRole
+): Promise<ProfileStepResult> {
   const mobile = input.mobile?.replace(/\s/g, "") ?? "";
   const email = input.email.toLowerCase().trim();
-  const userPayload = {
+
+  const basePayload: Record<string, unknown> = {
     id: userId,
     name: input.name.trim(),
-    full_name: input.name.trim(),
     email,
     mobile: mobile || null,
     city: input.city.trim(),
     role,
-  } as Record<string, unknown>;
+  };
 
-  const { error } = await db.from("users").upsert(userPayload);
-  if (error?.message?.includes("column")) {
-    delete userPayload.full_name;
-    await db.from("users").upsert(userPayload);
+  let payload: Record<string, unknown> = { ...basePayload, full_name: input.name.trim() };
+  console.log("[upsertUserProfile] public.users upsert", { userId, role, payload });
+
+  let result = await db.from("users").upsert(usersWritePayload(payload), { onConflict: "id" }).select("id").single();
+  logDbResult("public.users upsert", result);
+
+  if (result.error && isMissingColumnError(result.error, "full_name")) {
+    payload = { ...basePayload };
+    result = await db.from("users").upsert(usersWritePayload(payload), { onConflict: "id" }).select("id").single();
+    logDbResult("public.users upsert (without full_name)", result);
+  }
+
+  if (result.error) {
+    console.error("[upsertUserProfile] public.users failed", result.error);
+    return { ok: false, step: "public.users", error: result.error.message };
+  }
+
+  return { ok: true };
+}
+
+async function upsertRiderProfilesRow(
+  db: SupabaseClient,
+  userId: string,
+  input: SignupInput
+): Promise<ProfileStepResult> {
+  const mobile = input.mobile?.replace(/\s/g, "") ?? "";
+  const email = input.email.toLowerCase().trim();
+  const name = input.name.trim();
+  const city = input.city.trim();
+
+  const riderPayload = {
+    id: userId,
+    user_id: userId,
+    full_name: name,
+    email,
+    city,
+    mobile: mobile || null,
+    updated_at: new Date().toISOString(),
+  };
+
+  console.log("[upsertUserProfile] rider_profiles upsert", { userId, riderPayload });
+  let result = await db.from("rider_profiles").upsert(riderPayload, { onConflict: "id" }).select("id").single();
+  logDbResult("rider_profiles upsert (onConflict id)", result);
+
+  if (result.error && isMissingColumnError(result.error, "user_id", "updated_at")) {
+    const fallback = {
+      id: userId,
+      full_name: name,
+      email,
+      city,
+      mobile: mobile || null,
+    };
+    result = await db.from("rider_profiles").upsert(fallback, { onConflict: "id" }).select("id").single();
+    logDbResult("rider_profiles upsert (legacy columns)", result);
+  }
+
+  if (result.error && isMissingTableError(result.error)) {
+    console.warn("[upsertUserProfile] rider_profiles table missing — trying customer_profiles");
+  } else if (result.error) {
+    console.error("[upsertUserProfile] rider_profiles failed", result.error);
+    return { ok: false, step: "rider_profiles", error: result.error.message };
+  } else {
+    return { ok: true };
+  }
+
+  const customerPayload = {
+    user_id: userId,
+    city,
+    updated_at: new Date().toISOString(),
+  };
+
+  console.log("[upsertUserProfile] customer_profiles upsert", { userId, customerPayload });
+  const customerResult = await db
+    .from("customer_profiles")
+    .upsert(customerPayload, { onConflict: "user_id" })
+    .select("user_id")
+    .single();
+  logDbResult("customer_profiles upsert", customerResult);
+
+  if (customerResult.error && isMissingColumnError(customerResult.error, "updated_at")) {
+    const fallback = { user_id: userId, city };
+    const retry = await db.from("customer_profiles").upsert(fallback, { onConflict: "user_id" }).select("user_id").single();
+    logDbResult("customer_profiles upsert (without updated_at)", retry);
+    if (retry.error) {
+      return { ok: false, step: "customer_profiles", error: retry.error.message };
+    }
+    return { ok: true };
+  }
+
+  if (customerResult.error) {
+    if (isMissingTableError(customerResult.error)) {
+      console.warn("[upsertUserProfile] customer_profiles table missing — users row only");
+      return { ok: true };
+    }
+    return { ok: false, step: "customer_profiles", error: customerResult.error.message };
+  }
+
+  return { ok: true };
+}
+
+async function upsertUserProfile(
+  input: SignupInput,
+  role: UserRole,
+  userId: string
+): Promise<ProfileStepResult> {
+  const db = createAdminClient();
+
+  try {
+    const usersResult = await upsertPublicUsersRow(db, userId, input, role);
+    if (!usersResult.ok) return usersResult;
+
+    if (role === "rider") {
+      const riderResult = await upsertRiderProfilesRow(db, userId, input);
+      if (!riderResult.ok) return riderResult;
+    }
+
+    console.log("[upsertUserProfile] complete", { userId, role });
+    return { ok: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown profile save error";
+    console.error("[upsertUserProfile] exception", error);
+    return { ok: false, step: "upsertUserProfile", error: message };
+  }
+}
+
+async function sendRiderVerificationEmail(email: string) {
+  try {
+    const supabase = await createClient();
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email,
+      options: { emailRedirectTo: `${siteUrl()}/login/rider?verified=1` },
+    });
+    if (error) {
+      console.warn("[signUpWithRole] verification email resend failed", error.message);
+    } else {
+      console.log("[signUpWithRole] verification email sent", { email });
+    }
+  } catch (error) {
+    console.warn("[signUpWithRole] verification email exception", error);
+  }
+}
+
+async function rollbackAuthUser(userId: string) {
+  try {
+    const db = createAdminClient();
+    const { error } = await db.auth.admin.deleteUser(userId);
+    if (error) {
+      console.error("[signUpWithRole] rollback deleteUser failed", error.message);
+    } else {
+      console.log("[signUpWithRole] rolled back auth user", { userId });
+    }
+  } catch (error) {
+    console.error("[signUpWithRole] rollback exception", error);
   }
 }
 
@@ -62,39 +229,77 @@ async function getRoleForUser(userId: string): Promise<UserRole | null> {
 
 async function signUpWithRole(input: SignupInput, role: UserRole): Promise<ActionResult<{ id: string }>> {
   const configError = getSupabaseConfigError();
-  if (configError) return { success: false, error: configError };
+  if (configError) {
+    console.error("[signUpWithRole] config error", configError);
+    return { success: false, error: configError };
+  }
+
   if (!input.name.trim()) return { success: false, error: "Name is required" };
   if (!input.email.trim()) return { success: false, error: "Email is required" };
+  if (!input.city.trim()) return { success: false, error: "City is required" };
+
   const mobile = input.mobile?.replace(/\s/g, "") ?? "";
   if (mobile && !MOBILE_REGEX.test(mobile)) {
     return { success: false, error: "Enter a valid mobile number" };
   }
+
   const passwordError = validatePassword(input.password);
   if (passwordError) return { success: false, error: passwordError };
 
   const email = input.email.toLowerCase().trim();
-  const supabase = await createClient();
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password: input.password,
-    options: {
-      emailRedirectTo: `${siteUrl()}/login/rider?verified=1`,
-      data: {
+  const db = createAdminClient();
+
+  console.log("[signUpWithRole] auth.admin.createUser start", { email, role });
+
+  try {
+    const { data: authData, error: authError } = await db.auth.admin.createUser({
+      email,
+      password: input.password,
+      email_confirm: role !== "rider",
+      user_metadata: {
         name: input.name.trim(),
         mobile,
         city: input.city.trim(),
         role,
       },
-    },
-  });
+    });
 
-  if (error) return { success: false, error: error.message };
-  if (!data.user) return { success: false, error: "Signup failed. Please try again." };
+    logDbResult("auth.admin.createUser", { data: authData.user ? { id: authData.user.id } : null, error: authError });
 
-  await upsertUserProfile(input, role, data.user.id);
-  await supabase.auth.signOut();
+    if (authError) {
+      const message = authError.message.includes("already been registered")
+        ? "An account with this email already exists. Please sign in."
+        : authError.message;
+      return { success: false, error: message };
+    }
 
-  return { success: true, data: { id: data.user.id } };
+    if (!authData.user) {
+      return { success: false, error: "Signup failed. Please try again." };
+    }
+
+    const userId = authData.user.id;
+    console.log("[signUpWithRole] auth user created", { userId, role, email });
+
+    const profileResult = await upsertUserProfile(input, role, userId);
+    if (!profileResult.ok) {
+      console.error("[signUpWithRole] profile save failed — rolling back", profileResult);
+      await rollbackAuthUser(userId);
+      return {
+        success: false,
+        error: `Could not save ${profileResult.step}: ${profileResult.error}`,
+      };
+    }
+
+    if (role === "rider" && !authData.user.email_confirmed_at) {
+      await sendRiderVerificationEmail(email);
+    }
+
+    return { success: true, data: { id: userId } };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Signup failed";
+    console.error("[signUpWithRole] exception", error);
+    return { success: false, error: message };
+  }
 }
 
 /** @deprecated Use signUpRider */
