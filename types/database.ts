@@ -455,9 +455,13 @@ export interface AdminCustomerKycRecord {
   aadhaar: string;
   status: string;
   documents: {
+    aadhaar_front?: string;
+    aadhaar_back?: string;
+    driving_license?: string;
+    selfie?: string;
+    /** @deprecated legacy */
     aadhaar?: string;
     license?: string;
-    selfie?: string;
   };
 }
 

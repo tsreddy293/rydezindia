@@ -525,7 +525,7 @@ export async function rejectOwnerAction(userId: string, reason?: string): Promis
 
 export async function approveCustomerKycAction(userId: string): Promise<ActionResult> {
   const { updateCustomerKycByUserId } = await import("@/server/actions/phase2Admin");
-  const result = await updateCustomerKycByUserId(userId, "verified");
+  const result = await updateCustomerKycByUserId(userId, "approved");
   if (!result.success) return result;
   await syncCustomerProfile(userId, { kyc_status: "approved" });
   revalidateAdmin();

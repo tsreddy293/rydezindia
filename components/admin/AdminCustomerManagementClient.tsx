@@ -194,14 +194,16 @@ export default function AdminCustomerManagementClient({ customers }: Props) {
                 <AdminStatusBadge status={selected.kycStatus} />
               </div>
               <div className="grid gap-2 rounded-xl bg-gray-50 p-4">
-                <DocLink url={selected.documents.aadhaar} label="Aadhaar" />
-                <DocLink url={selected.documents.license} label="Driving License" />
+                <DocLink url={selected.documents.aadhaar_front} label="Aadhaar Front" />
+                <DocLink url={selected.documents.aadhaar_back} label="Aadhaar Back" />
+                <DocLink url={selected.documents.driving_license} label="Driving License" />
                 <DocLink url={selected.documents.selfie} label="Selfie" />
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
                 <button
                   type="button"
-                  disabled={busy || !selected.canApproveKyc}
+                  disabled={busy || !selected.canApproveKyc || selected.kycStatus === "approved"}
+                  title={!selected.canApproveKyc ? "Required documents must be uploaded first." : undefined}
                   onClick={() => runAction(() => approveCustomerKycAction(selected.id))}
                   className="rounded-lg bg-green-600 px-4 py-2 text-xs font-medium text-white disabled:opacity-40"
                 >

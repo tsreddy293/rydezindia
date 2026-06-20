@@ -1,14 +1,37 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import {
-  uploadCustomerKycFile,
+  customerKycDisplayStatus,
+  customerKycHasRequiredDocs,
+  readCustomerKycDocuments,
   upsertCustomerKyc,
   getCustomerKyc,
+  uploadCustomerKycFile,
 } from "@/lib/services/customer-kyc";
 import { createNotification } from "@/lib/services/notifications";
 import { requireRole } from "@/server/actions/auth";
+import type { ActionResult } from "@/types/database";
+import type { CustomerKycDocumentSet } from "@/lib/admin/customer-kyc-fields";
+
+export type CustomerKycStatusResult = {
+  status: "not_submitted" | "pending" | "approved" | "rejected";
+  rawStatus: string;
+  kyc: Record<string, unknown> | null;
+  documents: CustomerKycDocumentSet;
+  hasRequiredDocs: boolean;
+  canSubmit: boolean;
+  loadError?: string;
+};
+
+const EMPTY_KYC_STATUS: CustomerKycStatusResult = {
+  status: "not_submitted",
+  rawStatus: "not_submitted",
+  kyc: null,
+  documents: {},
+  hasRequiredDocs: false,
+  canSubmit: true,
+};
 
 async function uploadIfPresent(userId: string, formData: FormData, name: string, key: string) {
   const file = formData.get(name);
@@ -16,37 +39,92 @@ async function uploadIfPresent(userId: string, formData: FormData, name: string,
   return uploadCustomerKycFile(userId, key, file);
 }
 
-export async function submitCustomerKyc(formData: FormData) {
-  const { user } = await requireRole("user");
-  const userId = user.id;
+export async function getCustomerKycStatus(userId?: string): Promise<CustomerKycStatusResult> {
+  try {
+    const resolvedUserId = userId ?? (await requireRole("user")).user.id;
+    const kyc = await getCustomerKyc(resolvedUserId);
+    const documents = readCustomerKycDocuments(kyc);
+    const rawStatus = (kyc?.status as string | undefined) ?? "not_submitted";
+    const status = customerKycDisplayStatus(rawStatus, documents);
+    const hasRequiredDocs = customerKycHasRequiredDocs(documents);
 
-  const existing = await getCustomerKyc(userId);
-  const prev = existing as Record<string, string> | null;
-
-  const aadhaarUrl = (await uploadIfPresent(userId, formData, "aadhaar", "aadhaar")) ?? prev?.aadhaar_url;
-  const licenseUrl = (await uploadIfPresent(userId, formData, "license", "license")) ?? prev?.license_url;
-  const selfieUrl = (await uploadIfPresent(userId, formData, "selfie", "selfie")) ?? prev?.selfie_url;
-
-  await upsertCustomerKyc({ userId, aadhaarUrl, licenseUrl, selfieUrl });
-
-  await createNotification({
-    recipientRole: "admin",
-    actorId: userId,
-    actorRole: "rider",
-    type: "customer_kyc_submitted",
-    title: "Customer KYC submitted",
-    message: "A customer submitted KYC documents for review.",
-    metadata: { userId },
-  });
-
-  revalidatePath("/user/profile/kyc");
-  revalidatePath("/user/dashboard/verification");
-  redirect("/user/dashboard/verification?submitted=1");
+    return {
+      status,
+      rawStatus,
+      kyc,
+      documents,
+      hasRequiredDocs,
+      canSubmit: status !== "approved",
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to load KYC status";
+    console.error("[getCustomerKycStatus]", error);
+    return {
+      ...EMPTY_KYC_STATUS,
+      loadError: message,
+    };
+  }
 }
 
-export async function getCustomerKycStatus() {
-  const { user } = await requireRole("user");
-  const kyc = await getCustomerKyc(user.id);
-  if (!kyc) return { status: "not_submitted" as const, kyc: null };
-  return { status: (kyc as { status: string }).status, kyc };
+export async function submitCustomerKyc(formData: FormData): Promise<ActionResult> {
+  try {
+    const { user } = await requireRole("user");
+    const userId = user.id;
+
+    const existing = await getCustomerKyc(userId);
+    const prev = readCustomerKycDocuments(existing);
+
+    const aadhaarFrontUrl =
+      (await uploadIfPresent(userId, formData, "aadhaar_front", "aadhaar-front")) ?? prev.aadhaar_front_url;
+    const aadhaarBackUrl =
+      (await uploadIfPresent(userId, formData, "aadhaar_back", "aadhaar-back")) ?? prev.aadhaar_back_url;
+    const drivingLicenseUrl =
+      (await uploadIfPresent(userId, formData, "driving_license", "driving-license")) ??
+      prev.driving_license_url;
+    const selfieUrl = (await uploadIfPresent(userId, formData, "selfie", "selfie")) ?? prev.selfie_url;
+
+    const merged: CustomerKycDocumentSet = {
+      aadhaar_front_url: aadhaarFrontUrl,
+      aadhaar_back_url: aadhaarBackUrl,
+      driving_license_url: drivingLicenseUrl,
+      selfie_url: selfieUrl,
+    };
+
+    if (!customerKycHasRequiredDocs(merged)) {
+      return {
+        success: false,
+        error: "Aadhaar Front, Aadhaar Back, and Driving License are required.",
+      };
+    }
+
+    await upsertCustomerKyc({
+      userId,
+      aadhaarFrontUrl,
+      aadhaarBackUrl,
+      drivingLicenseUrl,
+      selfieUrl,
+    });
+
+    await createNotification({
+      recipientRole: "admin",
+      actorId: userId,
+      actorRole: "rider",
+      type: "customer_kyc_submitted",
+      title: "Rider KYC submitted",
+      message: "A rider submitted KYC documents for review.",
+      metadata: { userId },
+    });
+
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/kyc");
+    revalidatePath("/user/profile/kyc");
+    revalidatePath("/user/dashboard/verification");
+    revalidatePath("/admin/customer-management");
+
+    return { success: true, message: "KYC documents submitted. Status is now Pending — admin will review shortly." };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "KYC upload failed";
+    console.error("[submitCustomerKyc]", error);
+    return { success: false, error: message };
+  }
 }

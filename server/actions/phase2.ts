@@ -92,9 +92,15 @@ export async function fetchWalletData() {
   return { balance, transactions };
 }
 
-export async function fetchLoyaltyStatus() {
-  const { user } = await requireRole("user");
-  return getLoyaltyStatus(user.id);
+export async function fetchLoyaltyStatus(userId?: string) {
+  try {
+    const resolvedUserId = userId ?? (await requireRole("user")).user.id;
+    return getLoyaltyStatus(resolvedUserId);
+  } catch (error) {
+    console.error("[fetchLoyaltyStatus]", error);
+    const { DEFAULT_LOYALTY_STATUS } = await import("@/lib/services/loyalty");
+    return DEFAULT_LOYALTY_STATUS;
+  }
 }
 
 export async function onBookingCompleted(userId: string) {

@@ -190,11 +190,14 @@ export async function updateOwnerKycByUserId(
 
 export async function updateCustomerKycByUserId(
   userId: string,
-  status: "verified" | "rejected" | "pending",
+  status: "approved" | "verified" | "rejected" | "pending",
   remarks?: string
 ): Promise<ActionResult> {
   const { user } = await requireRole("admin");
   const db = createAdminClient();
+  const dbStatus = status === "verified" ? "approved" : status;
+  const now = new Date().toISOString();
+  const userKycStatus = dbStatus === "approved" ? "approved" : dbStatus;
 
   const { data: existing } = await db
     .from("customer_kyc")
@@ -206,11 +209,11 @@ export async function updateCustomerKycByUserId(
     const { error } = await db
       .from("customer_kyc")
       .update({
-        status,
+        status: dbStatus,
         remarks: remarks ?? null,
         reviewed_by: user.id,
-        reviewed_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        reviewed_at: now,
+        updated_at: now,
       })
       .eq("user_id", userId);
     if (error && !error.message.includes("does not exist")) {
@@ -219,35 +222,47 @@ export async function updateCustomerKycByUserId(
   } else {
     const { error } = await db.from("customer_kyc").insert({
       user_id: userId,
-      status,
+      status: dbStatus,
       remarks: remarks ?? null,
       reviewed_by: user.id,
-      reviewed_at: new Date().toISOString(),
+      reviewed_at: now,
     });
     if (error && !error.message.includes("does not exist")) {
       return { success: false, error: error.message };
     }
   }
 
-  await db.from("users").update({ kyc_status: status }).eq("id", userId);
+  await db.from("users").update({ kyc_status: userKycStatus }).eq("id", userId);
+
+  await db.from("customer_profiles").upsert(
+    {
+      user_id: userId,
+      kyc_status: userKycStatus,
+      updated_at: now,
+    },
+    { onConflict: "user_id" }
+  );
 
   await createNotification({
     recipientId: userId,
     recipientRole: "rider",
-    type: status === "verified" ? "kyc_verified" : status === "rejected" ? "kyc_rejected" : "kyc_pending",
-    title: status === "verified" ? "KYC Verified" : status === "rejected" ? "KYC Rejected" : "KYC Under Review",
+    type: dbStatus === "approved" ? "kyc_verified" : dbStatus === "rejected" ? "kyc_rejected" : "kyc_pending",
+    title: dbStatus === "approved" ? "KYC Approved" : dbStatus === "rejected" ? "KYC Rejected" : "KYC Under Review",
     message:
       remarks ??
-      (status === "verified"
-        ? "Your identity is verified."
-        : status === "rejected"
+      (dbStatus === "approved"
+        ? "Your KYC has been approved."
+        : dbStatus === "rejected"
           ? "Please re-upload your documents."
           : "Your KYC is pending review."),
     metadata: { userId },
   });
 
   revalidatePath("/admin/customer-kyc");
+  revalidatePath("/admin/customer-management");
   revalidatePath("/admin");
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/kyc");
   return { success: true };
 }
 

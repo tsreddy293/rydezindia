@@ -15,6 +15,11 @@ import {
 import { ownerProfileDocumentsToSet } from "@/lib/services/owner-profile-kyc";
 import { ownerKycCanApprove } from "@/lib/admin/owner-kyc";
 import { normalizeProfileStatus } from "@/lib/admin/owner-profile-fields";
+import {
+  customerKycDocumentsForAdmin,
+  customerKycHasRequiredDocs,
+  customerKycDocumentsFromRow,
+} from "@/lib/admin/customer-kyc-fields";
 import { effectiveVehicleStat } from "@/lib/admin/vehicle-approval";
 import type {
   AdminOwnerKycRecord,
@@ -1784,22 +1789,23 @@ export async function getAdminOwnerKycList(): Promise<AdminOwnerKycRecord[]> {
 export async function getAdminCustomerKycList(): Promise<AdminCustomerKycRecord[]> {
   const [allUsers, kycRows] = await Promise.all([
     getAdminUserList(500),
-    selectRows("customer_kyc", "id, user_id, aadhaar_url, license_url, selfie_url, status, remarks", 500),
+    selectRows("customer_kyc", "*", 500),
   ]);
 
   const kycMap = new Map(kycRows.map((row) => [getString(row, "user_id"), row]));
-  const riders = allUsers.filter((user) => user.role === "rider");
+  const riders = allUsers.filter((user) => {
+    const role = String(user.role ?? "").toLowerCase();
+    return role === "rider" || role === "user";
+  });
 
   return riders.map((user) => {
     const kyc = kycMap.get(user.id);
-    const documents: AdminCustomerKycRecord["documents"] = {};
-    if (getString(kyc, "aadhaar_url")) documents.aadhaar = getString(kyc, "aadhaar_url");
-    if (getString(kyc, "license_url")) documents.license = getString(kyc, "license_url");
-    if (getString(kyc, "selfie_url")) documents.selfie = getString(kyc, "selfie_url");
+    const documents = customerKycDocumentsForAdmin(kyc as Record<string, unknown> | undefined);
+    const docSet = customerKycDocumentsFromRow(kyc as Record<string, unknown> | undefined);
 
     const status = kyc
-      ? normalizeKycDisplayStatus(getString(kyc, "status", user.kyc_status))
-      : normalizeKycDisplayStatus(user.kyc_status);
+      ? normalizeManagementKycStatus(getString(kyc, "status", user.kyc_status))
+      : normalizeManagementKycStatus(user.kyc_status);
 
     return {
       id: user.id,
@@ -1807,7 +1813,7 @@ export async function getAdminCustomerKycList(): Promise<AdminCustomerKycRecord[
       name: user.name,
       email: user.email,
       mobile: user.mobile,
-      aadhaar: documents.aadhaar ? "Document uploaded" : "Not provided",
+      aadhaar: docSet.aadhaar_front_url ? "Document uploaded" : "Not provided",
       status,
       documents,
     };
@@ -1916,12 +1922,12 @@ export async function getAdminOwnerManagementList(): Promise<AdminOwnerManagemen
 export async function getAdminCustomerManagementList(): Promise<AdminCustomerManagementRecord[]> {
   const [users, kycRows, profileRows, bookingRows] = await Promise.all([
     getAdminUserList(500),
-    getAdminCustomerKycList(),
+    selectRows("customer_kyc", "*", 500),
     selectRows("customer_profiles", "user_id, kyc_status, status", 500),
     selectRows("bookings", "id, user_id", 500),
   ]);
 
-  const kycMap = new Map(kycRows.map((row) => [row.id, row]));
+  const kycMap = new Map(kycRows.map((row) => [getString(row, "user_id"), row]));
   const profileMap = new Map(profileRows.map((row) => [getString(row, "user_id"), row]));
   const bookingCounts = new Map<string, number>();
   bookingRows.forEach((row) => {
@@ -1931,17 +1937,21 @@ export async function getAdminCustomerManagementList(): Promise<AdminCustomerMan
   });
 
   return users
-    .filter((user) => user.role === "rider")
+    .filter((user) => {
+      const role = String(user.role ?? "").toLowerCase();
+      return role === "rider" || role === "user";
+    })
     .map((user) => {
       const kyc = kycMap.get(user.id);
       const profile = profileMap.get(user.id);
       const kycStatus = normalizeManagementKycStatus(
-        getString(profile, "kyc_status", kyc?.status ?? user.kyc_status)
+        getString(profile, "kyc_status", getString(kyc, "status", user.kyc_status))
       );
       const userStatus = normalizeManagementOwnerStatus(
         getString(profile, "status", user.is_blocked ? "rejected" : "pending")
       );
-      const hasDocs = Boolean(kyc?.documents.aadhaar || kyc?.documents.license);
+      const docSet = customerKycDocumentsFromRow(kyc as Record<string, unknown> | undefined);
+      const hasDocs = customerKycHasRequiredDocs(docSet);
 
       return {
         id: user.id,
@@ -1954,8 +1964,8 @@ export async function getAdminCustomerManagementList(): Promise<AdminCustomerMan
         created_at: user.created_at,
         canApproveKyc: hasDocs && kycStatus !== "approved",
         canApproveCustomer: kycStatus === "approved" && userStatus !== "approved",
-        documents: kyc?.documents ?? {},
-        aadhaar: kyc?.aadhaar ?? "Not provided",
+        documents: customerKycDocumentsForAdmin(kyc as Record<string, unknown> | undefined),
+        aadhaar: docSet.aadhaar_front_url ? "Document uploaded" : "Not provided",
         is_blocked: user.is_blocked,
       };
     })

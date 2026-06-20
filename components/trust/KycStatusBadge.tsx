@@ -7,7 +7,7 @@ const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   pending: { label: "Pending Review", className: "bg-yellow-100 text-yellow-700" },
   submitted: { label: "Submitted", className: "bg-yellow-100 text-yellow-700" },
   verified: { label: "Verified", className: "bg-green-100 text-green-700" },
-  approved: { label: "Verified", className: "bg-green-100 text-green-700" },
+  approved: { label: "Approved", className: "bg-green-100 text-green-700" },
   rejected: { label: "Rejected", className: "bg-red-100 text-red-700" },
 };
 

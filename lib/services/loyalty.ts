@@ -44,32 +44,60 @@ export function getLoyaltyDiscount(tier: LoyaltyTier): number {
   return TIER_DISCOUNTS[tier] ?? 0;
 }
 
-export async function getLoyaltyStatus(userId: string) {
-  const db = createAdminClient();
-  const { data } = await db
-    .from("users")
-    .select("loyalty_points, loyalty_tier")
-    .eq("id", userId)
-    .maybeSingle();
+export type LoyaltyStatusResult = {
+  tier: LoyaltyTier;
+  points: number;
+  discountPercent: number;
+  nextTier: LoyaltyTier | null;
+  pointsToNext: number;
+  benefits: string[];
+};
 
-  const points = Number((data as { loyalty_points?: number } | null)?.loyalty_points ?? 0);
-  const tier = ((data as { loyalty_tier?: string } | null)?.loyalty_tier ?? "silver") as LoyaltyTier;
+export const DEFAULT_LOYALTY_STATUS: LoyaltyStatusResult = {
+  tier: "silver",
+  points: 0,
+  discountPercent: 0,
+  nextTier: "gold",
+  pointsToNext: 500,
+  benefits: ["Earn points on every trip"],
+};
 
-  const nextTier =
-    tier === "silver" ? "gold" : tier === "gold" ? "platinum" : null;
-  const nextThreshold = nextTier ? TIER_THRESHOLDS[nextTier] : null;
+export async function getLoyaltyStatus(userId: string): Promise<LoyaltyStatusResult> {
+  try {
+    const db = createAdminClient();
+    const { data, error } = await db
+      .from("users")
+      .select("loyalty_points, loyalty_tier")
+      .eq("id", userId)
+      .maybeSingle();
 
-  return {
-    tier,
-    points,
-    discountPercent: getLoyaltyDiscount(tier),
-    nextTier,
-    pointsToNext: nextThreshold ? nextThreshold - points : 0,
-    benefits:
-      tier === "platinum"
-        ? ["10% extra discount", "Priority support", "Exclusive offers"]
-        : tier === "gold"
-          ? ["5% extra discount", "Priority support"]
-          : ["Earn points on every trip"],
-  };
+    if (error) {
+      console.warn("[getLoyaltyStatus] loyalty columns unavailable:", error.message);
+      return DEFAULT_LOYALTY_STATUS;
+    }
+
+    const points = Number((data as { loyalty_points?: number } | null)?.loyalty_points ?? 0);
+    const tier = ((data as { loyalty_tier?: string } | null)?.loyalty_tier ?? "silver") as LoyaltyTier;
+
+    const nextTier =
+      tier === "silver" ? "gold" : tier === "gold" ? "platinum" : null;
+    const nextThreshold = nextTier ? TIER_THRESHOLDS[nextTier] : null;
+
+    return {
+      tier,
+      points,
+      discountPercent: getLoyaltyDiscount(tier),
+      nextTier,
+      pointsToNext: nextThreshold ? nextThreshold - points : 0,
+      benefits:
+        tier === "platinum"
+          ? ["10% extra discount", "Priority support", "Exclusive offers"]
+          : tier === "gold"
+            ? ["5% extra discount", "Priority support"]
+            : ["Earn points on every trip"],
+    };
+  } catch (err) {
+    console.error("[getLoyaltyStatus]", err);
+    return DEFAULT_LOYALTY_STATUS;
+  }
 }
