@@ -14,6 +14,7 @@ import {
 } from "@/lib/pricing/self-drive-pricing";
 import { mapDriverTripTypeLabel } from "@/lib/pricing/trip-pricing";
 import { formatINR } from "@/lib/utils";
+import BookingOtpVerification from "@/components/booking/BookingOtpVerification";
 import type { DriverVehicleResult, SelfDriveResult } from "@/types/database";
 
 type Props =
@@ -41,6 +42,7 @@ export default function UnifiedBookingForm(props: Props) {
   const [paymentType, setPaymentType] = useState<"advance" | "full">("advance");
   const [customerName, setCustomerName] = useState("");
   const [customerMobile, setCustomerMobile] = useState("");
+  const [mobileOtpVerified, setMobileOtpVerified] = useState(false);
   const [couponCode, setCouponCode] = useState("");
 
   const isSelfDrive = type === "self_drive";
@@ -73,6 +75,10 @@ export default function UnifiedBookingForm(props: Props) {
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (!mobileOtpVerified) {
+      setError("Please verify your mobile number with OTP before continuing.");
+      return;
+    }
     setLoading(true);
     setError("");
 
@@ -257,7 +263,22 @@ export default function UnifiedBookingForm(props: Props) {
           <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-600">{error}</div>
         )}
         <FormField label="Customer Name" name="passenger_name" required placeholder="Your full name" />
-        <FormField label="Mobile Number" name="mobile" type="tel" required placeholder="9876543210" />
+        <FormField
+          label="Mobile Number"
+          name="mobile"
+          type="tel"
+          required
+          placeholder="9876543210"
+          value={customerMobile}
+          onChange={(e) => {
+            setCustomerMobile(e.target.value);
+            setMobileOtpVerified(false);
+          }}
+        />
+        <BookingOtpVerification
+          mobile={customerMobile}
+          onVerified={() => setMobileOtpVerified(true)}
+        />
         <FormField label="Pickup Location" name="pickup_location" defaultValue={listing.pickup_city} required />
         <FormField label="Drop Location" name="drop_location" defaultValue={listing.drop_city} />
         <div className="grid gap-5 sm:grid-cols-2">
@@ -299,7 +320,7 @@ export default function UnifiedBookingForm(props: Props) {
             placeholder="0"
           />
         </div>
-        <Button type="submit" variant="primary" size="lg" className="w-full" disabled={loading}>
+        <Button type="submit" variant="primary" size="lg" className="w-full" disabled={loading || !mobileOtpVerified}>
           {loading ? <><Loader2 className="h-5 w-5 animate-spin" /> Creating booking...</> : "Continue to Payment"}
         </Button>
       </form>

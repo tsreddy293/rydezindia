@@ -5,6 +5,8 @@ interface FormFieldProps {
   placeholder?: string;
   required?: boolean;
   defaultValue?: string;
+  value?: string;
+  onChange?: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => void;
   as?: "input" | "textarea" | "select";
   options?: { value: string; label: string }[];
   rows?: number;
@@ -17,6 +19,8 @@ export default function FormField({
   placeholder,
   required,
   defaultValue,
+  value,
+  onChange,
   as = "input",
   options,
   rows = 4,
@@ -30,16 +34,16 @@ export default function FormField({
         {label} {required && <span className="text-red-500">*</span>}
       </label>
       {as === "textarea" ? (
-        <textarea id={name} name={name} rows={rows} placeholder={placeholder} required={required} defaultValue={defaultValue} className={baseClass} />
+        <textarea id={name} name={name} rows={rows} placeholder={placeholder} required={required} defaultValue={defaultValue} value={value} onChange={onChange} className={baseClass} />
       ) : as === "select" ? (
-        <select id={name} name={name} required={required} defaultValue={defaultValue} className={baseClass}>
+        <select id={name} name={name} required={required} defaultValue={defaultValue} value={value} onChange={onChange} className={baseClass}>
           <option value="">Select {label}</option>
           {options?.map((opt) => (
             <option key={opt.value} value={opt.value}>{opt.label}</option>
           ))}
         </select>
       ) : (
-        <input id={name} name={name} type={type} placeholder={placeholder} required={required} defaultValue={defaultValue} className={baseClass} />
+        <input id={name} name={name} type={type} placeholder={placeholder} required={required} defaultValue={defaultValue} value={value} onChange={onChange} className={baseClass} />
       )}
     </div>
   );

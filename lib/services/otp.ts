@@ -87,3 +87,42 @@ export async function verifyOtp(input: { mobile: string; otp: string; purpose?: 
 
   return { mobile, verifiedAt };
 }
+
+const BOOKING_OTP_MAX_AGE_MS = 15 * 60 * 1000;
+
+/** Returns null when mobile has a recent verified booking OTP. */
+export async function assertRecentBookingOtp(
+  mobile: string,
+  maxAgeMs = BOOKING_OTP_MAX_AGE_MS
+): Promise<string | null> {
+  const normalized = requireValidMobile(mobile);
+  const db = createAdminClient();
+  const { data, error } = await db
+    .from("auth_otps")
+    .select("verified_at")
+    .eq("mobile", normalized)
+    .eq("purpose", "booking")
+    .not("verified_at", "is", null)
+    .order("verified_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error?.message?.includes("does not exist")) {
+    return "OTP verification is not configured. Run migration 008_phase2_trust_growth.sql (auth_otps table).";
+  }
+  if (error) throw new Error(error.message);
+
+  const verifiedAt = (data as { verified_at?: string } | null)?.verified_at;
+  if (!verifiedAt) {
+    return "Please verify your mobile number with OTP before booking.";
+  }
+  if (Date.now() - new Date(verifiedAt).getTime() > maxAgeMs) {
+    return "OTP verification expired. Please verify your mobile number again.";
+  }
+  return null;
+}
+
+/** Verify OTP at booking submit (purpose=booking). */
+export async function verifyBookingOtp(mobile: string, otp: string) {
+  return verifyOtp({ mobile, otp, purpose: "booking" });
+}

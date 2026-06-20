@@ -7,6 +7,7 @@ import { getSupabaseConfigError } from "@/lib/supabase/env";
 import { generateBookingReference } from "@/lib/services/booking-id";
 import { createNotification } from "@/lib/services/notifications";
 import { assertOwnerCanReceiveBookings, assertCustomerCanBookSelfDrive } from "@/lib/services/verification";
+import { assertRecentBookingOtp } from "@/lib/services/otp";
 import { markSelfDriveInterest } from "@/lib/services/customer-profile";
 import { bookReturnJourneySeats, initializeReturnJourneySeats } from "@/lib/services/return-journey-seats";
 import { dispatchBookingEvent } from "@/lib/services/messaging";
@@ -47,6 +48,10 @@ export async function createBooking(
     return { success: false, error: `Only ${availableSeats} seats available` };
   }
 
+  const mobile = input.mobile.replace(/\s/g, "");
+  const otpError = await assertRecentBookingOtp(mobile);
+  if (otpError) return { success: false, error: otpError };
+
   const ownerKycError = await assertOwnerCanReceiveBookings(
     ownerId,
     journey.vehicle_id ? String(journey.vehicle_id) : undefined
@@ -56,7 +61,6 @@ export async function createBooking(
   await initializeReturnJourneySeats(input.ride_id, availableSeats + input.seats_booked);
 
   const db = createAdminClient();
-  const mobile = input.mobile.replace(/\s/g, "");
   const amount = pricePerSeat * input.seats_booked;
 
   const guestUser = await findOrCreateGuestUserByMobile(db, input.passenger_name, mobile, {
@@ -204,6 +208,11 @@ export async function createUnifiedBooking(
   }
 
   const db = createAdminClient();
+  const mobile = input.mobile.replace(/\s/g, "");
+
+  const otpError = await assertRecentBookingOtp(mobile);
+  if (otpError) return { success: false, error: otpError };
+
   let ownerId = input.owner_id;
   if (!ownerId && input.vehicle_id) {
     const { data: vehicleRow } = await db
@@ -219,7 +228,6 @@ export async function createUnifiedBooking(
     if (ownerKycError) return { success: false, error: ownerKycError };
   }
 
-  const mobile = input.mobile.replace(/\s/g, "");
   const bookingReference = await generateBookingReference();
 
   const guestUser = await findOrCreateGuestUserByMobile(db, input.passenger_name, mobile, {
@@ -268,7 +276,7 @@ export async function createUnifiedBooking(
   const bookingInsert: Record<string, unknown> = {
     booking_type: input.booking_type,
     user_id: userId,
-    owner_id: input.owner_id ?? null,
+    owner_id: ownerId ?? input.owner_id ?? null,
     vehicle_id: input.vehicle_id,
     reference_id: input.reference_id,
     amount: finalAmount,

@@ -4,10 +4,7 @@ import { normalizeCustomerKycStatus } from "@/lib/admin/customer-kyc-fields";
 import { ownerProfileDocumentsToSet, getOwnerProfileKyc } from "@/lib/services/owner-profile-kyc";
 import { resolveOwnerAdminStatus } from "@/lib/admin/owner-profile-status";
 import { resolveOwnerKycAdminStatus } from "@/lib/admin/owner-kyc-status";
-import {
-  isVehicleCustomerListable,
-  normalizeDocumentsStatus,
-} from "@/lib/admin/marketplace-gates";
+import { normalizeDocumentsStatus } from "@/lib/admin/marketplace-gates";
 
 export type OwnerBookingGateDebug = {
   ownerId: string;
@@ -159,34 +156,13 @@ export async function assertOwnerCanReceiveBookings(
     return `This owner is not verified yet. Bookings cannot be placed until KYC is approved (kyc_status=${snapshot.resolvedKycStatus}).`;
   }
 
-  if (vehicleId) {
-    const listable = isVehicleCustomerListable({
-      ownerStatus: snapshot.resolvedOwnerStatus,
-      kycStatus: snapshot.resolvedKycStatus,
+  if (vehicleId && !snapshot.vehicleApproved) {
+    console.warn("[assertOwnerCanReceiveBookings] BLOCKED vehicle_status", {
+      ownerId,
+      vehicleId,
       vehicleApprovalStatus: snapshot.vehicleApprovalStatus,
-      documentsStatus: snapshot.vehicleDocumentsStatus,
     });
-
-    if (!listable) {
-      console.warn("[assertOwnerCanReceiveBookings] BLOCKED vehicle", {
-        ownerId,
-        vehicleId,
-        vehicleApprovalStatus: snapshot.vehicleApprovalStatus,
-        vehicleDocumentsStatus: snapshot.vehicleDocumentsStatus,
-        ownerApproved: snapshot.ownerApproved,
-        kycApproved: snapshot.kycApproved,
-        vehicleApproved: snapshot.vehicleApproved,
-        documentsApproved: snapshot.documentsApproved,
-      });
-
-      if (!snapshot.vehicleApproved) {
-        return `This vehicle is not approved for booking (vehicle_status=${snapshot.vehicleApprovalStatus ?? "unknown"}).`;
-      }
-      if (!snapshot.documentsApproved) {
-        return `Vehicle documents are not approved (documents_status=${snapshot.vehicleDocumentsStatus ?? "unknown"}).`;
-      }
-      return "This vehicle is not available for booking. Owner, KYC, or vehicle approval may be pending.";
-    }
+    return `This vehicle is not approved for booking (vehicle_status=${snapshot.vehicleApprovalStatus ?? "unknown"}).`;
   }
 
   console.log("[assertOwnerCanReceiveBookings] ALLOWED", { ownerId, vehicleId: vehicleId ?? null });

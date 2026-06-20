@@ -5,6 +5,7 @@ import { Loader2, CheckCircle2, MapPin, Calendar, Users } from "lucide-react";
 import FormField from "@/components/forms/FormField";
 import Button from "@/components/ui/Button";
 import SeatSelector from "@/components/booking/SeatSelector";
+import BookingOtpVerification from "@/components/booking/BookingOtpVerification";
 import { createBooking } from "@/server/actions/createBooking";
 import { formatDate, formatINR } from "@/lib/utils";
 
@@ -35,9 +36,15 @@ export default function BookingForm({ journey, seats = [] }: Props) {
   const [success, setSuccess] = useState(false);
   const [bookingId, setBookingId] = useState("");
   const [selectedSeats, setSelectedSeats] = useState<number[]>([]);
+  const [mobile, setMobile] = useState("");
+  const [mobileOtpVerified, setMobileOtpVerified] = useState(false);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (!mobileOtpVerified) {
+      setError("Please verify your mobile number with OTP before booking.");
+      return;
+    }
     setLoading(true);
     setError("");
 
@@ -113,7 +120,19 @@ export default function BookingForm({ journey, seats = [] }: Props) {
           <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-600">{error}</div>
         )}
         <FormField label="Passenger Name" name="passenger_name" required placeholder="Your full name" />
-        <FormField label="Mobile Number" name="mobile" type="tel" required placeholder="9876543210" />
+        <FormField
+          label="Mobile Number"
+          name="mobile"
+          type="tel"
+          required
+          placeholder="9876543210"
+          value={mobile}
+          onChange={(e) => {
+            setMobile(e.target.value);
+            setMobileOtpVerified(false);
+          }}
+        />
+        <BookingOtpVerification mobile={mobile} onVerified={() => setMobileOtpVerified(true)} />
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">Select Seats</label>
           <SeatSelector
@@ -127,7 +146,7 @@ export default function BookingForm({ journey, seats = [] }: Props) {
           )}
         </div>
         <FormField label="Special Instructions" name="special_instructions" as="textarea" placeholder="Optional notes..." />
-        <Button type="submit" variant="primary" size="lg" className="w-full" disabled={loading}>
+        <Button type="submit" variant="primary" size="lg" className="w-full" disabled={loading || !mobileOtpVerified}>
           {loading ? <><Loader2 className="h-5 w-5 animate-spin" /> Booking...</> : "Confirm Booking"}
         </Button>
       </form>
