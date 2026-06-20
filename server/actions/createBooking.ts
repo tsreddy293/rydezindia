@@ -47,7 +47,10 @@ export async function createBooking(
     return { success: false, error: `Only ${availableSeats} seats available` };
   }
 
-  const ownerKycError = await assertOwnerCanReceiveBookings(ownerId);
+  const ownerKycError = await assertOwnerCanReceiveBookings(
+    ownerId,
+    journey.vehicle_id ? String(journey.vehicle_id) : undefined
+  );
   if (ownerKycError) return { success: false, error: ownerKycError };
 
   await initializeReturnJourneySeats(input.ride_id, availableSeats + input.seats_booked);
@@ -200,12 +203,22 @@ export async function createUnifiedBooking(
     return { success: false, error: "Amount must be positive" };
   }
 
-  if (input.owner_id) {
-    const ownerKycError = await assertOwnerCanReceiveBookings(input.owner_id);
+  const db = createAdminClient();
+  let ownerId = input.owner_id;
+  if (!ownerId && input.vehicle_id) {
+    const { data: vehicleRow } = await db
+      .from("vehicles")
+      .select("owner_id")
+      .eq("id", input.vehicle_id)
+      .maybeSingle();
+    ownerId = (vehicleRow as { owner_id?: string } | null)?.owner_id ?? undefined;
+  }
+
+  if (ownerId) {
+    const ownerKycError = await assertOwnerCanReceiveBookings(ownerId, input.vehicle_id);
     if (ownerKycError) return { success: false, error: ownerKycError };
   }
 
-  const db = createAdminClient();
   const mobile = input.mobile.replace(/\s/g, "");
   const bookingReference = await generateBookingReference();
 

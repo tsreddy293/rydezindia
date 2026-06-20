@@ -87,7 +87,7 @@ export default function UnifiedBookingForm(props: Props) {
       booking_type: type,
       reference_id: listing.id,
       vehicle_id: listing.vehicle_id,
-      owner_id: (listing as DriverVehicleResult).owner_id,
+      owner_id: (listing as DriverVehicleResult).owner_id ?? (listing as SelfDriveResult).owner_id,
       passenger_name: name,
       mobile,
       amount: totalFare,

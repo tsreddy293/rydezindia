@@ -335,6 +335,14 @@ export async function approveOwnerKycAction(
 
     console.log("[approveOwnerKycAction] success — verified row", verified.row);
 
+    const { error: usersSyncError } = await db
+      .from("users")
+      .update({ kyc_status: "approved", owner_status: "approved" })
+      .eq("id", userId);
+    if (usersSyncError && !usersSyncError.message.includes("column") && !usersSyncError.message.includes("does not exist")) {
+      console.warn("[approveOwnerKycAction] users sync:", usersSyncError.message);
+    }
+
     await createNotification({
       recipientId: userId,
       recipientRole: "owner",
@@ -448,6 +456,15 @@ export async function approveOwnerAction(userId: string): Promise<ActionResult> 
         success: false,
         error: `Owner approval did not persist. Got owner_status="${result.data.owner_status}".`,
       };
+    }
+
+    const db = createAdminClient();
+    const { error: usersSyncError } = await db
+      .from("users")
+      .update({ owner_status: "approved" })
+      .eq("id", userId);
+    if (usersSyncError && !usersSyncError.message.includes("column") && !usersSyncError.message.includes("does not exist")) {
+      console.warn("[approveOwnerAction] users sync:", usersSyncError.message);
     }
 
     await createNotification({

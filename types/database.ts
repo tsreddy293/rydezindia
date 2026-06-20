@@ -197,6 +197,7 @@ export interface SelfDriveResult {
   has_ac?: boolean;
   rating?: number;
   owner_name: string;
+  owner_id?: string;
   owner_city?: string;
   pickup_city: string;
   drop_city: string;

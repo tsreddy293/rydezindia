@@ -463,6 +463,7 @@ function mapVehicleRowToSelfDriveResult(
     vehicle_type: category,
     registration_number: maskRegistrationNumber(vehicle.registration_number),
     owner_name: ownerName || "Owner",
+    owner_id: vehicle.owner_id ?? undefined,
     owner_city: pickupCity,
     pickup_city: pickupCity,
     drop_city: "",
