@@ -12,8 +12,7 @@ export type SelfDriveKycGateResult =
 
 export async function checkSelfDriveKycGate(userId: string): Promise<SelfDriveKycGateResult> {
   const kyc = await getCustomerKyc(userId);
-  const rawStatus = (kyc?.status as string | undefined) ?? "not_submitted";
-  const status = normalizeCustomerKycStatus(rawStatus);
+  const status = normalizeCustomerKycStatus(kyc.status);
 
   if (status === "approved") {
     return { allowed: true, status: "approved" };

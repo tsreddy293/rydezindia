@@ -1946,7 +1946,7 @@ export async function getAdminCustomerManagementList(): Promise<AdminCustomerMan
       const kyc = kycMap.get(user.id);
       const profile = profileMap.get(user.id);
       const kycStatus = normalizeManagementKycStatus(
-        getString(profile, "kyc_status", getString(kyc, "status", user.kyc_status))
+        getString(kyc, "status", getString(profile, "kyc_status", user.kyc_status))
       );
       const userStatus = normalizeManagementOwnerStatus(
         getString(profile, "status", user.is_blocked ? "rejected" : "pending")

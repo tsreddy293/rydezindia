@@ -9,6 +9,11 @@ import { createNotification } from "@/lib/services/notifications";
 import { dispatchMessage } from "@/lib/services/messaging";
 import { requireRole } from "@/server/actions/auth";
 import type { ActionResult } from "@/types/database";
+import {
+  approveCustomerKyc,
+  rejectCustomerKyc,
+} from "@/lib/services/customer-kyc";
+import { safeRiderRedirectPath } from "@/lib/kyc/self-drive-nav";
 
 export async function updateCustomerKycStatus(
   id: string,
@@ -18,50 +23,48 @@ export async function updateCustomerKycStatus(
   const { user } = await requireRole("admin");
   const db = createAdminClient();
 
-  const { data: kyc } = await db.from("customer_kyc").select("user_id").eq("id", id).single();
+  const { data: kyc, error: loadError } = await db.from("customer_kyc").select("user_id").eq("id", id).single();
+  if (loadError) return { success: false, error: loadError.message };
+
   const userId = (kyc as { user_id: string } | null)?.user_id;
+  if (!userId) return { success: false, error: "KYC record not found" };
 
-  const { error } = await db
-    .from("customer_kyc")
-    .update({
-      status,
-      remarks: remarks ?? null,
-      reviewed_by: user.id,
-      reviewed_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id);
+  try {
+    if (status === "verified") {
+      await approveCustomerKyc({ userId, reviewedBy: user.id, remarks });
+    } else {
+      await rejectCustomerKyc({ userId, reviewedBy: user.id, remarks });
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "KYC update failed";
+    return { success: false, error: message };
+  }
 
-  if (error) return { success: false, error: error.message };
+  await createNotification({
+    recipientId: userId,
+    recipientRole: "rider",
+    type: status === "verified" ? "kyc_verified" : "kyc_rejected",
+    title: status === "verified" ? "KYC Verified" : "KYC Rejected",
+    message: remarks ?? (status === "verified" ? "Your identity is verified." : "Please re-upload your documents."),
+    metadata: { kycId: id },
+  });
 
-  if (userId) {
-    await db.from("users").update({ kyc_status: status }).eq("id", userId);
-    await createNotification({
-      recipientId: userId,
-      recipientRole: "rider",
-      type: status === "verified" ? "kyc_verified" : "kyc_rejected",
-      title: status === "verified" ? "KYC Verified" : "KYC Rejected",
-      message: remarks ?? (status === "verified" ? "Your identity is verified." : "Please re-upload your documents."),
-      metadata: { kycId: id },
+  const { data: profile } = await db.from("users").select("mobile, email").eq("id", userId).maybeSingle();
+  const mobile = (profile as { mobile?: string } | null)?.mobile;
+  const email = (profile as { email?: string } | null)?.email;
+  if (mobile) {
+    await dispatchMessage({
+      channel: "sms",
+      recipient: mobile,
+      template: status === "verified" ? "kyc_verified" : "kyc_rejected",
     });
-
-    const { data: profile } = await db.from("users").select("mobile, email").eq("id", userId).maybeSingle();
-    const mobile = (profile as { mobile?: string } | null)?.mobile;
-    const email = (profile as { email?: string } | null)?.email;
-    if (mobile) {
-      await dispatchMessage({
-        channel: "sms",
-        recipient: mobile,
-        template: status === "verified" ? "kyc_verified" : "kyc_rejected",
-      });
-    }
-    if (email) {
-      await dispatchMessage({
-        channel: "email",
-        recipient: email,
-        template: status === "verified" ? "kyc_verified" : "kyc_rejected",
-      });
-    }
+  }
+  if (email) {
+    await dispatchMessage({
+      channel: "email",
+      recipient: email,
+      template: status === "verified" ? "kyc_verified" : "kyc_rejected",
+    });
   }
 
   await logApproval({
@@ -194,69 +197,67 @@ export async function updateCustomerKycByUserId(
   remarks?: string
 ): Promise<ActionResult> {
   const { user } = await requireRole("admin");
-  const db = createAdminClient();
   const dbStatus = status === "verified" ? "approved" : status;
-  const now = new Date().toISOString();
-  const userKycStatus = dbStatus === "approved" ? "approved" : dbStatus;
 
-  const { data: existing } = await db
-    .from("customer_kyc")
-    .select("id")
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (existing) {
-    const { error } = await db
-      .from("customer_kyc")
-      .update({
-        status: dbStatus,
-        remarks: remarks ?? null,
-        reviewed_by: user.id,
-        reviewed_at: now,
-        updated_at: now,
-      })
-      .eq("user_id", userId);
-    if (error && !error.message.includes("does not exist")) {
-      return { success: false, error: error.message };
+  try {
+    if (dbStatus === "approved") {
+      const row = await approveCustomerKyc({ userId, reviewedBy: user.id, remarks });
+      const returnPath = safeRiderRedirectPath(
+        String((row as { self_drive_return_path?: string } | null)?.self_drive_return_path ?? "")
+      );
+      await createNotification({
+        recipientId: userId,
+        recipientRole: "rider",
+        type: "kyc_verified",
+        title: "KYC Approved",
+        message: returnPath
+          ? "Your KYC is approved. You can continue your self-drive booking."
+          : remarks ?? "Your KYC has been approved.",
+        metadata: { userId, returnPath: returnPath ?? undefined },
+      });
+    } else if (dbStatus === "rejected") {
+      await rejectCustomerKyc({ userId, reviewedBy: user.id, remarks });
+      await createNotification({
+        recipientId: userId,
+        recipientRole: "rider",
+        type: "kyc_rejected",
+        title: "KYC Rejected",
+        message: remarks ?? "Please re-upload your documents.",
+        metadata: { userId },
+      });
+    } else {
+      const db = createAdminClient();
+      const now = new Date().toISOString();
+      const { error } = await db
+        .from("customer_kyc")
+        .upsert(
+          {
+            user_id: userId,
+            status: "pending",
+            remarks: remarks ?? null,
+            updated_at: now,
+          },
+          { onConflict: "user_id" }
+        );
+      if (error) return { success: false, error: error.message };
+      await db.from("users").update({ kyc_status: "pending" }).eq("id", userId);
     }
-  } else {
-    const { error } = await db.from("customer_kyc").insert({
-      user_id: userId,
-      status: dbStatus,
-      remarks: remarks ?? null,
-      reviewed_by: user.id,
-      reviewed_at: now,
-    });
-    if (error && !error.message.includes("does not exist")) {
-      return { success: false, error: error.message };
-    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "KYC update failed";
+    console.error("[updateCustomerKycByUserId]", { userId, status, message });
+    return { success: false, error: message };
   }
 
-  await db.from("users").update({ kyc_status: userKycStatus }).eq("id", userId);
-
-  await db.from("customer_profiles").upsert(
-    {
-      user_id: userId,
-      kyc_status: userKycStatus,
-      updated_at: now,
-    },
-    { onConflict: "user_id" }
-  );
-
-  await createNotification({
-    recipientId: userId,
-    recipientRole: "rider",
-    type: dbStatus === "approved" ? "kyc_verified" : dbStatus === "rejected" ? "kyc_rejected" : "kyc_pending",
-    title: dbStatus === "approved" ? "KYC Approved" : dbStatus === "rejected" ? "KYC Rejected" : "KYC Under Review",
-    message:
-      remarks ??
-      (dbStatus === "approved"
-        ? "Your KYC has been approved."
-        : dbStatus === "rejected"
-          ? "Please re-upload your documents."
-          : "Your KYC is pending review."),
-    metadata: { userId },
-  });
+  if (dbStatus !== "approved" && dbStatus !== "rejected") {
+    await createNotification({
+      recipientId: userId,
+      recipientRole: "rider",
+      type: "kyc_pending",
+      title: "KYC Under Review",
+      message: remarks ?? "Your KYC is pending review.",
+      metadata: { userId },
+    });
+  }
 
   revalidatePath("/admin/customer-kyc");
   revalidatePath("/admin/customer-management");

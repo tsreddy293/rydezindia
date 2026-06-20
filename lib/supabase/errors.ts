@@ -17,13 +17,16 @@ export function isInvalidUserRoleEnumError(
 }
 
 export function isMissingColumnError(
-  error: { message?: string } | null | undefined,
+  error: { code?: string; message?: string } | null | undefined,
   ...columns: string[]
 ): boolean {
   if (!error?.message) return false;
   const msg = error.message.toLowerCase();
   const columnError =
-    msg.includes("column") || msg.includes("schema cache") || msg.includes("could not find");
+    error.code === "PGRST204" ||
+    msg.includes("column") ||
+    msg.includes("schema cache") ||
+    msg.includes("could not find");
   if (!columnError) return false;
   if (columns.length === 0) return true;
   return columns.some((column) => msg.includes(column.toLowerCase()));

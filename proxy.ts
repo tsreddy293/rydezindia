@@ -1,19 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseAnonKey, getSupabaseUrl } from "@/lib/supabase/env";
-import { normalizeRole } from "@/lib/auth/roles";
-
-async function resolveUserRole(
-  supabase: ReturnType<typeof createServerClient>,
-  userId: string,
-  metadataRole: unknown
-): Promise<ReturnType<typeof normalizeRole>> {
-  const fromMeta = normalizeRole(metadataRole);
-  if (fromMeta) return fromMeta;
-
-  const { data } = await supabase.from("users").select("role").eq("id", userId).maybeSingle();
-  return normalizeRole((data as { role?: unknown } | null)?.role);
-}
+import { resolveAuthenticatedUserRole } from "@/lib/auth/get-role-for-user";
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
@@ -37,7 +25,7 @@ export async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
 
   const role = data.user
-    ? await resolveUserRole(supabase, data.user.id, data.user.user_metadata?.role)
+    ? await resolveAuthenticatedUserRole(data.user.id, data.user.user_metadata?.role)
     : null;
 
   const redirectTo = (pathname: string) => {

@@ -30,6 +30,7 @@ interface Props {
   documents: CustomerKycDocumentSet;
   status: string;
   canSubmit: boolean;
+  selfDriveReturnPath?: string;
 }
 
 function DocPreview({ label, url }: { label: string; url?: string }) {
@@ -41,7 +42,7 @@ function DocPreview({ label, url }: { label: string; url?: string }) {
   );
 }
 
-export default function RiderKycUploadForm({ documents, status, canSubmit }: Props) {
+export default function RiderKycUploadForm({ documents, status, canSubmit, selfDriveReturnPath }: Props) {
   const router = useRouter();
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -81,6 +82,10 @@ export default function RiderKycUploadForm({ documents, status, canSubmit }: Pro
         outbound.append(name, prepared);
       }
 
+      if (selfDriveReturnPath) {
+        outbound.append("self_drive_return", selfDriveReturnPath);
+      }
+
       const result = await submitCustomerKyc(outbound);
       if (result.success) {
         setSuccess(result.message ?? "Documents submitted successfully.");
@@ -114,7 +119,9 @@ export default function RiderKycUploadForm({ documents, status, canSubmit }: Pro
       )}
 
       {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600 whitespace-pre-wrap font-mono">
+          {error}
+        </div>
       )}
       {success && (
         <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">

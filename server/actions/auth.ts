@@ -253,11 +253,7 @@ async function rollbackAuthUser(userId: string) {
   }
 }
 
-async function getRoleForUser(userId: string): Promise<UserRole | null> {
-  const db = createAdminClient();
-  const { data } = await db.from("users").select("role").eq("id", userId).maybeSingle();
-  return normalizeRole((data as { role?: unknown } | null)?.role);
-}
+import { getRoleForUser } from "@/lib/auth/get-role-for-user";
 
 async function signUpWithRole(input: SignupInput, role: UserRole): Promise<ActionResult<{ id: string }>> {
   const configError = getSupabaseConfigError();

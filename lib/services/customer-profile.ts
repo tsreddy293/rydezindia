@@ -1,5 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getCustomerKyc } from "@/lib/services/customer-kyc";
+import { getCustomerKyc, hasCustomerKycRecord } from "@/lib/services/customer-kyc";
 import { isMissingColumnError, isMissingTableError } from "@/lib/supabase/errors";
 
 export async function markSelfDriveInterest(userId: string): Promise<void> {
@@ -37,7 +37,7 @@ export async function hasSelfDriveInterest(userId: string): Promise<boolean> {
     }
 
     const kyc = await getCustomerKyc(userId);
-    if (kyc) return true;
+    if (hasCustomerKycRecord(kyc)) return true;
 
     const { count, error: bookingError } = await db
       .from("bookings")

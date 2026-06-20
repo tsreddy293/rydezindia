@@ -60,16 +60,16 @@ export default function HeaderClient() {
         safeSetRole(null);
         return;
       }
-      let nextRole = normalizeRole(data.user.user_metadata?.role);
-      if (!nextRole) {
-        const { data: profile } = await supabase
-          .from("users")
-          .select("role")
-          .eq("id", data.user.id)
-          .maybeSingle();
-        nextRole = normalizeRole((profile as { role?: unknown } | null)?.role);
-      }
-      safeSetRole(nextRole ?? "rider");
+      const { data: profile } = await supabase
+        .from("users")
+        .select("role")
+        .eq("id", data.user.id)
+        .maybeSingle();
+      const nextRole =
+        normalizeRole((profile as { role?: unknown } | null)?.role) ??
+        normalizeRole(data.user.user_metadata?.role) ??
+        "rider";
+      safeSetRole(nextRole);
     }
 
     loadRole();

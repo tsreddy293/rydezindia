@@ -8,18 +8,24 @@ import {
   upsertCustomerKyc,
   getCustomerKyc,
   uploadCustomerKycFile,
+  hasCustomerKycRecord,
 } from "@/lib/services/customer-kyc";
 import { createNotification } from "@/lib/services/notifications";
 import { requireRole } from "@/server/actions/auth";
 import type { ActionResult } from "@/types/database";
 import type { CustomerKycDocumentSet } from "@/lib/admin/customer-kyc-fields";
 import {
-  KYC_UPLOAD_RULES,
   validateKycUploadFile,
   type KycUploadField,
 } from "@/lib/kyc/upload-rules";
 import { markSelfDriveInterest } from "@/lib/services/customer-profile";
-import { mapKycStorageError } from "@/lib/kyc/kyc-storage";
+import {
+  formatKycFailureForClient,
+  KycSubmitError,
+  logKycFailure,
+  toKycSubmitFailure,
+} from "@/lib/kyc/kyc-errors";
+import { safeRiderRedirectPath } from "@/lib/kyc/self-drive-nav";
 
 export type CustomerKycStatusResult = {
   status: "not_submitted" | "pending" | "approved" | "rejected";
@@ -53,8 +59,23 @@ async function uploadIfPresent(userId: string, formData: FormData, name: string,
   const field = fieldMap[name];
   if (field) {
     const validationError = validateKycUploadFile(file, field);
-    if (validationError) throw new Error(validationError);
+    if (validationError) {
+      throw new KycSubmitError({
+        phase: "validation",
+        functionName: "uploadIfPresent",
+        message: validationError,
+      });
+    }
   }
+
+  console.info("[submitCustomerKyc] uploading file", {
+    userId,
+    formField: name,
+    storageKey: key,
+    fileName: file.name,
+    fileSize: file.size,
+    fileType: file.type,
+  });
 
   return uploadCustomerKycFile(userId, key, file);
 }
@@ -63,15 +84,16 @@ export async function getCustomerKycStatus(userId?: string): Promise<CustomerKyc
   try {
     const resolvedUserId = userId ?? (await requireRole("user")).user.id;
     const kyc = await getCustomerKyc(resolvedUserId);
-    const documents = readCustomerKycDocuments(kyc);
-    const rawStatus = (kyc?.status as string | undefined) ?? "not_submitted";
+    const persisted = hasCustomerKycRecord(kyc);
+    const documents = readCustomerKycDocuments(persisted ? kyc : null);
+    const rawStatus = String(kyc.status ?? "not_submitted");
     const status = customerKycDisplayStatus(rawStatus, documents);
     const hasRequiredDocs = customerKycHasRequiredDocs(documents);
 
     return {
       status,
       rawStatus,
-      kyc,
+      kyc: persisted ? kyc : null,
       documents,
       hasRequiredDocs,
       canSubmit: status !== "approved",
@@ -87,13 +109,33 @@ export async function getCustomerKycStatus(userId?: string): Promise<CustomerKyc
 }
 
 export async function submitCustomerKyc(formData: FormData): Promise<ActionResult> {
+  let step = "auth";
   try {
+    step = "auth";
     const { user } = await requireRole("user");
     const userId = user.id;
 
-    const existing = await getCustomerKyc(userId);
-    const prev = readCustomerKycDocuments(existing);
+    console.info("[submitCustomerKyc] start", {
+      userId,
+      bucket: "customer-kyc",
+      fields: ["aadhaar_front", "aadhaar_back", "driving_license", "selfie"],
+    });
 
+    step = "load_existing";
+    const existing = await getCustomerKyc(userId);
+    const prev = readCustomerKycDocuments(hasCustomerKycRecord(existing) ? existing : null);
+    console.info("[submitCustomerKyc] existing kyc", {
+      userId,
+      hasExistingRow: hasCustomerKycRecord(existing),
+      prevDocs: {
+        front: Boolean(prev.aadhaar_front_url),
+        back: Boolean(prev.aadhaar_back_url),
+        license: Boolean(prev.driving_license_url),
+        selfie: Boolean(prev.selfie_url),
+      },
+    });
+
+    step = "storage_upload";
     const aadhaarFrontUrl =
       (await uploadIfPresent(userId, formData, "aadhaar_front", "aadhaar-front")) ?? prev.aadhaar_front_url;
     const aadhaarBackUrl =
@@ -103,6 +145,17 @@ export async function submitCustomerKyc(formData: FormData): Promise<ActionResul
       prev.driving_license_url;
     const selfieUrl = (await uploadIfPresent(userId, formData, "selfie", "selfie")) ?? prev.selfie_url;
 
+    console.info("[submitCustomerKyc] uploads complete", {
+      userId,
+      urls: {
+        front: Boolean(aadhaarFrontUrl),
+        back: Boolean(aadhaarBackUrl),
+        license: Boolean(drivingLicenseUrl),
+        selfie: Boolean(selfieUrl),
+      },
+    });
+
+    step = "validation";
     const merged: CustomerKycDocumentSet = {
       aadhaar_front_url: aadhaarFrontUrl,
       aadhaar_back_url: aadhaarBackUrl,
@@ -117,16 +170,22 @@ export async function submitCustomerKyc(formData: FormData): Promise<ActionResul
       };
     }
 
+    step = "database_upsert";
+    const selfDriveReturn = safeRiderRedirectPath(String(formData.get("self_drive_return") ?? ""));
     await upsertCustomerKyc({
       userId,
       aadhaarFrontUrl,
       aadhaarBackUrl,
       drivingLicenseUrl,
       selfieUrl,
+      selfDriveReturnPath: selfDriveReturn,
     });
+    console.info("[submitCustomerKyc] upsert complete", { userId });
 
+    step = "profile_sync";
     await markSelfDriveInterest(userId);
 
+    step = "notification";
     await createNotification({
       recipientRole: "admin",
       actorId: userId,
@@ -145,8 +204,16 @@ export async function submitCustomerKyc(formData: FormData): Promise<ActionResul
 
     return { success: true, message: "KYC documents submitted. Status is now Pending — admin will review shortly." };
   } catch (error) {
-    const message = mapKycStorageError(error);
-    console.error("[submitCustomerKyc]", error);
-    return { success: false, error: message };
+    const failure = toKycSubmitFailure(error, "submitCustomerKyc");
+    logKycFailure("submitCustomerKyc", failure);
+    console.error("[submitCustomerKyc] failed at step", step, {
+      phase: failure.phase,
+      code: failure.code ?? null,
+      message: failure.message,
+      hint: failure.hint ?? null,
+      supabaseResponse: failure.supabaseResponse ?? null,
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    return { success: false, error: formatKycFailureForClient(failure) };
   }
 }
