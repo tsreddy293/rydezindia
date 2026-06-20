@@ -5,7 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { getSupabaseConfigError } from "@/lib/supabase/env";
-import { isMissingColumnError, isMissingTableError } from "@/lib/supabase/errors";
+import { isMissingColumnError, isMissingTableError, isInvalidUserRoleEnumError } from "@/lib/supabase/errors";
 import { usersWritePayload } from "@/lib/supabase/users-table";
 import {
   normalizeRole,
@@ -36,6 +36,30 @@ function validatePassword(password: string) {
     return "Password must be at least 8 characters and include uppercase, lowercase, and a number";
   }
   return null;
+}
+
+function mapAuthSignupError(message: string): string {
+  const lower = message.toLowerCase();
+  if (lower.includes("already been registered") || lower.includes("already exists")) {
+    return "An account with this email already exists. Please sign in or reset your password.";
+  }
+  if (lower.includes("database error saving new user") || lower.includes("database error creating new user")) {
+    return (
+      "Signup is blocked by a Supabase database trigger. " +
+      "Run supabase/RUN_RIDER_SIGNUP.sql in the Supabase SQL Editor, then try again."
+    );
+  }
+  return message;
+}
+
+async function findAuthUserIdByEmail(db: SupabaseClient, email: string): Promise<string | null> {
+  const { data, error } = await db.auth.admin.listUsers({ page: 1, perPage: 1000 });
+  if (error) {
+    console.warn("[signUpWithRole] listUsers failed", error.message);
+    return null;
+  }
+  const match = data.users.find((user) => user.email?.toLowerCase() === email);
+  return match?.id ?? null;
 }
 
 function logDbResult(label: string, result: { data?: unknown; error?: { message?: string; code?: string } | null }) {
@@ -74,6 +98,13 @@ async function upsertPublicUsersRow(
     payload = { ...basePayload };
     result = await db.from("users").upsert(usersWritePayload(payload), { onConflict: "id" }).select("id").single();
     logDbResult("public.users upsert (without full_name)", result);
+  }
+
+  if (result.error && role === "rider" && isInvalidUserRoleEnumError(result.error)) {
+    console.warn("[upsertUserProfile] user_role enum lacks rider — retrying with role=user");
+    payload = { ...basePayload, role: "user" };
+    result = await db.from("users").upsert(usersWritePayload(payload), { onConflict: "id" }).select("id").single();
+    logDbResult("public.users upsert (legacy role=user)", result);
   }
 
   if (result.error) {
@@ -123,8 +154,7 @@ async function upsertRiderProfilesRow(
   if (result.error && isMissingTableError(result.error)) {
     console.warn("[upsertUserProfile] rider_profiles table missing — trying customer_profiles");
   } else if (result.error) {
-    console.error("[upsertUserProfile] rider_profiles failed", result.error);
-    return { ok: false, step: "rider_profiles", error: result.error.message };
+    console.warn("[upsertUserProfile] rider_profiles failed (non-fatal)", result.error.message);
   } else {
     return { ok: true };
   }
@@ -158,7 +188,8 @@ async function upsertRiderProfilesRow(
       console.warn("[upsertUserProfile] customer_profiles table missing — users row only");
       return { ok: true };
     }
-    return { ok: false, step: "customer_profiles", error: customerResult.error.message };
+    console.warn("[upsertUserProfile] customer_profiles failed (non-fatal)", customerResult.error.message);
+    return { ok: true };
   }
 
   return { ok: true };
@@ -260,17 +291,15 @@ async function signUpWithRole(input: SignupInput, role: UserRole): Promise<Actio
         name: input.name.trim(),
         mobile,
         city: input.city.trim(),
-        role,
       },
+      app_metadata: { role },
     });
 
     logDbResult("auth.admin.createUser", { data: authData.user ? { id: authData.user.id } : null, error: authError });
 
     if (authError) {
-      const message = authError.message.includes("already been registered")
-        ? "An account with this email already exists. Please sign in."
-        : authError.message;
-      return { success: false, error: message };
+      console.error("[signUpWithRole] createUser failed", authError);
+      return { success: false, error: mapAuthSignupError(authError.message) };
     }
 
     if (!authData.user) {

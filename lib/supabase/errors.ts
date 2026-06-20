@@ -8,6 +8,14 @@ export function isMissingTableError(error: { code?: string; message?: string } |
   );
 }
 
+export function isInvalidUserRoleEnumError(
+  error: { message?: string } | null | undefined
+): boolean {
+  if (!error?.message) return false;
+  const msg = error.message.toLowerCase();
+  return msg.includes("user_role") || (msg.includes("enum") && msg.includes("role"));
+}
+
 export function isMissingColumnError(
   error: { message?: string } | null | undefined,
   ...columns: string[]
