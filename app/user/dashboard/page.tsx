@@ -1,18 +1,31 @@
 import { Calendar, Car, Heart, ShieldCheck } from "lucide-react";
-import Link from "next/link";
 import PageLayout from "@/components/layout/PageLayout";
 import UserDashboardNav from "@/components/dashboard/UserDashboardNav";
 import Button from "@/components/ui/Button";
 import ChangePasswordForm from "@/components/auth/ChangePasswordForm";
 import { getSavedVehicles, getUserBookings } from "@/lib/supabase/queries";
 import { formatDate, formatINR } from "@/lib/utils";
-import { getCustomerKycStatus } from "@/server/actions/customerKyc";
+import { getCustomerKycStatus, type CustomerKycStatusResult } from "@/server/actions/customerKyc";
 import { requireRole, signOutUser } from "@/server/actions/auth";
 
 export const dynamic = "force-dynamic";
 
 interface Props {
   searchParams: Promise<{ passwordError?: string; passwordSuccess?: string }>;
+}
+
+const KYC_STATUS_LABELS: Record<CustomerKycStatusResult["status"], string> = {
+  not_submitted: "Not Submitted",
+  pending: "Pending",
+  approved: "Approved",
+  rejected: "Rejected",
+};
+
+function kycStatusDescription(status: CustomerKycStatusResult["status"]): string {
+  if (status === "approved") return "Your documents are approved.";
+  if (status === "pending") return "Documents submitted — waiting for admin approval.";
+  if (status === "rejected") return "KYC was rejected. Please re-upload your documents.";
+  return "Upload Aadhaar Front, Aadhaar Back, Driving License and optional Selfie.";
 }
 
 export default async function UserDashboardPage({ searchParams }: Props) {
@@ -38,9 +51,6 @@ export default async function UserDashboardPage({ searchParams }: Props) {
             <p className="text-gray-600">Manage your bookings and saved vehicles</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <Button href="/dashboard/kyc" variant="primary" size="sm">
-              Upload KYC Documents
-            </Button>
             <span className={`px-4 py-2 rounded-xl text-sm ${emailVerified ? "bg-green-50 text-green-700" : "bg-yellow-50 text-yellow-700"}`}>
               {emailVerified ? "Email verified" : "Email not verified"}
             </span>
@@ -55,55 +65,21 @@ export default async function UserDashboardPage({ searchParams }: Props) {
         <UserDashboardNav />
 
         <section className="mb-8 rounded-2xl border bg-white p-6 shadow-sm">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-start gap-3">
-              <ShieldCheck className="h-7 w-7 text-primary shrink-0" />
-              <div>
-                <h2 className="text-lg font-semibold text-secondary">KYC Document Upload</h2>
-                <p className="text-sm text-gray-500 mt-1">
-                  Status:{" "}
-                  <span className="font-medium capitalize text-secondary">{kyc.status.replace("_", " ")}</span>
-                </p>
-                <p className="text-sm text-gray-500 mt-1">
-                  {kyc.status === "approved"
-                    ? "Your documents are approved."
-                    : kyc.status === "pending"
-                      ? "Documents submitted — waiting for admin approval."
-                      : kyc.status === "rejected"
-                        ? "Please re-upload Aadhaar Front, Aadhaar Back, and Driving License."
-                        : "Upload Aadhaar Front, Aadhaar Back, and Driving License (Selfie optional)."}
-                </p>
-              </div>
+          <div className="flex items-start gap-3">
+            <ShieldCheck className="h-7 w-7 text-primary shrink-0" />
+            <div className="space-y-3">
+              <h2 className="text-lg font-semibold text-secondary">KYC Document Upload</h2>
+              <p className="text-sm text-gray-600">
+                Status:{" "}
+                <span className="font-medium text-secondary">{KYC_STATUS_LABELS[kyc.status]}</span>
+              </p>
+              <p className="text-sm text-gray-500">{kycStatusDescription(kyc.status)}</p>
+              <Button href="/dashboard/kyc" variant="primary">
+                Upload KYC Documents
+              </Button>
             </div>
-            <Button href="/dashboard/kyc" variant="primary">
-              {kyc.status === "approved" ? "View KYC" : "Upload KYC Documents"}
-            </Button>
           </div>
         </section>
-
-        {kyc.status !== "approved" && (
-          <div className="mb-8 rounded-2xl border border-amber-200 bg-amber-50 p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div className="flex items-start gap-3">
-              <ShieldCheck className="h-6 w-6 text-amber-600 shrink-0 mt-0.5" />
-              <div>
-                <h2 className="font-semibold text-secondary">Complete KYC Verification</h2>
-                <p className="text-sm text-amber-800 mt-1">
-                  {kyc.status === "pending"
-                    ? "Your documents are under admin review."
-                    : kyc.status === "rejected"
-                      ? "KYC was rejected. Please re-upload your documents."
-                      : "Upload Aadhaar Front, Aadhaar Back, and Driving License so admin can approve your account."}
-                </p>
-              </div>
-            </div>
-            <Link
-              href="/dashboard/kyc"
-              className="inline-flex shrink-0 items-center justify-center rounded-xl bg-primary px-5 py-2.5 text-sm font-medium text-white hover:bg-primary/90"
-            >
-              {kyc.hasRequiredDocs ? "View KYC Status" : "Upload Documents"}
-            </Link>
-          </div>
-        )}
 
         <div className="grid gap-6 sm:grid-cols-3 mb-8">
           <div className="rounded-2xl bg-white border p-6 shadow-sm">
