@@ -1,8 +1,13 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isMissingTableError } from "@/lib/supabase/errors";
 import type { OwnerKycDocumentSet } from "@/lib/admin/owner-kyc";
+import {
+  KYC_STORAGE_BUCKETS,
+  kycObjectPath,
+  uploadKycDocument,
+} from "@/lib/kyc/kyc-storage";
 
-const BUCKET = "owner-kyc";
+const BUCKET = KYC_STORAGE_BUCKETS.owner;
 
 export type OwnerProfileKycField =
   | "aadhaar_document_url"
@@ -36,18 +41,8 @@ export async function uploadOwnerProfileKycFile(
   file: File
 ): Promise<string> {
   const db = createAdminClient();
-  const ext = file.name.split(".").pop() || "bin";
-  const path = `${ownerId}/${field}-${Date.now()}.${ext}`;
-
-  const { error } = await db.storage.from(BUCKET).upload(path, file, {
-    upsert: true,
-    contentType: file.type || "application/octet-stream",
-  });
-
-  if (error) throw new Error(error.message);
-
-  const { data } = db.storage.from(BUCKET).getPublicUrl(path);
-  return data.publicUrl;
+  const path = kycObjectPath(ownerId, field, file.name);
+  return uploadKycDocument(db, BUCKET, path, file);
 }
 
 export async function getOwnerProfileKyc(userId: string): Promise<OwnerProfileKycRow | null> {

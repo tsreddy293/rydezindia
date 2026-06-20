@@ -47,7 +47,4 @@ export async function checkSelfDriveKycGate(userId: string): Promise<SelfDriveKy
   };
 }
 
-export function selfDriveKycRedirectPath(bookingPath?: string): string {
-  if (!bookingPath) return "/dashboard/kyc?reason=self_drive";
-  return `/dashboard/kyc?reason=self_drive&return=${encodeURIComponent(bookingPath)}`;
-}
+export { selfDriveKycPath as selfDriveKycRedirectPath } from "@/lib/kyc/self-drive-nav";

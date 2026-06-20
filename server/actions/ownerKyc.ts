@@ -12,6 +12,11 @@ import {
 import { createNotification } from "@/lib/services/notifications";
 import { requireRole } from "@/server/actions/auth";
 import type { ActionResult } from "@/types/database";
+import {
+  validateOwnerKycUploadFile,
+  type OwnerKycUploadField,
+} from "@/lib/kyc/upload-rules";
+import { mapKycStorageError } from "@/lib/kyc/kyc-storage";
 
 const OWNER_ACCOUNT_PENDING_MESSAGE =
   "Your owner account must be approved by admin before adding vehicles.";
@@ -19,11 +24,13 @@ const OWNER_ACCOUNT_PENDING_MESSAGE =
 async function uploadIfPresent(
   ownerId: string,
   formData: FormData,
-  name: string,
+  name: OwnerKycUploadField,
   field: "aadhaar_document_url" | "license_document_url" | "selfie_document_url" | "address_proof_url"
 ) {
   const file = formData.get(name);
   if (!(file instanceof File) || file.size === 0) return undefined;
+  const validationError = validateOwnerKycUploadFile(file, name);
+  if (validationError) throw new Error(validationError);
   return uploadOwnerProfileKycFile(ownerId, field, file);
 }
 
@@ -127,13 +134,6 @@ export async function submitOwnerProfileKyc(formData: FormData): Promise<ActionR
 
     return { success: true, message: "KYC documents submitted for admin review." };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to upload KYC documents";
-    if (message.includes("Bucket not found")) {
-      return {
-        success: false,
-        error: "Storage not configured. Run supabase/RUN_OWNER_PROFILE_KYC.sql in Supabase.",
-      };
-    }
-    return { success: false, error: message };
+    return { success: false, error: mapKycStorageError(error) };
   }
 }

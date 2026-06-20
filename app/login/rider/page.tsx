@@ -9,7 +9,14 @@ export const metadata = createPageMetadata({
 });
 
 interface Props {
-  searchParams: Promise<{ error?: string; success?: string; email?: string; unverified?: string; verified?: string }>;
+  searchParams: Promise<{
+    error?: string;
+    success?: string;
+    email?: string;
+    unverified?: string;
+    verified?: string;
+    redirect?: string;
+  }>;
 }
 
 export default async function RiderLoginPage({ searchParams }: Props) {
@@ -24,6 +31,7 @@ export default async function RiderLoginPage({ searchParams }: Props) {
         forgotPasswordHref="/forgot-password"
         signupHref="/signup/rider"
         signupLabel="Create Rider Account"
+        redirect={params.redirect}
         {...params}
       />
     </PageLayout>

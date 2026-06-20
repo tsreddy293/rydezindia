@@ -12,6 +12,7 @@ import {
   ROLE_LOGIN_PATHS,
   ROLE_REDIRECTS,
 } from "@/lib/auth/roles";
+import { safeRiderRedirectPath } from "@/lib/kyc/self-drive-nav";
 import type { ActionResult, UserRole } from "@/types/database";
 
 const MOBILE_REGEX = /^[6-9]\d{9}$/;
@@ -380,6 +381,11 @@ export async function signInWithRole(formData: FormData) {
     redirect(`${loginPath}?error=${encodeURIComponent(message)}`);
   }
 
+  const postLoginRedirect = safeRiderRedirectPath(String(formData.get("redirect") ?? ""));
+  if (role === "rider" && postLoginRedirect) {
+    redirect(postLoginRedirect);
+  }
+
   redirect(ROLE_REDIRECTS[role]);
 }
 
@@ -452,6 +458,19 @@ export async function getCurrentUserRole(): Promise<UserRole | null> {
   return (await getRoleForUser(data.user.id)) ?? normalizeRole(data.user.user_metadata?.role);
 }
 
+export async function getOptionalAuthSession() {
+  const supabase = await createClient();
+  const { data, error } = await supabase.auth.getUser();
+  if (error || !data.user) return null;
+
+  const role =
+    (await getRoleForUser(data.user.id)) ??
+    normalizeRole(data.user.user_metadata?.role) ??
+    "rider";
+
+  return { user: data.user, role };
+}
+
 export async function getOptionalRiderUser() {
   const supabase = await createClient();
   const { data, error } = await supabase.auth.getUser();
@@ -466,11 +485,17 @@ export async function getOptionalRiderUser() {
   return { user: data.user, role };
 }
 
-export async function requireRole(role: UserRole | "user") {
+export async function requireRole(role: UserRole | "user", returnPath?: string) {
   const expectedRole: UserRole = role === "user" ? "rider" : role;
   const supabase = await createClient();
   const { data, error } = await supabase.auth.getUser();
   if (error || !data.user) {
+    if (expectedRole === "rider") {
+      const safeReturn = safeRiderRedirectPath(returnPath);
+      if (safeReturn) {
+        redirect(`/login/rider?redirect=${encodeURIComponent(safeReturn)}`);
+      }
+    }
     redirect(ROLE_LOGIN_PATHS[expectedRole]);
   }
 

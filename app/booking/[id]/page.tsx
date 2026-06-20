@@ -10,7 +10,7 @@ import {
 } from "@/lib/supabase/queries";
 import { getReturnJourneySeats } from "@/lib/services/return-journey-seats";
 import { checkSelfDriveKycGate } from "@/lib/kyc/self-drive-gate";
-import { getOptionalRiderUser } from "@/server/actions/auth";
+import { getOptionalRiderUser, getOptionalAuthSession } from "@/server/actions/auth";
 import { recordSelfDriveInterestForUser } from "@/server/actions/selfDrive";
 
 export const dynamic = "force-dynamic";
@@ -30,6 +30,9 @@ export default async function BookingPage({ params, searchParams }: Props) {
     if (!listing) notFound();
 
     const rider = await getOptionalRiderUser();
+    const authSession = await getOptionalAuthSession();
+    const isRiderLoggedIn = rider !== null;
+
     if (rider) {
       await recordSelfDriveInterestForUser(rider.user.id);
       const gate = await checkSelfDriveKycGate(rider.user.id);
@@ -39,7 +42,7 @@ export default async function BookingPage({ params, searchParams }: Props) {
             <div className="mx-auto max-w-5xl px-4 py-12 md:px-6">
               <h1 className="text-3xl font-bold text-secondary mb-2">Book Self Drive Vehicle</h1>
               <p className="text-gray-600 mb-8">Identity verification is required for self-drive rentals</p>
-              <SelfDriveKycGate gate={gate} returnPath={returnPath} />
+              <SelfDriveKycGate gate={gate} returnPath={returnPath} isRiderLoggedIn={isRiderLoggedIn} />
             </div>
           </PageLayout>
         );
@@ -50,6 +53,11 @@ export default async function BookingPage({ params, searchParams }: Props) {
           <div className="mx-auto max-w-5xl px-4 py-12 md:px-6">
             <h1 className="text-3xl font-bold text-secondary mb-2">Book Self Drive Vehicle</h1>
             <p className="text-gray-600 mb-8">Identity verification is required for self-drive rentals</p>
+            {authSession && authSession.role !== "rider" && (
+              <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                Self-drive customer KYC requires a rider account. Please sign in as a rider to upload documents.
+              </p>
+            )}
             <SelfDriveKycGate
               gate={{
                 allowed: false,
@@ -58,6 +66,7 @@ export default async function BookingPage({ params, searchParams }: Props) {
                   "Please log in and upload KYC documents to book a self-drive vehicle. Other trip types need mobile OTP only.",
               }}
               returnPath={returnPath}
+              isRiderLoggedIn={false}
             />
           </div>
         </PageLayout>

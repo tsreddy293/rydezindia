@@ -1,16 +1,19 @@
 import Link from "next/link";
-import { AlertCircle, Clock, ShieldCheck, Upload } from "lucide-react";
+import { AlertCircle, Clock, ShieldCheck } from "lucide-react";
 import Button from "@/components/ui/Button";
+import SelfDriveKycUploadButton from "@/components/booking/SelfDriveKycUploadButton";
 import type { SelfDriveKycGateResult } from "@/lib/kyc/self-drive-gate";
-import { selfDriveKycRedirectPath } from "@/lib/kyc/self-drive-gate";
+import { selfDriveKycLoginPath, selfDriveKycPath } from "@/lib/kyc/self-drive-nav";
 
 interface Props {
   gate: Extract<SelfDriveKycGateResult, { allowed: false }>;
   returnPath: string;
+  isRiderLoggedIn: boolean;
 }
 
-export default function SelfDriveKycGate({ gate, returnPath }: Props) {
-  const kycHref = selfDriveKycRedirectPath(returnPath);
+export default function SelfDriveKycGate({ gate, returnPath, isRiderLoggedIn }: Props) {
+  const kycPath = selfDriveKycPath(returnPath);
+  const loginPath = selfDriveKycLoginPath(kycPath);
 
   return (
     <div className="mx-auto max-w-2xl rounded-2xl border bg-white p-8 shadow-sm">
@@ -41,17 +44,17 @@ export default function SelfDriveKycGate({ gate, returnPath }: Props) {
 
           {gate.status === "not_submitted" || gate.status === "rejected" ? (
             <div className="flex flex-wrap gap-3">
-              <Button href={kycHref} variant="primary">
-                <Upload className="h-4 w-4 mr-2" />
-                Upload KYC Documents
-              </Button>
+              <SelfDriveKycUploadButton
+                isRiderLoggedIn={isRiderLoggedIn}
+                bookingReturnPath={returnPath}
+              />
               <Button href="/search-self-drive" variant="outline">
                 Back to Search
               </Button>
             </div>
           ) : (
             <div className="flex flex-wrap gap-3">
-              <Button href="/dashboard/kyc" variant="outline">
+              <Button href={isRiderLoggedIn ? kycPath : loginPath} variant="outline">
                 View KYC Status
               </Button>
               <Button href="/search-self-drive" variant="outline">
@@ -64,13 +67,13 @@ export default function SelfDriveKycGate({ gate, returnPath }: Props) {
             Owner-driven, driver-included, and outstation trips need mobile OTP only. Self-drive rentals require
             verified identity documents.
           </p>
-          {gate.status === "not_submitted" && (
+          {gate.status === "not_submitted" && !isRiderLoggedIn && (
             <p className="text-sm text-gray-500">
               New to Rydez?{" "}
-              <Link href={`/login/rider?return=${encodeURIComponent(returnPath)}`} className="text-primary underline">
-                Log in
+              <Link href={loginPath} className="text-primary underline">
+                Log in as a rider
               </Link>{" "}
-              to upload documents faster.
+              to upload documents.
             </p>
           )}
         </div>

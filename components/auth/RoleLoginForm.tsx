@@ -13,6 +13,7 @@ interface Props {
   forgotPasswordHref: string;
   signupHref?: string;
   signupLabel?: string;
+  redirect?: string;
   error?: string;
   success?: string;
   email?: string;
@@ -28,6 +29,7 @@ export default function RoleLoginForm({
   forgotPasswordHref,
   signupHref,
   signupLabel,
+  redirect,
   error,
   success,
   email,
@@ -47,6 +49,7 @@ export default function RoleLoginForm({
       <form action={signInWithRole} className="rounded-2xl bg-white border border-gray-100 p-8 shadow-sm space-y-6">
         <input type="hidden" name="role" value={role} />
         <input type="hidden" name="loginPath" value={loginPath} />
+        {redirect && <input type="hidden" name="redirect" value={redirect} />}
         {error && (
           <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-600">
             {error}

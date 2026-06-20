@@ -5,17 +5,23 @@ import { useRouter } from "next/navigation";
 import Button from "@/components/ui/Button";
 import { submitOwnerProfileKyc } from "@/server/actions/ownerKyc";
 import type { OwnerKycDocumentSet } from "@/lib/admin/owner-kyc";
+import {
+  ownerKycUploadRule,
+  validateOwnerKycUploadFile,
+  type OwnerKycUploadField,
+} from "@/lib/kyc/upload-rules";
+import { prepareKycFileForUpload } from "@/lib/kyc/compress-image";
 
-const UPLOAD_FIELDS = [
-  { name: "aadhaar", docKey: "aadhaar" as const, label: "Aadhaar Card", required: true },
-  { name: "license", docKey: "license" as const, label: "Driving License", required: true },
-  { name: "selfie", docKey: "selfie" as const, label: "Selfie Photo", required: false },
-  {
-    name: "address_proof",
-    docKey: "address_proof" as const,
-    label: "Address Proof",
-    required: false,
-  },
+const UPLOAD_FIELDS: Array<{
+  name: OwnerKycUploadField;
+  docKey: keyof OwnerKycDocumentSet;
+  label: string;
+  required: boolean;
+}> = [
+  { name: "aadhaar", docKey: "aadhaar", label: "Aadhaar Card", required: true },
+  { name: "license", docKey: "license", label: "Driving License", required: true },
+  { name: "selfie", docKey: "selfie", label: "Selfie Photo", required: false },
+  { name: "address_proof", docKey: "address_proof", label: "Address Proof", required: false },
 ];
 
 interface Props {
@@ -49,14 +55,47 @@ export default function OwnerKycUploadForm({ documents, status, canSubmit }: Pro
     setBusy(true);
     setError("");
     setSuccess("");
-    const formData = new FormData(event.currentTarget);
-    const result = await submitOwnerProfileKyc(formData);
-    if (result.success) {
-      setSuccess(result.message ?? "Documents submitted successfully.");
-      router.refresh();
-    } else {
-      setError(result.error ?? "Upload failed");
+
+    try {
+      const form = event.currentTarget;
+      const outbound = new FormData();
+
+      for (const { name } of UPLOAD_FIELDS) {
+        const input = form.elements.namedItem(name) as HTMLInputElement | null;
+        const file = input?.files?.[0];
+        if (!file) continue;
+
+        const validationError = validateOwnerKycUploadFile(file, name);
+        if (validationError) {
+          setError(validationError);
+          setBusy(false);
+          return;
+        }
+
+        const rule = ownerKycUploadRule(name);
+        const prepared = await prepareKycFileForUpload(file, rule.maxBytes);
+        const sizeError = validateOwnerKycUploadFile(prepared, name);
+        if (sizeError) {
+          setError(
+            `${rule.label}: File is still too large after compression (${Math.ceil(prepared.size / 1024)} KB). Try a smaller image.`
+          );
+          setBusy(false);
+          return;
+        }
+        outbound.append(name, prepared);
+      }
+
+      const result = await submitOwnerProfileKyc(outbound);
+      if (result.success) {
+        setSuccess(result.message ?? "Documents submitted successfully.");
+        router.refresh();
+      } else {
+        setError(result.error ?? "Upload failed");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed");
     }
+
     setBusy(false);
   }
 
@@ -88,22 +127,34 @@ export default function OwnerKycUploadForm({ documents, status, canSubmit }: Pro
 
       <form onSubmit={onSubmit} className="rounded-2xl bg-white border p-8 shadow-sm space-y-6">
         <p className="text-sm text-gray-500">
-          Upload clear photos or PDFs. Aadhaar and Driving License are required for admin approval.
+          Upload clear photos or PDFs. Images are compressed automatically. Aadhaar and Driving License are required
+          for admin approval.
           {status === "rejected" ? " Please re-upload after rejection." : ""}
         </p>
 
-        {UPLOAD_FIELDS.map(({ name, docKey, label, required }) => (
-          <div key={name}>
-            <label className="block text-sm font-medium text-gray-700 mb-2">{label}</label>
-            <input
-              name={name}
-              type="file"
-              accept="image/*,.pdf"
-              required={required && !documents[docKey]}
-              className="w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-primary/10 file:px-3 file:py-2 file:text-sm file:font-medium file:text-primary"
-            />
-          </div>
-        ))}
+        {UPLOAD_FIELDS.map(({ name, docKey, label, required }) => {
+          const rule = ownerKycUploadRule(name);
+          const maxKb = Math.round(rule.maxBytes / 1024);
+          const accept =
+            name === "selfie"
+              ? "image/jpeg,image/png,.jpg,.jpeg,.png"
+              : "image/jpeg,image/png,application/pdf,.jpg,.jpeg,.png,.pdf";
+          return (
+            <div key={name}>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+              <p className="text-xs text-gray-400 mb-2">
+                {name === "selfie" ? `JPG/PNG, max ${maxKb} KB` : `JPG/PNG/PDF, max ${maxKb} KB`}
+              </p>
+              <input
+                name={name}
+                type="file"
+                accept={accept}
+                required={required && !documents[docKey]}
+                className="w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-primary/10 file:px-3 file:py-2 file:text-sm file:font-medium file:text-primary"
+              />
+            </div>
+          );
+        })}
 
         <Button type="submit" variant="primary" size="lg" className="w-full" disabled={busy || !canSubmit}>
           {busy

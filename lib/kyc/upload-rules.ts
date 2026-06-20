@@ -59,3 +59,20 @@ export function formatMaxSizeLabel(field: KycUploadField): string {
   const kb = Math.round(KYC_UPLOAD_RULES[field].maxBytes / 1024);
   return field === "selfie" ? `JPG/PNG, max ${kb} KB` : `JPG/PNG/PDF, max ${kb} KB`;
 }
+
+export type OwnerKycUploadField = "aadhaar" | "license" | "selfie" | "address_proof";
+
+const OWNER_FIELD_RULE: Record<OwnerKycUploadField, KycUploadField> = {
+  aadhaar: "aadhaar_front",
+  license: "driving_license",
+  selfie: "selfie",
+  address_proof: "aadhaar_front",
+};
+
+export function validateOwnerKycUploadFile(file: File, field: OwnerKycUploadField): string | null {
+  return validateKycUploadFile(file, OWNER_FIELD_RULE[field]);
+}
+
+export function ownerKycUploadRule(field: OwnerKycUploadField) {
+  return KYC_UPLOAD_RULES[OWNER_FIELD_RULE[field]];
+}

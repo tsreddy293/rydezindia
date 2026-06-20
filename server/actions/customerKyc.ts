@@ -19,6 +19,7 @@ import {
   type KycUploadField,
 } from "@/lib/kyc/upload-rules";
 import { markSelfDriveInterest } from "@/lib/services/customer-profile";
+import { mapKycStorageError } from "@/lib/kyc/kyc-storage";
 
 export type CustomerKycStatusResult = {
   status: "not_submitted" | "pending" | "approved" | "rejected";
@@ -144,7 +145,7 @@ export async function submitCustomerKyc(formData: FormData): Promise<ActionResul
 
     return { success: true, message: "KYC documents submitted. Status is now Pending — admin will review shortly." };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "KYC upload failed";
+    const message = mapKycStorageError(error);
     console.error("[submitCustomerKyc]", error);
     return { success: false, error: message };
   }

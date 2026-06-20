@@ -51,22 +51,20 @@ export async function compressImageForKyc(file: File, maxBytes: number): Promise
     ctx.drawImage(img, 0, 0, width, height);
 
     const baseName = file.name.replace(/\.[^.]+$/, "") || "document";
-    const tryTypes: Array<{ type: string; ext: string }> = [
-      { type: "image/webp", ext: "webp" },
-      { type: "image/jpeg", ext: "jpg" },
-    ];
+    const isPng = file.type === "image/png" || file.name.toLowerCase().endsWith(".png");
 
-    for (const { type, ext } of tryTypes) {
-      const blob = await canvasToBlob(canvas, type, IMAGE_QUALITY);
-      if (!blob) continue;
-      if (blob.size <= maxBytes || type === "image/jpeg") {
-        return new File([blob], `${baseName}.${ext}`, { type, lastModified: Date.now() });
-      }
+    let blob = await canvasToBlob(canvas, isPng ? "image/png" : "image/jpeg", IMAGE_QUALITY);
+    if (blob && blob.size <= maxBytes) {
+      const ext = isPng ? "png" : "jpg";
+      return new File([blob], `${baseName}.${ext}`, {
+        type: isPng ? "image/png" : "image/jpeg",
+        lastModified: Date.now(),
+      });
     }
 
-    const jpegBlob = await canvasToBlob(canvas, "image/jpeg", 0.65);
-    if (jpegBlob) {
-      return new File([jpegBlob], `${baseName}.jpg`, { type: "image/jpeg", lastModified: Date.now() });
+    blob = await canvasToBlob(canvas, "image/jpeg", 0.65);
+    if (blob) {
+      return new File([blob], `${baseName}.jpg`, { type: "image/jpeg", lastModified: Date.now() });
     }
   } catch (err) {
     console.warn("[compressImageForKyc]", err);

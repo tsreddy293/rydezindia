@@ -7,6 +7,7 @@ import { getCustomerKycStatus } from "@/server/actions/customerKyc";
 import { createPageMetadata } from "@/lib/metadata";
 import { requireRole } from "@/server/actions/auth";
 import { recordSelfDriveInterestForUser } from "@/server/actions/selfDrive";
+import { buildDashboardKycReturnPath } from "@/lib/kyc/self-drive-nav";
 
 export const dynamic = "force-dynamic";
 
@@ -22,8 +23,10 @@ export const metadata = createPageMetadata({
 });
 
 export default async function DashboardKycPage({ searchParams }: Props) {
-  const { user } = await requireRole("user");
-  const { reason, return: returnPath } = await searchParams;
+  const params = await searchParams;
+  const returnPath = buildDashboardKycReturnPath(params);
+  const { user } = await requireRole("user", returnPath);
+  const { reason, return: bookingReturn } = params;
   await recordSelfDriveInterestForUser(user.id);
   const { status, documents, hasRequiredDocs, canSubmit } = await getCustomerKycStatus(user.id);
 
@@ -41,7 +44,7 @@ export default async function DashboardKycPage({ searchParams }: Props) {
           {reason === "self_drive" && (
             <p className="text-sm text-amber-600 mt-2 rounded-xl bg-amber-50 border border-amber-100 px-4 py-2 inline-block">
               Complete KYC to continue your self-drive booking.
-              {returnPath ? ` You will return to booking after approval.` : ""}
+              {bookingReturn ? ` You will return to booking after approval.` : ""}
             </p>
           )}
           <div className="mt-3">

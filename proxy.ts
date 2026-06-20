@@ -99,7 +99,11 @@ export async function proxy(request: NextRequest) {
     path.startsWith("/user/dashboard/verification");
 
   if (riderOnly && !data.user) {
-    return redirectTo("/login/rider");
+    const returnPath = `${path}${request.nextUrl.search}`;
+    const url = request.nextUrl.clone();
+    url.pathname = "/login/rider";
+    url.search = `redirect=${encodeURIComponent(returnPath)}`;
+    return NextResponse.redirect(url);
   }
 
   if (riderOnly && data.user && role === "owner") {
