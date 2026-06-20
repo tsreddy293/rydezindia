@@ -5,11 +5,8 @@ import { useRouter } from "next/navigation";
 import AdminStatusBadge from "@/components/admin/AdminStatusBadge";
 import type { AdminCustomerManagementRecord } from "@/types/database";
 import {
-  approveCustomerAction,
   approveCustomerKycAction,
-  rejectCustomerAction,
   rejectCustomerKycAction,
-  setCustomerBlockedAction,
 } from "@/server/actions/adminManagement";
 
 type Filter = "all" | "pending" | "approved" | "rejected";
@@ -41,9 +38,7 @@ export default function AdminCustomerManagementClient({ customers }: Props) {
     return customers
       .filter((customer) => {
         if (filter === "all") return true;
-        if (filter === "pending") return customer.kycStatus === "pending" || customer.userStatus === "pending";
-        if (filter === "approved") return customer.kycStatus === "approved" || customer.userStatus === "approved";
-        return customer.kycStatus === "rejected" || customer.userStatus === "rejected" || customer.is_blocked;
+        return customer.kycStatus === filter;
       })
       .filter((customer) => {
         if (!q) return true;
@@ -82,10 +77,10 @@ export default function AdminCustomerManagementClient({ customers }: Props) {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <input
           type="search"
-          placeholder="Search name, email, mobile..."
+          placeholder="Search by name, mobile, or email..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full sm:max-w-xs rounded-xl border px-3 py-2 text-sm"
+          className="w-full sm:max-w-sm rounded-xl border px-3 py-2 text-sm"
         />
         <div className="flex flex-wrap gap-2">
           {(["all", "pending", "approved", "rejected"] as Filter[]).map((value) => (
@@ -108,12 +103,9 @@ export default function AdminCustomerManagementClient({ customers }: Props) {
           <thead className="bg-gray-50 text-left text-gray-600">
             <tr>
               <th className="px-4 py-3 font-medium">Customer Name</th>
-              <th className="px-4 py-3 font-medium">Email</th>
               <th className="px-4 py-3 font-medium">Mobile</th>
+              <th className="px-4 py-3 font-medium">Email</th>
               <th className="px-4 py-3 font-medium">KYC Status</th>
-              <th className="px-4 py-3 font-medium">User Status</th>
-              <th className="px-4 py-3 font-medium">Bookings</th>
-              <th className="px-4 py-3 font-medium">Created</th>
               <th className="px-4 py-3 font-medium">Actions</th>
             </tr>
           </thead>
@@ -121,36 +113,31 @@ export default function AdminCustomerManagementClient({ customers }: Props) {
             {filtered.map((customer) => (
               <tr key={customer.id} className="align-top">
                 <td className="px-4 py-4 font-medium">{customer.name}</td>
-                <td className="px-4 py-4">{customer.email || "-"}</td>
                 <td className="px-4 py-4">{customer.mobile || "-"}</td>
+                <td className="px-4 py-4">{customer.email || "-"}</td>
                 <td className="px-4 py-4"><AdminStatusBadge status={customer.kycStatus} /></td>
-                <td className="px-4 py-4"><AdminStatusBadge status={customer.userStatus} /></td>
-                <td className="px-4 py-4">{customer.bookings}</td>
-                <td className="px-4 py-4 text-xs text-gray-500">
-                  {customer.created_at ? new Date(customer.created_at).toLocaleDateString("en-IN") : "-"}
-                </td>
-                <td className="px-4 py-4 min-w-[180px]">
+                <td className="px-4 py-4 min-w-[220px]">
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
                       onClick={() => setSelected(customer)}
                       className="rounded-lg border px-3 py-1 text-xs text-primary hover:bg-primary/5"
                     >
-                      View Details
+                      View Documents
                     </button>
                     <button
                       type="button"
-                      disabled={busy || customer.kycStatus !== "approved" || customer.userStatus === "approved"}
-                      title={customer.kycStatus !== "approved" ? "KYC must be approved first." : undefined}
-                      onClick={() => runAction(() => approveCustomerAction(customer.id))}
+                      disabled={busy || !customer.canApproveKyc || customer.kycStatus === "approved"}
+                      title={!customer.canApproveKyc ? "Required documents must be uploaded first." : undefined}
+                      onClick={() => runAction(() => approveCustomerKycAction(customer.id))}
                       className="rounded-lg border px-3 py-1 text-xs text-green-700 hover:bg-green-50 disabled:opacity-40"
                     >
                       Approve
                     </button>
                     <button
                       type="button"
-                      disabled={busy}
-                      onClick={() => runAction(() => rejectCustomerAction(customer.id))}
+                      disabled={busy || customer.kycStatus === "not_submitted"}
+                      onClick={() => runAction(() => rejectCustomerKycAction(customer.id))}
                       className="rounded-lg border border-red-200 px-3 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-40"
                     >
                       Reject
@@ -162,7 +149,7 @@ export default function AdminCustomerManagementClient({ customers }: Props) {
           </tbody>
         </table>
         {filtered.length === 0 && (
-          <p className="p-8 text-center text-gray-500">No customers match your filters.</p>
+          <p className="p-8 text-center text-gray-500">No customers match your search.</p>
         )}
       </div>
 
@@ -172,21 +159,12 @@ export default function AdminCustomerManagementClient({ customers }: Props) {
             <div className="flex items-start justify-between mb-6">
               <div>
                 <h2 className="text-xl font-bold text-secondary">{selected.name}</h2>
-                <p className="text-sm text-gray-500">Customer profile & KYC</p>
+                <p className="text-sm text-gray-500">{selected.mobile || "-"} · {selected.email || "-"}</p>
               </div>
               <button type="button" onClick={() => setSelected(null)} className="text-gray-400 hover:text-gray-600">
                 ✕
               </button>
             </div>
-
-            <section className="mb-6">
-              <h3 className="text-sm font-semibold text-gray-700 mb-2">Personal Information</h3>
-              <dl className="grid grid-cols-2 gap-2 text-sm">
-                <div><dt className="text-gray-500">Email</dt><dd>{selected.email || "-"}</dd></div>
-                <div><dt className="text-gray-500">Mobile</dt><dd>{selected.mobile || "-"}</dd></div>
-                <div><dt className="text-gray-500">Bookings</dt><dd>{selected.bookings}</dd></div>
-              </dl>
-            </section>
 
             <section className="mb-6">
               <div className="flex items-center justify-between mb-2">
@@ -203,7 +181,6 @@ export default function AdminCustomerManagementClient({ customers }: Props) {
                 <button
                   type="button"
                   disabled={busy || !selected.canApproveKyc || selected.kycStatus === "approved"}
-                  title={!selected.canApproveKyc ? "Required documents must be uploaded first." : undefined}
                   onClick={() => runAction(() => approveCustomerKycAction(selected.id))}
                   className="rounded-lg bg-green-600 px-4 py-2 text-xs font-medium text-white disabled:opacity-40"
                 >
@@ -211,7 +188,7 @@ export default function AdminCustomerManagementClient({ customers }: Props) {
                 </button>
                 <button
                   type="button"
-                  disabled={busy}
+                  disabled={busy || selected.kycStatus === "not_submitted"}
                   onClick={() => runAction(() => rejectCustomerKycAction(selected.id))}
                   className="rounded-lg border border-red-200 px-4 py-2 text-xs text-red-600 disabled:opacity-40"
                 >
@@ -219,25 +196,6 @@ export default function AdminCustomerManagementClient({ customers }: Props) {
                 </button>
               </div>
             </section>
-
-            <div className="flex flex-wrap gap-2 border-t pt-4">
-              <button
-                type="button"
-                disabled={busy || selected.kycStatus !== "approved" || selected.userStatus === "approved"}
-                onClick={() => runAction(() => approveCustomerAction(selected.id))}
-                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
-              >
-                Approve Customer
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => runAction(() => setCustomerBlockedAction(selected.id, !selected.is_blocked))}
-                className="rounded-lg border px-4 py-2 text-sm text-gray-700"
-              >
-                {selected.is_blocked ? "Unblock" : "Block"}
-              </button>
-            </div>
           </div>
         </div>
       )}

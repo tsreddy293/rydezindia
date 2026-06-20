@@ -6,7 +6,8 @@ import { getJourneyById } from "@/lib/supabase/queries";
 import { getSupabaseConfigError } from "@/lib/supabase/env";
 import { generateBookingReference } from "@/lib/services/booking-id";
 import { createNotification } from "@/lib/services/notifications";
-import { assertOwnerCanReceiveBookings } from "@/lib/services/verification";
+import { assertOwnerCanReceiveBookings, assertCustomerCanBookSelfDrive } from "@/lib/services/verification";
+import { markSelfDriveInterest } from "@/lib/services/customer-profile";
 import { bookReturnJourneySeats, initializeReturnJourneySeats } from "@/lib/services/return-journey-seats";
 import { dispatchBookingEvent } from "@/lib/services/messaging";
 import { findOrCreateGuestUserByMobile } from "@/lib/users/guest-user";
@@ -215,6 +216,12 @@ export async function createUnifiedBooking(
     return { success: false, error: guestUser.error ?? "Failed to create user profile" };
   }
   const userId = guestUser.userId;
+
+  if (input.booking_type === "self_drive") {
+    await markSelfDriveInterest(userId);
+    const kycError = await assertCustomerCanBookSelfDrive(userId);
+    if (kycError) return { success: false, error: kycError };
+  }
 
   let finalAmount = input.amount;
   let couponDiscount = 0;

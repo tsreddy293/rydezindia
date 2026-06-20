@@ -6,24 +6,26 @@ import KycStatusBadge from "@/components/trust/KycStatusBadge";
 import { getCustomerKycStatus } from "@/server/actions/customerKyc";
 import { createPageMetadata } from "@/lib/metadata";
 import { requireRole } from "@/server/actions/auth";
+import { recordSelfDriveInterestForUser } from "@/server/actions/selfDrive";
 
 export const dynamic = "force-dynamic";
 
 export const metadata = createPageMetadata({
   title: "Upload KYC Documents",
-  description: "Upload identity documents for Rydez India rider verification.",
+  description: "Upload identity documents for Rydez India self-drive verification.",
   path: "/user/profile/kyc",
   noIndex: true,
 });
 
 export default async function CustomerKycPage() {
-  await requireRole("user");
-  const { status, documents, hasRequiredDocs, canSubmit } = await getCustomerKycStatus();
+  const { user } = await requireRole("user");
+  await recordSelfDriveInterestForUser(user.id);
+  const { status, documents, hasRequiredDocs, canSubmit } = await getCustomerKycStatus(user.id);
 
   return (
     <PageLayout>
       <div className="mx-auto max-w-3xl px-4 py-12 md:px-6">
-        <UserDashboardNav />
+        <UserDashboardNav showKycLinks />
         <div className="text-center mb-10">
           <ShieldCheck className="h-12 w-12 text-primary mx-auto mb-3" />
           <h1 className="text-3xl font-bold text-secondary">Upload KYC Documents</h1>

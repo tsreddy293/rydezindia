@@ -64,7 +64,7 @@ export default async function VerificationDashboardPage({ searchParams }: Props)
   return (
     <PageLayout>
       <div className="mx-auto max-w-3xl px-4 py-12 md:px-6">
-        <UserDashboardNav />
+        <UserDashboardNav showKycLinks />
         <h1 className="text-3xl font-bold text-secondary mb-8">Verification</h1>
 
         {submitted && (

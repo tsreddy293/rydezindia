@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCustomerKyc } from "@/lib/services/customer-kyc";
+import { normalizeCustomerKycStatus } from "@/lib/admin/customer-kyc-fields";
 import { ownerProfileDocumentsToSet, getOwnerProfileKyc } from "@/lib/services/owner-profile-kyc";
 
 export async function isOwnerKycVerified(ownerId: string): Promise<boolean> {
@@ -55,15 +56,23 @@ export async function assertOwnerCanReceiveBookings(ownerId: string): Promise<st
 
 export async function assertCustomerCanBook(userId: string): Promise<string | null> {
   const kyc = await getCustomerKyc(userId);
-  const status = (kyc as { status?: string } | null)?.status ?? "not_submitted";
-  if (status === "verified") return null;
+  const status = normalizeCustomerKycStatus((kyc as { status?: string } | null)?.status);
+  if (status === "approved") return null;
   if (status === "pending") {
-    return "Your KYC verification is pending. You can book once verified.";
+    return "Your KYC is under review. Self-drive booking will be available once admin approves your documents.";
   }
   if (status === "rejected") {
-    return "Your KYC was rejected. Please re-upload documents at /user/profile/kyc.";
+    const reason = String((kyc as { remarks?: string } | null)?.remarks ?? "").trim();
+    return reason
+      ? `Your KYC was rejected: ${reason}. Please re-upload documents at /dashboard/kyc.`
+      : "Your KYC was rejected. Please re-upload documents at /dashboard/kyc.";
   }
-  return null;
+  return "Self-drive vehicles require KYC verification. Upload documents at /dashboard/kyc.";
+}
+
+/** Customer KYC is required only for self-drive bookings. Other trip types use OTP only. */
+export async function assertCustomerCanBookSelfDrive(userId: string): Promise<string | null> {
+  return assertCustomerCanBook(userId);
 }
 
 export async function logApproval(input: {

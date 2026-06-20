@@ -2,12 +2,16 @@ import { notFound } from "next/navigation";
 import PageLayout from "@/components/layout/PageLayout";
 import BookingForm from "@/components/forms/BookingForm";
 import UnifiedBookingForm from "@/components/forms/UnifiedBookingForm";
+import SelfDriveKycGate from "@/components/booking/SelfDriveKycGate";
 import {
   getDriverListingById,
   getJourneyById,
   getSelfDriveListingById,
 } from "@/lib/supabase/queries";
 import { getReturnJourneySeats } from "@/lib/services/return-journey-seats";
+import { checkSelfDriveKycGate } from "@/lib/kyc/self-drive-gate";
+import { getOptionalRiderUser } from "@/server/actions/auth";
+import { recordSelfDriveInterestForUser } from "@/server/actions/selfDrive";
 
 export const dynamic = "force-dynamic";
 
@@ -19,10 +23,47 @@ interface Props {
 export default async function BookingPage({ params, searchParams }: Props) {
   const { id } = await params;
   const { type } = await searchParams;
+  const returnPath = `/booking/${id}?type=${type ?? "with_driver"}`;
 
   if (type === "self_drive") {
     const listing = await getSelfDriveListingById(id);
     if (!listing) notFound();
+
+    const rider = await getOptionalRiderUser();
+    if (rider) {
+      await recordSelfDriveInterestForUser(rider.user.id);
+      const gate = await checkSelfDriveKycGate(rider.user.id);
+      if (!gate.allowed) {
+        return (
+          <PageLayout>
+            <div className="mx-auto max-w-5xl px-4 py-12 md:px-6">
+              <h1 className="text-3xl font-bold text-secondary mb-2">Book Self Drive Vehicle</h1>
+              <p className="text-gray-600 mb-8">Identity verification is required for self-drive rentals</p>
+              <SelfDriveKycGate gate={gate} returnPath={returnPath} />
+            </div>
+          </PageLayout>
+        );
+      }
+    } else {
+      return (
+        <PageLayout>
+          <div className="mx-auto max-w-5xl px-4 py-12 md:px-6">
+            <h1 className="text-3xl font-bold text-secondary mb-2">Book Self Drive Vehicle</h1>
+            <p className="text-gray-600 mb-8">Identity verification is required for self-drive rentals</p>
+            <SelfDriveKycGate
+              gate={{
+                allowed: false,
+                status: "not_submitted",
+                message:
+                  "Please log in and upload KYC documents to book a self-drive vehicle. Other trip types need mobile OTP only.",
+              }}
+              returnPath={returnPath}
+            />
+          </div>
+        </PageLayout>
+      );
+    }
+
     return (
       <PageLayout>
         <div className="mx-auto max-w-5xl px-4 py-12 md:px-6">

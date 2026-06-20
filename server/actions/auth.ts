@@ -452,6 +452,20 @@ export async function getCurrentUserRole(): Promise<UserRole | null> {
   return (await getRoleForUser(data.user.id)) ?? normalizeRole(data.user.user_metadata?.role);
 }
 
+export async function getOptionalRiderUser() {
+  const supabase = await createClient();
+  const { data, error } = await supabase.auth.getUser();
+  if (error || !data.user) return null;
+
+  const role =
+    (await getRoleForUser(data.user.id)) ??
+    normalizeRole(data.user.user_metadata?.role) ??
+    "rider";
+
+  if (role !== "rider") return null;
+  return { user: data.user, role };
+}
+
 export async function requireRole(role: UserRole | "user") {
   const expectedRole: UserRole = role === "user" ? "rider" : role;
   const supabase = await createClient();

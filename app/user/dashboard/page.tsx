@@ -7,6 +7,8 @@ import { getSavedVehicles, getUserBookings } from "@/lib/supabase/queries";
 import { formatDate, formatINR } from "@/lib/utils";
 import { getCustomerKycStatus, type CustomerKycStatusResult } from "@/server/actions/customerKyc";
 import { requireRole, signOutUser } from "@/server/actions/auth";
+import { shouldShowRiderKyc } from "@/lib/services/customer-profile";
+import { getRiderDisplayName } from "@/lib/users/rider-profile";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +24,7 @@ const KYC_STATUS_LABELS: Record<CustomerKycStatusResult["status"], string> = {
 };
 
 function kycStatusDescription(status: CustomerKycStatusResult["status"]): string {
-  if (status === "approved") return "Your documents are approved.";
+  if (status === "approved") return "Your documents are approved. You can book self-drive vehicles.";
   if (status === "pending") return "Documents submitted — waiting for admin approval.";
   if (status === "rejected") return "KYC was rejected. Please re-upload your documents.";
   return "Upload Aadhaar Front, Aadhaar Back, Driving License and optional Selfie.";
@@ -33,10 +35,12 @@ export default async function UserDashboardPage({ searchParams }: Props) {
   const { passwordError, passwordSuccess } = await searchParams;
   const emailVerified = Boolean(user.email_confirmed_at || user.confirmed_at);
 
-  const [bookings, saved, kyc] = await Promise.all([
+  const [bookings, saved, kyc, displayName, showKycSection] = await Promise.all([
     getUserBookings(user.id),
     getSavedVehicles(user.id),
     getCustomerKycStatus(user.id),
+    getRiderDisplayName(user.id, "Rider"),
+    shouldShowRiderKyc(user.id),
   ]);
 
   const activeTrips = bookings.filter((b) => ["confirmed", "pending"].includes(b.booking_status));
@@ -47,7 +51,7 @@ export default async function UserDashboardPage({ searchParams }: Props) {
       <div className="mx-auto max-w-7xl px-4 py-12 md:px-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-secondary">My Dashboard</h1>
+            <h1 className="text-3xl font-bold text-secondary">Welcome, {displayName}</h1>
             <p className="text-gray-600">Manage your bookings and saved vehicles</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
@@ -62,24 +66,29 @@ export default async function UserDashboardPage({ searchParams }: Props) {
           </div>
         </div>
 
-        <UserDashboardNav />
+        <UserDashboardNav showKycLinks={showKycSection} />
 
-        <section className="mb-8 rounded-2xl border bg-white p-6 shadow-sm">
-          <div className="flex items-start gap-3">
-            <ShieldCheck className="h-7 w-7 text-primary shrink-0" />
-            <div className="space-y-3">
-              <h2 className="text-lg font-semibold text-secondary">KYC Document Upload</h2>
-              <p className="text-sm text-gray-600">
-                Status:{" "}
-                <span className="font-medium text-secondary">{KYC_STATUS_LABELS[kyc.status]}</span>
-              </p>
-              <p className="text-sm text-gray-500">{kycStatusDescription(kyc.status)}</p>
-              <Button href="/dashboard/kyc" variant="primary">
-                Upload KYC Documents
-              </Button>
+        {showKycSection && (
+          <section className="mb-8 rounded-2xl border bg-white p-6 shadow-sm">
+            <div className="flex items-start gap-3">
+              <ShieldCheck className="h-7 w-7 text-primary shrink-0" />
+              <div className="space-y-3">
+                <h2 className="text-lg font-semibold text-secondary">KYC Document Upload</h2>
+                <p className="text-sm text-gray-500">
+                  Required for self-drive vehicle bookings only.
+                </p>
+                <p className="text-sm text-gray-600">
+                  Status:{" "}
+                  <span className="font-medium text-secondary">{KYC_STATUS_LABELS[kyc.status]}</span>
+                </p>
+                <p className="text-sm text-gray-500">{kycStatusDescription(kyc.status)}</p>
+                <Button href="/dashboard/kyc" variant="primary">
+                  Upload KYC Documents
+                </Button>
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
+        )}
 
         <div className="grid gap-6 sm:grid-cols-3 mb-8">
           <div className="rounded-2xl bg-white border p-6 shadow-sm">

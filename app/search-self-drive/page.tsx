@@ -1,5 +1,6 @@
 import PageLayout from "@/components/layout/PageLayout";
 import { SearchSelfDriveClient } from "@/components/search/SearchWithMaps";
+import SelfDriveInterestTracker from "@/components/self-drive/SelfDriveInterestTracker";
 import SupabaseErrorBanner from "@/components/ui/SupabaseErrorBanner";
 import { createPageMetadata } from "@/lib/metadata";
 import { searchSelfDriveVehicles } from "@/lib/supabase/queries";
@@ -47,6 +48,7 @@ export default async function SearchSelfDrivePage({ searchParams }: Props) {
 
   return (
     <PageLayout>
+      <SelfDriveInterestTracker />
       {error ? (
         <div className="mx-auto max-w-7xl px-4 pt-8 md:px-6">
           <SupabaseErrorBanner message={error} />

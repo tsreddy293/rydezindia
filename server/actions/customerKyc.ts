@@ -13,6 +13,12 @@ import { createNotification } from "@/lib/services/notifications";
 import { requireRole } from "@/server/actions/auth";
 import type { ActionResult } from "@/types/database";
 import type { CustomerKycDocumentSet } from "@/lib/admin/customer-kyc-fields";
+import {
+  KYC_UPLOAD_RULES,
+  validateKycUploadFile,
+  type KycUploadField,
+} from "@/lib/kyc/upload-rules";
+import { markSelfDriveInterest } from "@/lib/services/customer-profile";
 
 export type CustomerKycStatusResult = {
   status: "not_submitted" | "pending" | "approved" | "rejected";
@@ -36,6 +42,19 @@ const EMPTY_KYC_STATUS: CustomerKycStatusResult = {
 async function uploadIfPresent(userId: string, formData: FormData, name: string, key: string) {
   const file = formData.get(name);
   if (!(file instanceof File) || file.size === 0) return undefined;
+
+  const fieldMap: Record<string, KycUploadField> = {
+    aadhaar_front: "aadhaar_front",
+    aadhaar_back: "aadhaar_back",
+    driving_license: "driving_license",
+    selfie: "selfie",
+  };
+  const field = fieldMap[name];
+  if (field) {
+    const validationError = validateKycUploadFile(file, field);
+    if (validationError) throw new Error(validationError);
+  }
+
   return uploadCustomerKycFile(userId, key, file);
 }
 
@@ -104,6 +123,8 @@ export async function submitCustomerKyc(formData: FormData): Promise<ActionResul
       drivingLicenseUrl,
       selfieUrl,
     });
+
+    await markSelfDriveInterest(userId);
 
     await createNotification({
       recipientRole: "admin",
