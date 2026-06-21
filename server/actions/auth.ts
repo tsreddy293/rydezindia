@@ -12,9 +12,9 @@ import {
   ROLE_LOGIN_PATHS,
   ROLE_REDIRECTS,
 } from "@/lib/auth/roles";
-import { safeRiderRedirectPath } from "@/lib/kyc/self-drive-nav";
+import { safeRiderRedirectPath, selfDriveKycPath } from "@/lib/kyc/self-drive-nav";
 import { resolveSelfDrivePostAuthRedirect } from "@/lib/kyc/self-drive-post-auth";
-import { submitCustomerKycForUser } from "@/server/actions/customerKyc";
+import { assertRecentSignupOtp } from "@/lib/services/otp";
 import type { ActionResult, UserRole } from "@/types/database";
 
 const MOBILE_REGEX = /^[6-9]\d{9}$/;
@@ -347,25 +347,23 @@ export async function signUpOwner(input: SignupInput): Promise<ActionResult<{ id
   return signUpWithRole(input, "owner");
 }
 
-export async function registerRiderWithKyc(formData: FormData) {
+export async function registerRider(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
   const email = String(formData.get("email") ?? "").trim();
-  const mobile = String(formData.get("mobile") ?? "").trim();
+  const mobile = String(formData.get("mobile") ?? "").trim().replace(/\s/g, "");
   const password = String(formData.get("password") ?? "");
   const redirectAfter = safeRiderRedirectPath(String(formData.get("redirect") ?? ""));
 
   if (!name) redirect("/signup/rider?error=" + encodeURIComponent("Full name is required"));
   if (!email) redirect("/signup/rider?error=" + encodeURIComponent("Email is required"));
-  if (!mobile || !MOBILE_REGEX.test(mobile.replace(/\s/g, ""))) {
+  if (!mobile || !MOBILE_REGEX.test(mobile)) {
     redirect("/signup/rider?error=" + encodeURIComponent("Valid 10-digit mobile number is required"));
   }
 
-  const requiredFiles = ["aadhaar_front", "aadhaar_back", "driving_license", "selfie"] as const;
-  for (const field of requiredFiles) {
-    const file = formData.get(field);
-    if (!(file instanceof File) || file.size === 0) {
-      redirect("/signup/rider?error=" + encodeURIComponent(`Please upload ${field.replace(/_/g, " ")}`));
-    }
+  const otpError = await assertRecentSignupOtp(mobile);
+  if (otpError) {
+    const qs = redirectAfter ? `&redirect=${encodeURIComponent(redirectAfter)}` : "";
+    redirect(`/signup/rider?error=${encodeURIComponent(otpError)}${qs}`);
   }
 
   const signupResult = await signUpWithRole(
@@ -382,12 +380,6 @@ export async function registerRiderWithKyc(formData: FormData) {
   }
 
   const userId = signupResult.data.id;
-  const kycResult = await submitCustomerKycForUser(userId, formData);
-
-  if (!kycResult.success) {
-    const qs = redirectAfter ? `&redirect=${encodeURIComponent(redirectAfter)}` : "";
-    redirect(`/signup/rider?error=${encodeURIComponent(kycResult.error ?? "KYC upload failed")}${qs}`);
-  }
 
   const supabase = await createClient();
   const { error: signInError } = await supabase.auth.signInWithPassword({
@@ -402,12 +394,19 @@ export async function registerRiderWithKyc(formData: FormData) {
     redirect(`/login/rider?${params.toString()}`);
   }
 
+  const kycPath = selfDriveKycPath(redirectAfter ?? undefined);
+
   if (redirectAfter) {
     const resolved = await resolveSelfDrivePostAuthRedirect(redirectAfter, userId);
     redirect(resolved);
   }
 
-  redirect("/dashboard");
+  redirect(kycPath);
+}
+
+/** @deprecated Use registerRider — KYC is uploaded after registration at /dashboard/kyc */
+export async function registerRiderWithKyc(formData: FormData) {
+  return registerRider(formData);
 }
 
 export async function signInWithRole(formData: FormData) {

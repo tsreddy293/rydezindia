@@ -15,6 +15,5 @@ export async function resolveSelfDrivePostAuthRedirect(
 
   const gate = await checkSelfDriveKycGate(userId);
   if (gate.allowed) return safe;
-  if (gate.status === "pending") return safe;
   return selfDriveKycPath(safe);
 }

@@ -23,7 +23,7 @@ const UPLOAD_FIELDS: Array<{
   { name: "aadhaar_front", field: "aadhaar_front", key: "aadhaar_front_url", label: "Aadhaar Front", required: true },
   { name: "aadhaar_back", field: "aadhaar_back", key: "aadhaar_back_url", label: "Aadhaar Back", required: true },
   { name: "driving_license", field: "driving_license", key: "driving_license_url", label: "Driving License", required: true },
-  { name: "selfie", field: "selfie", key: "selfie_url", label: "Selfie Photo", required: false },
+  { name: "selfie", field: "selfie", key: "selfie_url", label: "Selfie Photo", required: true },
 ];
 
 interface Props {

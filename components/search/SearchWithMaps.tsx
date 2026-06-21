@@ -16,6 +16,7 @@ import { mapDriverTripTypeLabel } from "@/lib/pricing/trip-pricing";
 import { LOCAL_RENTAL_PACKAGES } from "@/lib/maps/constants";
 import { appendPlaceToParams, buildPlaceFromParts } from "@/lib/maps/url-params";
 import { persistSearchDraftFromFilters, saveBookingSearchDraft } from "@/lib/booking/booking-draft";
+import { buildSelfDriveBookingHref } from "@/lib/booking/self-drive-booking-url";
 import type { DriverVehicleResult, SearchResult, SelfDriveResult } from "@/types/database";
 import type { PlaceLocation, SearchServiceMode } from "@/lib/maps/types";
 
@@ -185,6 +186,15 @@ function SearchWithMapsInner(props: SearchWithMapsProps) {
   }, [props.mode, props.results]);
 
   const selectedPackage = LOCAL_RENTAL_PACKAGES.find((pkg) => pkg.key === packageKey);
+
+  const selfDriveBookingHref = (listingId: string) =>
+    buildSelfDriveBookingHref(listingId, {
+      pickupCity: pickup?.label ?? "",
+      date,
+      time,
+      returnDate,
+      returnTime,
+    });
 
   const routePath =
     props.mode === "return_journey"
@@ -529,6 +539,7 @@ function SearchWithMapsInner(props: SearchWithMapsProps) {
               ? props.results.map((result) => (
                   <VehicleSearchResultCard
                     key={result.id}
+                    bookingHref={selfDriveBookingHref(result.id)}
                     result={{
                       id: result.id,
                       vehicle_id: result.vehicle_id,

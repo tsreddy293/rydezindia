@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import PageLayout from "@/components/layout/PageLayout";
 import BookingForm from "@/components/forms/BookingForm";
 import UnifiedBookingForm from "@/components/forms/UnifiedBookingForm";
-import SelfDriveKycGate from "@/components/booking/SelfDriveKycGate";
+import SelfDriveBookingForm from "@/components/booking/SelfDriveBookingForm";
 import {
   getDriverListingById,
   getJourneyById,
@@ -10,78 +10,103 @@ import {
 } from "@/lib/supabase/queries";
 import { getReturnJourneySeats } from "@/lib/services/return-journey-seats";
 import { checkSelfDriveKycGate } from "@/lib/kyc/self-drive-gate";
-import { getOptionalRiderUser } from "@/server/actions/auth";
+import { requireRole } from "@/server/actions/auth";
 import { recordSelfDriveInterestForUser } from "@/server/actions/selfDrive";
-import { selfDriveAuthLoginPath, selfDriveKycPath } from "@/lib/kyc/self-drive-nav";
+import { selfDriveKycPath } from "@/lib/kyc/self-drive-nav";
+import {
+  buildBookingReturnPath,
+  type BookingPageSearchParams,
+} from "@/lib/booking/booking-return-path";
+import { parseSelfDriveBookingSearchParams } from "@/lib/booking/self-drive-booking-url";
 import { getRiderBookingProfile } from "@/lib/users/rider-profile";
-
-async function resolveCustomerPrefill() {
-  const rider = await getOptionalRiderUser();
-  if (!rider) return null;
-  return getRiderBookingProfile(rider.user.id, {
-    email: rider.user.email,
-    name: String(rider.user.user_metadata?.name ?? ""),
-    mobile: String(rider.user.user_metadata?.mobile ?? ""),
-  });
-}
 
 export const dynamic = "force-dynamic";
 
 interface Props {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ type?: string }>;
+  searchParams: Promise<BookingPageSearchParams>;
+}
+
+async function resolveBookingType(
+  id: string,
+  typeParam: string | undefined
+): Promise<"self_drive" | "with_driver" | "return_journey" | null> {
+  if (typeParam === "self_drive") {
+    return (await getSelfDriveListingById(id)) ? "self_drive" : null;
+  }
+  if (typeParam === "with_driver") {
+    return (await getDriverListingById(id)) ? "with_driver" : null;
+  }
+  if (typeParam === "return_journey") {
+    return (await getJourneyById(id)) ? "return_journey" : null;
+  }
+
+  const selfDrive = await getSelfDriveListingById(id);
+  if (selfDrive) return "self_drive";
+
+  const driver = await getDriverListingById(id);
+  if (driver) return "with_driver";
+
+  const journey = await getJourneyById(id);
+  if (journey) return "return_journey";
+
+  return null;
 }
 
 export default async function BookingPage({ params, searchParams }: Props) {
   const { id } = await params;
-  const { type } = await searchParams;
-  const returnPath = `/booking/${id}?type=${type ?? "with_driver"}`;
+  const sp = await searchParams;
+  const returnPath = buildBookingReturnPath(id, sp);
 
-  if (type === "self_drive") {
+  const { user } = await requireRole("rider", returnPath);
+
+  const bookingType = await resolveBookingType(id, sp.type);
+  if (!bookingType) notFound();
+
+  if (bookingType === "self_drive") {
     const listing = await getSelfDriveListingById(id);
     if (!listing) notFound();
 
-    const rider = await getOptionalRiderUser();
-    const customerPrefill = rider ? await resolveCustomerPrefill() : null;
-
-    if (!rider) {
-      redirect(selfDriveAuthLoginPath(returnPath));
-    }
-
-    await recordSelfDriveInterestForUser(rider.user.id);
-    const gate = await checkSelfDriveKycGate(rider.user.id);
+    await recordSelfDriveInterestForUser(user.id);
+    const gate = await checkSelfDriveKycGate(user.id);
 
     if (!gate.allowed) {
-      if (gate.status === "not_submitted" || gate.status === "rejected") {
-        redirect(selfDriveKycPath(returnPath));
-      }
-
-      return (
-        <PageLayout>
-          <div className="mx-auto max-w-5xl px-4 py-12 md:px-6">
-            <h1 className="text-3xl font-bold text-secondary mb-2">Book Self Drive Vehicle</h1>
-            <p className="text-gray-600 mb-8">Complete verification to continue your booking</p>
-            <SelfDriveKycGate gate={gate} returnPath={returnPath} />
-          </div>
-        </PageLayout>
-      );
+      redirect(selfDriveKycPath(returnPath));
     }
+
+    const customer = await getRiderBookingProfile(user.id, {
+      email: user.email,
+      name: String(user.user_metadata?.name ?? ""),
+      mobile: String(user.user_metadata?.mobile ?? ""),
+    });
+
+    const searchPrefill = parseSelfDriveBookingSearchParams(sp);
 
     return (
       <PageLayout>
         <div className="mx-auto max-w-5xl px-4 py-12 md:px-6">
           <h1 className="text-3xl font-bold text-secondary mb-2">Book Self Drive Vehicle</h1>
-          <p className="text-gray-600 mb-8">Submit your rental request below</p>
-          <UnifiedBookingForm type="self_drive" listing={listing} customerPrefill={customerPrefill} />
+          <p className="text-gray-600 mb-8">Review your trip details and confirm your booking</p>
+          <SelfDriveBookingForm
+            listing={listing}
+            customer={customer}
+            searchPrefill={searchPrefill}
+          />
         </div>
       </PageLayout>
     );
   }
 
-  if (type === "with_driver") {
+  if (bookingType === "with_driver") {
     const listing = await getDriverListingById(id);
     if (!listing) notFound();
-    const customerPrefill = await resolveCustomerPrefill();
+
+    const customerPrefill = await getRiderBookingProfile(user.id, {
+      email: user.email,
+      name: String(user.user_metadata?.name ?? ""),
+      mobile: String(user.user_metadata?.mobile ?? ""),
+    });
+
     return (
       <PageLayout>
         <div className="mx-auto max-w-5xl px-4 py-12 md:px-6">
@@ -101,11 +126,13 @@ export default async function BookingPage({ params, searchParams }: Props) {
     console.error("Failed to load journey:", err);
   }
 
-  if (!journey) {
-    notFound();
-  }
+  if (!journey) notFound();
 
-  const vehicle = journey.vehicle as { vehicle_model?: string; vehicle_type?: string; vehicle_number?: string } | null;
+  const vehicle = journey.vehicle as {
+    vehicle_model?: string;
+    vehicle_type?: string;
+    vehicle_number?: string;
+  } | null;
   const owner = journey.owner as { name?: string } | null;
   const seats = await getReturnJourneySeats(String(journey.id));
 

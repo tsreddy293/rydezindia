@@ -102,6 +102,26 @@ export async function proxy(request: NextRequest) {
     return redirectTo("/admin");
   }
 
+  // --- Booking routes — require authenticated rider ---
+  const bookingDetailMatch = path.match(/^\/booking\/([^/]+)$/);
+  const bookingConfirmationMatch = path.match(/^\/booking\/confirmation\/([^/]+)$/);
+
+  if ((bookingDetailMatch || bookingConfirmationMatch) && !data.user) {
+    const returnPath = `${path}${request.nextUrl.search}`;
+    const url = request.nextUrl.clone();
+    url.pathname = "/login/rider";
+    url.search = `redirect=${encodeURIComponent(returnPath)}`;
+    return NextResponse.redirect(url);
+  }
+
+  if ((bookingDetailMatch || bookingConfirmationMatch) && data.user && role === "owner") {
+    return redirectTo("/owner/dashboard");
+  }
+
+  if ((bookingDetailMatch || bookingConfirmationMatch) && data.user && role === "admin") {
+    return redirectTo("/admin");
+  }
+
   if (ownerOnly && data.user && role === "rider") {
     return redirectTo("/dashboard");
   }

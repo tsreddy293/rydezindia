@@ -1,5 +1,7 @@
 /** Customer self-drive KYC navigation — never use /admin routes. */
 
+import { bookingAuthLoginPath } from "@/lib/booking/booking-return-path";
+
 export function isSelfDriveBookingPath(path: string): boolean {
   return path.includes("/booking/") && path.includes("type=self_drive");
 }
@@ -9,9 +11,9 @@ export function selfDriveKycPath(bookingReturnPath?: string): string {
   return `/dashboard/kyc?reason=self_drive&return=${encodeURIComponent(bookingReturnPath)}`;
 }
 
-/** Login first — return to booking after auth (not KYC). */
+/** Login first — return to booking after auth (preserves search params in return path). */
 export function selfDriveAuthLoginPath(bookingReturnPath: string): string {
-  return `/login/rider?redirect=${encodeURIComponent(bookingReturnPath)}`;
+  return bookingAuthLoginPath(bookingReturnPath);
 }
 
 export function selfDriveAuthSignupPath(bookingReturnPath?: string): string {

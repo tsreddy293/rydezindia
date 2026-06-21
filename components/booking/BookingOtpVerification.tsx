@@ -7,9 +7,21 @@ interface Props {
   mobile: string;
   onVerified: () => void;
   disabled?: boolean;
+  purpose?: "booking" | "signup";
+  title?: string;
+  description?: string;
+  verifiedMessage?: string;
 }
 
-export default function BookingOtpVerification({ mobile, onVerified, disabled }: Props) {
+export default function BookingOtpVerification({
+  mobile,
+  onVerified,
+  disabled,
+  purpose = "booking",
+  title,
+  description,
+  verifiedMessage,
+}: Props) {
   const [otp, setOtp] = useState("");
   const [sent, setSent] = useState(false);
   const [verified, setVerified] = useState(false);
@@ -31,7 +43,7 @@ export default function BookingOtpVerification({ mobile, onVerified, disabled }:
       const res = await fetch("/api/auth/send-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mobile: normalizedMobile, purpose: "booking" }),
+        body: JSON.stringify({ mobile: normalizedMobile, purpose }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
@@ -56,7 +68,7 @@ export default function BookingOtpVerification({ mobile, onVerified, disabled }:
       const res = await fetch("/api/auth/verify-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mobile: normalizedMobile, otp, purpose: "booking" }),
+        body: JSON.stringify({ mobile: normalizedMobile, otp, purpose }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
@@ -73,15 +85,25 @@ export default function BookingOtpVerification({ mobile, onVerified, disabled }:
   if (verified) {
     return (
       <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-        Mobile number verified with OTP.
+        {verifiedMessage ??
+          (purpose === "signup"
+            ? "Mobile number verified. You can create your account."
+            : "Mobile number verified with OTP.")}
       </div>
     );
   }
 
   return (
     <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3">
-      <p className="text-sm font-medium text-secondary">Verify mobile with OTP</p>
-      <p className="text-xs text-gray-500">Required for booking. We will send a 6-digit code to your mobile.</p>
+      <p className="text-sm font-medium text-secondary">
+        {title ?? (purpose === "signup" ? "Verify mobile to register" : "Verify mobile with OTP")}
+      </p>
+      <p className="text-xs text-gray-500">
+        {description ??
+          (purpose === "signup"
+            ? "Required before account creation. We will send a 6-digit code to your mobile."
+            : "Required for booking. We will send a 6-digit code to your mobile.")}
+      </p>
       {error && <p className="text-sm text-red-600">{error}</p>}
       {devOtp && (
         <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">

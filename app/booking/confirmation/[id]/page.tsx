@@ -1,10 +1,11 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { CheckCircle2 } from "lucide-react";
 import PageLayout from "@/components/layout/PageLayout";
 import Button from "@/components/ui/Button";
 import ReviewForm from "@/components/reviews/ReviewForm";
 import { getBookingConfirmationById } from "@/lib/supabase/queries";
 import { formatDate, formatINR } from "@/lib/utils";
+import { requireRole } from "@/server/actions/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,10 @@ interface Props {
 
 export default async function BookingConfirmationPage({ params }: Props) {
   const { id } = await params;
+  const returnPath = `/booking/confirmation/${id}`;
+
+  await requireRole("rider", returnPath);
+
   const booking = await getBookingConfirmationById(id);
 
   if (!booking) notFound();

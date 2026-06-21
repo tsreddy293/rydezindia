@@ -48,6 +48,8 @@ interface Props {
   showReturnDeal?: boolean;
   discountPercent?: number;
   trustBadges?: Partial<TrustBadges>;
+  /** Overrides default /booking/{id} link — used to carry search params for self-drive. */
+  bookingHref?: string;
 }
 
 export default function VehicleSearchResultCard({
@@ -57,6 +59,7 @@ export default function VehicleSearchResultCard({
   showReturnDeal,
   discountPercent,
   trustBadges,
+  bookingHref,
 }: Props) {
   const [imgError, setImgError] = useState(false);
   const imageUrl = result.photos?.[0];
@@ -64,6 +67,7 @@ export default function VehicleSearchResultCard({
   const isSelfDrive = result.bookingType === "self_drive";
   const fare = estimatedFare ?? result.price;
   const bookingQuery = result.bookingType ? `?type=${result.bookingType}` : "";
+  const bookingLink = bookingHref ?? `/booking/${result.id}${bookingQuery}`;
   const route =
     result.from_city && result.to_city
       ? `${result.from_city} → ${result.to_city}`
@@ -186,7 +190,7 @@ export default function VehicleSearchResultCard({
                   View Details
                 </Button>
               )}
-              <Button href={`/booking/${result.id}${bookingQuery}`} variant="primary" size="sm">
+              <Button href={bookingLink} variant="primary" size="sm">
                 Book Now
               </Button>
             </div>

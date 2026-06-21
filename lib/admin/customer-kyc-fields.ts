@@ -38,7 +38,12 @@ export function customerKycDocumentsForAdmin(
 }
 
 export function customerKycHasRequiredDocs(docs: CustomerKycDocumentSet): boolean {
-  return Boolean(docs.aadhaar_front_url && docs.aadhaar_back_url && docs.driving_license_url);
+  return Boolean(
+    docs.aadhaar_front_url &&
+      docs.aadhaar_back_url &&
+      docs.driving_license_url &&
+      docs.selfie_url
+  );
 }
 
 export function normalizeCustomerKycStatus(value: unknown): "pending" | "approved" | "rejected" | "not_submitted" {

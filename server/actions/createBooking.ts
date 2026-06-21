@@ -8,6 +8,7 @@ import { generateBookingReference } from "@/lib/services/booking-id";
 import { createNotification } from "@/lib/services/notifications";
 import { assertOwnerCanReceiveBookings, assertCustomerCanBookSelfDrive } from "@/lib/services/verification";
 import { assertRecentBookingOtp } from "@/lib/services/otp";
+import { getOptionalRiderUser } from "@/server/actions/auth";
 import { markSelfDriveInterest } from "@/lib/services/customer-profile";
 import { bookReturnJourneySeats, initializeReturnJourneySeats } from "@/lib/services/return-journey-seats";
 import { dispatchBookingEvent } from "@/lib/services/messaging";
@@ -210,8 +211,16 @@ export async function createUnifiedBooking(
   const db = createAdminClient();
   const mobile = input.mobile.replace(/\s/g, "");
 
-  const otpError = await assertRecentBookingOtp(mobile);
-  if (otpError) return { success: false, error: otpError };
+  const loggedInRider = await getOptionalRiderUser();
+  const skipBookingOtp =
+    input.booking_type === "self_drive" &&
+    Boolean(loggedInRider) &&
+    !(await assertCustomerCanBookSelfDrive(loggedInRider!.user.id));
+
+  if (!skipBookingOtp) {
+    const otpError = await assertRecentBookingOtp(mobile);
+    if (otpError) return { success: false, error: otpError };
+  }
 
   let ownerId = input.owner_id;
   if (!ownerId && input.vehicle_id) {
@@ -230,13 +239,18 @@ export async function createUnifiedBooking(
 
   const bookingReference = await generateBookingReference();
 
-  const guestUser = await findOrCreateGuestUserByMobile(db, input.passenger_name, mobile, {
-    failOnError: true,
-  });
-  if (!guestUser.userId) {
-    return { success: false, error: guestUser.error ?? "Failed to create user profile" };
+  let userId: string;
+  if (loggedInRider) {
+    userId = loggedInRider.user.id;
+  } else {
+    const guestUser = await findOrCreateGuestUserByMobile(db, input.passenger_name, mobile, {
+      failOnError: true,
+    });
+    if (!guestUser.userId) {
+      return { success: false, error: guestUser.error ?? "Failed to create user profile" };
+    }
+    userId = guestUser.userId;
   }
-  const userId = guestUser.userId;
 
   if (input.booking_type === "self_drive") {
     await markSelfDriveInterest(userId);

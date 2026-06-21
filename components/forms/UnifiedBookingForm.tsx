@@ -15,6 +15,7 @@ import {
 import { mapDriverTripTypeLabel } from "@/lib/pricing/trip-pricing";
 import { formatINR } from "@/lib/utils";
 import BookingOtpVerification from "@/components/booking/BookingOtpVerification";
+import KycVerifiedNotice from "@/components/booking/KycVerifiedNotice";
 import { loadBookingSearchDraft } from "@/lib/booking/booking-draft";
 import type { RiderBookingProfile } from "@/lib/users/rider-profile";
 import type { DriverVehicleResult, SelfDriveResult } from "@/types/database";
@@ -25,6 +26,7 @@ type Props =
       listing: SelfDriveResult;
       distanceKm?: number;
       customerPrefill?: RiderBookingProfile | null;
+      kycApproved?: boolean;
     }
   | {
       type: "with_driver";
@@ -44,6 +46,7 @@ function firstNonEmpty(...values: (string | undefined | null)[]): string {
 
 export default function UnifiedBookingForm(props: Props) {
   const { type, listing, distanceKm = 0, customerPrefill = null } = props;
+  const kycApproved = type === "self_drive" ? Boolean(props.kycApproved) : false;
   const tripType = type === "with_driver" ? props.tripType : undefined;
   const router = useRouter();
   const [step, setStep] = useState<"form" | "payment" | "done">("form");
@@ -63,7 +66,7 @@ export default function UnifiedBookingForm(props: Props) {
   const [pickupTime, setPickupTime] = useState("");
   const [returnDate, setReturnDate] = useState("");
   const [returnTime, setReturnTime] = useState("");
-  const [mobileOtpVerified, setMobileOtpVerified] = useState(false);
+  const [mobileOtpVerified, setMobileOtpVerified] = useState(kycApproved);
   const [couponCode, setCouponCode] = useState("");
 
   const accountLocked = Boolean(customerPrefill?.email || customerPrefill?.mobile);
@@ -84,8 +87,9 @@ export default function UnifiedBookingForm(props: Props) {
     setPickupTime(firstNonEmpty(draft.pickupTime, listing.journey_time));
     setReturnDate(draft.returnDate);
     setReturnTime(draft.returnTime);
+    if (kycApproved) setMobileOtpVerified(true);
     setDraftLoaded(true);
-  }, [customerPrefill, listing, type]);
+  }, [customerPrefill, listing, type, kycApproved]);
 
   const isSelfDrive = type === "self_drive";
   const pricingTripType = mapDriverTripTypeLabel(tripType) ?? "one_way";
@@ -122,7 +126,7 @@ export default function UnifiedBookingForm(props: Props) {
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!mobileOtpVerified) {
+    if (!kycApproved && !mobileOtpVerified) {
       setError("Please verify your mobile number with OTP before continuing.");
       return;
     }
@@ -340,10 +344,14 @@ export default function UnifiedBookingForm(props: Props) {
           onChange={(e) => {
             if (accountLocked && customerPrefill?.mobile) return;
             setCustomerMobile(e.target.value);
-            setMobileOtpVerified(false);
+            if (!kycApproved) setMobileOtpVerified(false);
           }}
         />
-        <BookingOtpVerification mobile={customerMobile} onVerified={() => setMobileOtpVerified(true)} />
+        {kycApproved ? (
+          <KycVerifiedNotice />
+        ) : (
+          <BookingOtpVerification mobile={customerMobile} onVerified={() => setMobileOtpVerified(true)} />
+        )}
         <FormField
           label="Pickup Location"
           name="pickup_location"
@@ -422,7 +430,7 @@ export default function UnifiedBookingForm(props: Props) {
           </div>
           <FormField label="Use Wallet (₹)" name="wallet_amount" type="number" placeholder="0" />
         </div>
-        <Button type="submit" variant="primary" size="lg" className="w-full" disabled={loading || !mobileOtpVerified}>
+        <Button type="submit" variant="primary" size="lg" className="w-full" disabled={loading || (!kycApproved && !mobileOtpVerified)}>
           {loading ? (
             <>
               <Loader2 className="h-5 w-5 animate-spin" /> Creating booking...

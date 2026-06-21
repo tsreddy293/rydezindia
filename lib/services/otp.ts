@@ -89,11 +89,12 @@ export async function verifyOtp(input: { mobile: string; otp: string; purpose?: 
 }
 
 const BOOKING_OTP_MAX_AGE_MS = 15 * 60 * 1000;
+const SIGNUP_OTP_MAX_AGE_MS = 30 * 60 * 1000;
 
-/** Returns null when mobile has a recent verified booking OTP. */
-export async function assertRecentBookingOtp(
+async function assertRecentVerifiedOtp(
   mobile: string,
-  maxAgeMs = BOOKING_OTP_MAX_AGE_MS
+  purpose: string,
+  maxAgeMs: number
 ): Promise<string | null> {
   const normalized = requireValidMobile(mobile);
   const db = createAdminClient();
@@ -101,7 +102,7 @@ export async function assertRecentBookingOtp(
     .from("auth_otps")
     .select("verified_at")
     .eq("mobile", normalized)
-    .eq("purpose", "booking")
+    .eq("purpose", purpose)
     .not("verified_at", "is", null)
     .order("verified_at", { ascending: false })
     .limit(1)
@@ -114,12 +115,32 @@ export async function assertRecentBookingOtp(
 
   const verifiedAt = (data as { verified_at?: string } | null)?.verified_at;
   if (!verifiedAt) {
-    return "Please verify your mobile number with OTP before booking.";
+    return purpose === "signup"
+      ? "Please verify your mobile number with OTP before creating an account."
+      : "Please verify your mobile number with OTP before booking.";
   }
   if (Date.now() - new Date(verifiedAt).getTime() > maxAgeMs) {
-    return "OTP verification expired. Please verify your mobile number again.";
+    return purpose === "signup"
+      ? "Mobile OTP verification expired. Please verify your number again."
+      : "OTP verification expired. Please verify your mobile number again.";
   }
   return null;
+}
+
+/** Returns null when mobile has a recent verified booking OTP. */
+export async function assertRecentBookingOtp(
+  mobile: string,
+  maxAgeMs = BOOKING_OTP_MAX_AGE_MS
+): Promise<string | null> {
+  return assertRecentVerifiedOtp(mobile, "booking", maxAgeMs);
+}
+
+/** Returns null when mobile has a recent verified signup OTP. */
+export async function assertRecentSignupOtp(
+  mobile: string,
+  maxAgeMs = SIGNUP_OTP_MAX_AGE_MS
+): Promise<string | null> {
+  return assertRecentVerifiedOtp(mobile, "signup", maxAgeMs);
 }
 
 /** Verify OTP at booking submit (purpose=booking). */

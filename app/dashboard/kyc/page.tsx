@@ -74,7 +74,7 @@ export default async function DashboardKycPage({ searchParams }: Props) {
           )}
           {status === "not_submitted" && (
             <p className="text-sm text-amber-600 mt-2">
-              Upload Aadhaar Front, Aadhaar Back, and Driving License to submit KYC.
+              Upload Aadhaar Front, Aadhaar Back, Driving License, and Selfie to submit KYC.
             </p>
           )}
           {status === "rejected" && (
