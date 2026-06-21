@@ -10,7 +10,7 @@ import {
 } from "@/lib/supabase/queries";
 import { getReturnJourneySeats } from "@/lib/services/return-journey-seats";
 import { checkSelfDriveKycGate } from "@/lib/kyc/self-drive-gate";
-import { requireRole } from "@/server/actions/auth";
+import { requireRiderForBooking } from "@/lib/auth/customer-auth";
 import { recordSelfDriveInterestForUser } from "@/server/actions/selfDrive";
 import { selfDriveKycPath } from "@/lib/kyc/self-drive-nav";
 import {
@@ -58,7 +58,7 @@ export default async function BookingPage({ params, searchParams }: Props) {
   const sp = await searchParams;
   const returnPath = buildBookingReturnPath(id, sp);
 
-  const { user } = await requireRole("rider", returnPath);
+  const { user } = await requireRiderForBooking(returnPath);
 
   const bookingType = await resolveBookingType(id, sp.type);
   if (!bookingType) notFound();

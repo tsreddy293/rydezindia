@@ -2,6 +2,19 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseAnonKey, getSupabaseUrl } from "@/lib/supabase/env";
 import { resolveAuthenticatedUserRole } from "@/lib/auth/get-role-for-user";
+import { normalizeRole } from "@/lib/auth/roles";
+import type { UserRole } from "@/types/database";
+
+async function resolveRoleSafe(
+  userId: string,
+  metadataRole: unknown
+): Promise<UserRole> {
+  try {
+    return await resolveAuthenticatedUserRole(userId, metadataRole);
+  } catch {
+    return normalizeRole(metadataRole) ?? "rider";
+  }
+}
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
@@ -25,23 +38,33 @@ export async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
 
   const role = data.user
-    ? await resolveAuthenticatedUserRole(data.user.id, data.user.user_metadata?.role)
+    ? await resolveRoleSafe(data.user.id, data.user.user_metadata?.role)
     : null;
 
-  const redirectTo = (pathname: string) => {
+  const redirectTo = (pathname: string, keepSearch = false) => {
     const url = request.nextUrl.clone();
     url.pathname = pathname;
+    if (!keepSearch) url.search = "";
     return NextResponse.redirect(url);
   };
 
-  const authSelectionPaths = ["/login", "/signup"];
-  const isAuthSelection = authSelectionPaths.includes(path);
+  const redirectToLoginWithReturnTo = (returnPath: string) => {
+    const url = request.nextUrl.clone();
+    url.pathname = "/login";
+    url.search = `returnTo=${encodeURIComponent(returnPath)}`;
+    return NextResponse.redirect(url);
+  };
 
-  // --- Admin routes ---
+  // --- Admin routes — admin role only; customers never stay on /admin ---
   const adminPublic = path === "/login/admin" || path === "/admin/login";
   if (path.startsWith("/admin") && !adminPublic) {
-    if (!data.user || role !== "admin") {
+    if (!data.user) {
       return redirectTo("/login/admin");
+    }
+    if (role !== "admin") {
+      if (role === "rider") return redirectTo("/dashboard");
+      if (role === "owner") return redirectTo("/owner/dashboard");
+      return redirectTo("/login/rider");
     }
   }
 
@@ -69,12 +92,11 @@ export async function proxy(request: NextRequest) {
     return redirectTo("/login/owner");
   }
 
-  // --- Rider routes ---
-  const riderPublic =
-    path === "/login/rider" ||
-    path === "/signup/rider" ||
-    path === "/user/login" ||
-    path === "/user/register";
+  if (ownerOnly && data.user && role === "rider") {
+    return redirectTo("/dashboard");
+  }
+
+  // --- Rider dashboard routes ---
   const riderOnly =
     path.startsWith("/dashboard") ||
     path.startsWith("/user/dashboard") ||
@@ -102,36 +124,13 @@ export async function proxy(request: NextRequest) {
     return redirectTo("/admin");
   }
 
-  // --- Booking routes — require authenticated rider ---
+  // --- Booking routes — must be authenticated (role + KYC checked on server) ---
   const bookingDetailMatch = path.match(/^\/booking\/([^/]+)$/);
   const bookingConfirmationMatch = path.match(/^\/booking\/confirmation\/([^/]+)$/);
 
   if ((bookingDetailMatch || bookingConfirmationMatch) && !data.user) {
     const returnPath = `${path}${request.nextUrl.search}`;
-    const url = request.nextUrl.clone();
-    url.pathname = "/login/rider";
-    url.search = `redirect=${encodeURIComponent(returnPath)}`;
-    return NextResponse.redirect(url);
-  }
-
-  if ((bookingDetailMatch || bookingConfirmationMatch) && data.user && role === "owner") {
-    return redirectTo("/owner/dashboard");
-  }
-
-  if ((bookingDetailMatch || bookingConfirmationMatch) && data.user && role === "admin") {
-    return redirectTo("/admin");
-  }
-
-  if (ownerOnly && data.user && role === "rider") {
-    return redirectTo("/dashboard");
-  }
-
-  if (path.startsWith("/admin") && !adminPublic && data.user && role === "rider") {
-    return redirectTo("/dashboard");
-  }
-
-  if (path.startsWith("/admin") && !adminPublic && data.user && role === "owner") {
-    return redirectTo("/owner/dashboard");
+    return redirectToLoginWithReturnTo(returnPath);
   }
 
   // Legacy login redirects

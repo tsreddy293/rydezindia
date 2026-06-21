@@ -5,7 +5,7 @@ import Button from "@/components/ui/Button";
 import ReviewForm from "@/components/reviews/ReviewForm";
 import { getBookingConfirmationById } from "@/lib/supabase/queries";
 import { formatDate, formatINR } from "@/lib/utils";
-import { requireRole } from "@/server/actions/auth";
+import { requireRiderForBooking } from "@/lib/auth/customer-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +17,7 @@ export default async function BookingConfirmationPage({ params }: Props) {
   const { id } = await params;
   const returnPath = `/booking/confirmation/${id}`;
 
-  await requireRole("rider", returnPath);
+  await requireRiderForBooking(returnPath);
 
   const booking = await getBookingConfirmationById(id);
 

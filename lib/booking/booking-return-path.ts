@@ -23,5 +23,5 @@ export function buildBookingReturnPath(id: string, params: BookingPageSearchPara
 }
 
 export function bookingAuthLoginPath(returnPath: string): string {
-  return `/login/rider?redirect=${encodeURIComponent(returnPath)}`;
+  return `/login?returnTo=${encodeURIComponent(returnPath)}`;
 }

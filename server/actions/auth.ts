@@ -12,6 +12,7 @@ import {
   ROLE_LOGIN_PATHS,
   ROLE_REDIRECTS,
 } from "@/lib/auth/roles";
+import { redirectToCustomerLogin } from "@/lib/auth/customer-auth";
 import { safeRiderRedirectPath, selfDriveKycPath } from "@/lib/kyc/self-drive-nav";
 import { resolveSelfDrivePostAuthRedirect } from "@/lib/kyc/self-drive-post-auth";
 import { assertRecentSignupOtp } from "@/lib/services/otp";
@@ -446,9 +447,16 @@ export async function signInWithRole(formData: FormData) {
   }
 
   const postLoginRedirect = safeRiderRedirectPath(String(formData.get("redirect") ?? ""));
-  if (role === "rider" && postLoginRedirect) {
-    const resolved = await resolveSelfDrivePostAuthRedirect(postLoginRedirect, data.user.id);
-    redirect(resolved);
+
+  if (postLoginRedirect) {
+    if (role === "rider") {
+      const resolved = await resolveSelfDrivePostAuthRedirect(postLoginRedirect, data.user.id);
+      redirect(resolved);
+    }
+    await supabase.auth.signOut();
+    redirect(
+      `${ROLE_LOGIN_PATHS.rider}?redirect=${encodeURIComponent(postLoginRedirect)}&error=${encodeURIComponent("Please sign in with a rider account to complete your booking.")}`
+    );
   }
 
   redirect(ROLE_REDIRECTS[role]);
@@ -556,10 +564,7 @@ export async function requireRole(role: UserRole | "user", returnPath?: string) 
   const { data, error } = await supabase.auth.getUser();
   if (error || !data.user) {
     if (expectedRole === "rider") {
-      const safeReturn = safeRiderRedirectPath(returnPath);
-      if (safeReturn) {
-        redirect(`/login/rider?redirect=${encodeURIComponent(safeReturn)}`);
-      }
+      redirectToCustomerLogin(returnPath);
     }
     redirect(ROLE_LOGIN_PATHS[expectedRole]);
   }
@@ -570,7 +575,12 @@ export async function requireRole(role: UserRole | "user", returnPath?: string) 
     "rider";
 
   if (currentRole !== expectedRole) {
-    redirect(ROLE_REDIRECTS[currentRole]);
+    if (expectedRole === "rider") {
+      redirectToCustomerLogin(returnPath);
+    }
+    if (currentRole === "owner") redirect("/owner/dashboard");
+    if (currentRole === "admin") redirect("/admin");
+    redirect(ROLE_LOGIN_PATHS[expectedRole]);
   }
 
   return { user: data.user, role: currentRole };
