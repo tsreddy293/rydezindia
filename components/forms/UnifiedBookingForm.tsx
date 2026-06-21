@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, Loader2, MapPin, Shield } from "lucide-react";
 import Button from "@/components/ui/Button";
@@ -15,6 +15,8 @@ import {
 import { mapDriverTripTypeLabel } from "@/lib/pricing/trip-pricing";
 import { formatINR } from "@/lib/utils";
 import BookingOtpVerification from "@/components/booking/BookingOtpVerification";
+import { loadBookingSearchDraft } from "@/lib/booking/booking-draft";
+import type { RiderBookingProfile } from "@/lib/users/rider-profile";
 import type { DriverVehicleResult, SelfDriveResult } from "@/types/database";
 
 type Props =
@@ -22,16 +24,26 @@ type Props =
       type: "self_drive";
       listing: SelfDriveResult;
       distanceKm?: number;
+      customerPrefill?: RiderBookingProfile | null;
     }
   | {
       type: "with_driver";
       listing: DriverVehicleResult;
       distanceKm?: number;
       tripType?: string;
+      customerPrefill?: RiderBookingProfile | null;
     };
 
+function firstNonEmpty(...values: (string | undefined | null)[]): string {
+  for (const value of values) {
+    const trimmed = String(value ?? "").trim();
+    if (trimmed) return trimmed;
+  }
+  return "";
+}
+
 export default function UnifiedBookingForm(props: Props) {
-  const { type, listing, distanceKm = 0 } = props;
+  const { type, listing, distanceKm = 0, customerPrefill = null } = props;
   const tripType = type === "with_driver" ? props.tripType : undefined;
   const router = useRouter();
   const [step, setStep] = useState<"form" | "payment" | "done">("form");
@@ -40,37 +52,72 @@ export default function UnifiedBookingForm(props: Props) {
   const [bookingId, setBookingId] = useState("");
   const [bookingReference, setBookingReference] = useState("");
   const [paymentType, setPaymentType] = useState<"advance" | "full">("advance");
+  const [draftLoaded, setDraftLoaded] = useState(false);
+
   const [customerName, setCustomerName] = useState("");
+  const [customerEmail, setCustomerEmail] = useState("");
   const [customerMobile, setCustomerMobile] = useState("");
+  const [pickupLocation, setPickupLocation] = useState("");
+  const [dropLocation, setDropLocation] = useState("");
+  const [pickupDate, setPickupDate] = useState("");
+  const [pickupTime, setPickupTime] = useState("");
+  const [returnDate, setReturnDate] = useState("");
+  const [returnTime, setReturnTime] = useState("");
   const [mobileOtpVerified, setMobileOtpVerified] = useState(false);
   const [couponCode, setCouponCode] = useState("");
+
+  const accountLocked = Boolean(customerPrefill?.email || customerPrefill?.mobile);
+
+  useEffect(() => {
+    const draft = loadBookingSearchDraft();
+    const listingPickupFallback =
+      type === "self_drive" ? (listing as SelfDriveResult).owner_city : undefined;
+
+    setCustomerName(firstNonEmpty(customerPrefill?.name));
+    setCustomerEmail(firstNonEmpty(customerPrefill?.email));
+    setCustomerMobile(firstNonEmpty(customerPrefill?.mobile));
+    setPickupLocation(
+      firstNonEmpty(draft.pickupLocation, listing.pickup_city, listingPickupFallback)
+    );
+    setDropLocation(firstNonEmpty(draft.dropLocation, listing.drop_city));
+    setPickupDate(firstNonEmpty(draft.pickupDate, listing.journey_date));
+    setPickupTime(firstNonEmpty(draft.pickupTime, listing.journey_time));
+    setReturnDate(draft.returnDate);
+    setReturnTime(draft.returnTime);
+    setDraftLoaded(true);
+  }, [customerPrefill, listing, type]);
 
   const isSelfDrive = type === "self_drive";
   const pricingTripType = mapDriverTripTypeLabel(tripType) ?? "one_way";
 
   const selfDriveListing = isSelfDrive ? (listing as SelfDriveResult) : null;
-  const selfDrivePricing = isSelfDrive
-    ? calculateSelfDrivePricing(
-        resolveSelfDriveDailyRent(selfDriveListing!),
-        selfDriveListing!.security_deposit ?? 0
-      )
-    : null;
+  const selfDrivePricing = useMemo(
+    () =>
+      isSelfDrive
+        ? calculateSelfDrivePricing(
+            resolveSelfDriveDailyRent(selfDriveListing!),
+            selfDriveListing!.security_deposit ?? 0
+          )
+        : null,
+    [isSelfDrive, selfDriveListing]
+  );
 
-  const driverPricing = !isSelfDrive
-    ? calculateAiPricing({
-        distanceKm: distanceKm || 100,
-        tripType: pricingTripType,
-        vehicleType: listing.vehicle_type,
-        fuelType: (listing as DriverVehicleResult).fuel_type,
-        driverRequired: true,
-        ratePerKm: (listing as DriverVehicleResult).rate_per_km,
-      })
-    : null;
+  const driverPricing = useMemo(
+    () =>
+      !isSelfDrive
+        ? calculateAiPricing({
+            distanceKm: distanceKm || 100,
+            tripType: pricingTripType,
+            vehicleType: listing.vehicle_type,
+            fuelType: (listing as DriverVehicleResult).fuel_type,
+            driverRequired: true,
+            ratePerKm: (listing as DriverVehicleResult).rate_per_km,
+          })
+        : null,
+    [distanceKm, isSelfDrive, listing, pricingTripType]
+  );
 
-  const totalFare = isSelfDrive
-    ? selfDrivePricing!.payableAmount
-    : driverPricing!.finalFare;
-
+  const totalFare = isSelfDrive ? selfDrivePricing!.payableAmount : driverPricing!.finalFare;
   const payAmount = getAdvancePaymentAmount(totalFare, paymentType);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -82,33 +129,26 @@ export default function UnifiedBookingForm(props: Props) {
     setLoading(true);
     setError("");
 
-    const form = new FormData(e.currentTarget);
-    const name = String(form.get("passenger_name") ?? "");
-    const mobile = String(form.get("mobile") ?? "");
-
-    setCustomerName(name);
-    setCustomerMobile(mobile);
-
     const result = await createUnifiedBooking({
       booking_type: type,
       reference_id: listing.id,
       vehicle_id: listing.vehicle_id,
       owner_id: (listing as DriverVehicleResult).owner_id ?? (listing as SelfDriveResult).owner_id,
-      passenger_name: name,
-      mobile,
+      passenger_name: customerName,
+      mobile: customerMobile,
       amount: totalFare,
-      pickup_location: String(form.get("pickup_location") ?? listing.pickup_city),
-      drop_location: String(form.get("drop_location") ?? listing.drop_city ?? ""),
-      pickup_date: String(form.get("pickup_date") ?? listing.journey_date ?? ""),
-      pickup_time: String(form.get("pickup_time") ?? listing.journey_time ?? ""),
-      trip_type: String(form.get("trip_type") ?? tripType ?? "One Way"),
-      driver_required: form.get("driver_required") === "on" || !isSelfDrive,
-      special_instructions: String(form.get("special_instructions") ?? ""),
+      pickup_location: pickupLocation,
+      drop_location: dropLocation,
+      pickup_date: pickupDate,
+      pickup_time: pickupTime,
+      trip_type: tripType ?? "One Way",
+      driver_required: !isSelfDrive,
+      special_instructions: String(new FormData(e.currentTarget).get("special_instructions") ?? ""),
       base_fare: isSelfDrive ? selfDrivePricing!.dailyRent : driverPricing!.baseFare,
       platform_fee: isSelfDrive ? selfDrivePricing!.platformFee : driverPricing!.platformFee,
       discount_amount: isSelfDrive ? 0 : driverPricing!.discountAmount,
       coupon_code: couponCode.trim() || undefined,
-      wallet_amount_used: Number(form.get("wallet_amount") ?? 0) || undefined,
+      wallet_amount_used: Number(new FormData(e.currentTarget).get("wallet_amount") ?? 0) || undefined,
     });
 
     if (result.success) {
@@ -119,6 +159,14 @@ export default function UnifiedBookingForm(props: Props) {
       setError(result.error ?? "Booking failed");
     }
     setLoading(false);
+  }
+
+  if (!draftLoaded) {
+    return (
+      <div className="rounded-2xl bg-white border p-10 text-center text-gray-500 shadow-sm">
+        Loading booking details...
+      </div>
+    );
   }
 
   if (step === "done") {
@@ -199,7 +247,7 @@ export default function UnifiedBookingForm(props: Props) {
         <div className="space-y-3 text-sm">
           <div className="flex items-center gap-2">
             <MapPin className="h-4 w-4 text-accent" />
-            {listing.drop_city ? `${listing.pickup_city} → ${listing.drop_city}` : listing.pickup_city}
+            {dropLocation ? `${pickupLocation} → ${dropLocation}` : pickupLocation || listing.pickup_city}
           </div>
           <div className="flex items-center gap-2">
             <Shield className="h-4 w-4 text-accent" />
@@ -259,10 +307,28 @@ export default function UnifiedBookingForm(props: Props) {
 
       <form onSubmit={handleSubmit} className="lg:col-span-3 rounded-2xl bg-white border shadow-sm p-6 md:p-8 space-y-5">
         <h2 className="text-xl font-bold text-secondary">Booking Details</h2>
+        <p className="text-sm text-gray-500">
+          Your search details and account info are pre-filled. You can edit locations and dates below.
+        </p>
         {error && (
           <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-600">{error}</div>
         )}
-        <FormField label="Customer Name" name="passenger_name" required placeholder="Your full name" />
+        <FormField
+          label="Customer Name"
+          name="passenger_name"
+          required
+          placeholder="Your full name"
+          value={customerName}
+          onChange={(e) => setCustomerName(e.target.value)}
+        />
+        <FormField
+          label="Email"
+          name="email"
+          type="email"
+          value={customerEmail}
+          readOnly={accountLocked && Boolean(customerEmail)}
+          onChange={(e) => setCustomerEmail(e.target.value)}
+        />
         <FormField
           label="Mobile Number"
           name="mobile"
@@ -270,21 +336,62 @@ export default function UnifiedBookingForm(props: Props) {
           required
           placeholder="9876543210"
           value={customerMobile}
+          readOnly={accountLocked && Boolean(customerMobile)}
           onChange={(e) => {
+            if (accountLocked && customerPrefill?.mobile) return;
             setCustomerMobile(e.target.value);
             setMobileOtpVerified(false);
           }}
         />
-        <BookingOtpVerification
-          mobile={customerMobile}
-          onVerified={() => setMobileOtpVerified(true)}
+        <BookingOtpVerification mobile={customerMobile} onVerified={() => setMobileOtpVerified(true)} />
+        <FormField
+          label="Pickup Location"
+          name="pickup_location"
+          required
+          value={pickupLocation}
+          onChange={(e) => setPickupLocation(e.target.value)}
         />
-        <FormField label="Pickup Location" name="pickup_location" defaultValue={listing.pickup_city} required />
-        <FormField label="Drop Location" name="drop_location" defaultValue={listing.drop_city} />
+        <FormField
+          label="Drop Location"
+          name="drop_location"
+          value={dropLocation}
+          onChange={(e) => setDropLocation(e.target.value)}
+        />
         <div className="grid gap-5 sm:grid-cols-2">
-          <FormField label="Pickup Date" name="pickup_date" type="date" defaultValue={listing.journey_date} required />
-          <FormField label="Pickup Time" name="pickup_time" type="time" defaultValue={listing.journey_time} />
+          <FormField
+            label="Pickup Date"
+            name="pickup_date"
+            type="date"
+            required
+            value={pickupDate}
+            onChange={(e) => setPickupDate(e.target.value)}
+          />
+          <FormField
+            label="Pickup Time"
+            name="pickup_time"
+            type="time"
+            value={pickupTime}
+            onChange={(e) => setPickupTime(e.target.value)}
+          />
         </div>
+        {isSelfDrive && (
+          <div className="grid gap-5 sm:grid-cols-2">
+            <FormField
+              label="Return Date"
+              name="return_date"
+              type="date"
+              value={returnDate}
+              onChange={(e) => setReturnDate(e.target.value)}
+            />
+            <FormField
+              label="Return Time"
+              name="return_time"
+              type="time"
+              value={returnTime}
+              onChange={(e) => setReturnTime(e.target.value)}
+            />
+          </div>
+        )}
         {!isSelfDrive && (
           <>
             <label className="block">
@@ -313,15 +420,16 @@ export default function UnifiedBookingForm(props: Props) {
               className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm uppercase"
             />
           </div>
-          <FormField
-            label="Use Wallet (₹)"
-            name="wallet_amount"
-            type="number"
-            placeholder="0"
-          />
+          <FormField label="Use Wallet (₹)" name="wallet_amount" type="number" placeholder="0" />
         </div>
         <Button type="submit" variant="primary" size="lg" className="w-full" disabled={loading || !mobileOtpVerified}>
-          {loading ? <><Loader2 className="h-5 w-5 animate-spin" /> Creating booking...</> : "Continue to Payment"}
+          {loading ? (
+            <>
+              <Loader2 className="h-5 w-5 animate-spin" /> Creating booking...
+            </>
+          ) : (
+            "Continue to Payment"
+          )}
         </Button>
       </form>
     </div>

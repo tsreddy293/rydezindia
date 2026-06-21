@@ -1,49 +1,29 @@
-"use client";
-
-import { useState } from "react";
 import Link from "next/link";
-import { User, CheckCircle } from "lucide-react";
+import { User } from "lucide-react";
 import PageLayout from "@/components/layout/PageLayout";
 import FormField from "@/components/forms/FormField";
-import Button from "@/components/ui/Button";
-import { signUpRider } from "@/server/actions/auth";
+import { registerRiderWithKyc } from "@/server/actions/auth";
+import {
+  formatMaxSizeLabel,
+} from "@/lib/kyc/upload-rules";
+import { selfDriveAuthLoginPath } from "@/lib/kyc/self-drive-nav";
 
-export default function RiderSignupPage() {
-  const [submitted, setSubmitted] = useState(false);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+export const dynamic = "force-dynamic";
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setError("");
-    setLoading(true);
-    const form = new FormData(e.currentTarget);
-    const result = await signUpRider({
-      name: String(form.get("name") ?? ""),
-      mobile: String(form.get("mobile") ?? ""),
-      email: String(form.get("email") ?? ""),
-      city: String(form.get("city") ?? ""),
-      password: String(form.get("password") ?? ""),
-    });
-    if (result.success) setSubmitted(true);
-    else {
-      setError(result.error ?? "Registration failed");
-      setLoading(false);
-    }
-  }
+interface Props {
+  searchParams: Promise<{ error?: string; redirect?: string }>;
+}
 
-  if (submitted) {
-    return (
-      <PageLayout>
-        <div className="mx-auto max-w-lg px-4 py-20 text-center">
-          <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-6" />
-          <h1 className="text-3xl font-bold text-secondary mb-4">Welcome to Rydez!</h1>
-          <p className="text-gray-600 mb-8">Your rider account has been created. Please verify your email before logging in.</p>
-          <Button href="/login/rider" variant="primary">Go to Rider Login</Button>
-        </div>
-      </PageLayout>
-    );
-  }
+const KYC_FIELDS = [
+  { name: "aadhaar_front", label: "Aadhaar Front", accept: "image/*,.pdf" },
+  { name: "aadhaar_back", label: "Aadhaar Back", accept: "image/*,.pdf" },
+  { name: "driving_license", label: "Driving License", accept: "image/*,.pdf" },
+  { name: "selfie", label: "Selfie Photo", accept: "image/*" },
+] as const;
+
+export default async function RiderSignupPage({ searchParams }: Props) {
+  const { error, redirect: bookingRedirect } = await searchParams;
+  const loginHref = bookingRedirect ? selfDriveAuthLoginPath(bookingRedirect) : "/login/rider";
 
   return (
     <PageLayout>
@@ -53,26 +33,72 @@ export default function RiderSignupPage() {
             <User className="h-8 w-8 text-primary" />
           </div>
           <h1 className="text-3xl font-bold text-secondary">Create Rider Account</h1>
-          <p className="text-gray-600 mt-2">Search and book verified vehicles across India</p>
+          <p className="text-gray-600 mt-2">
+            Register with identity documents for self-drive bookings
+          </p>
           <Link href="/signup" className="text-sm text-primary hover:underline mt-2 inline-block">
             Change account type
           </Link>
         </div>
-        <form onSubmit={handleSubmit} className="rounded-2xl bg-white border border-gray-100 p-8 shadow-sm space-y-6">
+
+        <form
+          action={registerRiderWithKyc}
+          encType="multipart/form-data"
+          className="rounded-2xl bg-white border border-gray-100 p-8 shadow-sm space-y-6"
+        >
+          {bookingRedirect && <input type="hidden" name="redirect" value={bookingRedirect} />}
           {error && (
-            <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-600">{error}</div>
+            <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-600">
+              {error}
+            </div>
           )}
-          <FormField label="Full Name" name="name" required />
-          <FormField label="Email" name="email" type="email" required />
-          <FormField label="Password" name="password" type="password" required />
-          <FormField label="City" name="city" required />
-          <FormField label="Mobile Number (optional)" name="mobile" type="tel" />
-          <Button type="submit" variant="primary" className="w-full" disabled={loading}>
-            {loading ? "Creating Account..." : "Create Rider Account"}
-          </Button>
+
+          <div className="space-y-4">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Account Details</h2>
+            <FormField label="Full Name" name="name" required />
+            <FormField label="Mobile Number" name="mobile" type="tel" required placeholder="10-digit mobile" />
+            <FormField label="Email" name="email" type="email" required />
+            <FormField label="Password" name="password" type="password" required />
+            <p className="text-xs text-gray-500">At least 8 characters with uppercase, lowercase, and a number.</p>
+          </div>
+
+          <div className="space-y-4 border-t border-gray-100 pt-6">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">KYC Documents</h2>
+            <p className="text-sm text-gray-500">
+              Required for self-drive rentals. Status will be Pending until admin approval.
+            </p>
+            {KYC_FIELDS.map(({ name, label, accept }) => {
+              const fieldKey = name as "aadhaar_front" | "aadhaar_back" | "driving_license" | "selfie";
+              return (
+                <div key={name}>
+                  <label className="block text-sm font-medium text-secondary mb-1">
+                    {label} <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="file"
+                    name={name}
+                    accept={accept}
+                    required
+                    className="block w-full text-sm text-gray-600 file:mr-4 file:rounded-lg file:border-0 file:bg-primary/10 file:px-4 file:py-2 file:text-sm file:font-medium file:text-primary"
+                  />
+                  <p className="mt-1 text-xs text-gray-400">{formatMaxSizeLabel(fieldKey)}</p>
+                </div>
+              );
+            })}
+          </div>
+
+          <button
+            type="submit"
+            className="w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-white hover:bg-primary/90 transition-colors"
+          >
+            Create Account & Submit KYC
+          </button>
+
           <p className="text-center text-sm text-gray-500">
             Already have an account?{" "}
-            <Link href="/login/rider" className="text-primary font-medium hover:underline">Sign in</Link>
+            <Link href={loginHref} className="text-primary font-medium hover:underline">
+              Sign in
+            </Link>
           </p>
         </form>
       </div>

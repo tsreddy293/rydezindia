@@ -4,7 +4,6 @@ export const ADMIN_MODULES = [
   { href: "/admin/owner-management", label: "Owner Management" },
   { href: "/admin/customer-management", label: "Customer Management" },
   { href: "/admin/vehicles", label: "Vehicle Management" },
-  { href: "/admin/documents", label: "Vehicle Documents" },
   { href: "/admin/bookings", label: "Bookings" },
   { href: "/admin/payments", label: "Payments" },
   { href: "/admin/reports", label: "Reports" },
@@ -17,4 +16,5 @@ export const LEGACY_ADMIN_REDIRECTS: Record<string, string> = {
   "/admin/kyc": "/admin/owner-management",
   "/admin/users": "/admin/customer-management",
   "/admin/customer-kyc": "/admin/customer-management",
+  "/admin/documents": "/admin/vehicles",
 };

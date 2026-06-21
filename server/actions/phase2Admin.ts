@@ -390,8 +390,8 @@ export async function approveVehicleDocument(
     remarks,
   });
 
-  revalidatePath("/admin/documents");
   revalidatePath("/admin/vehicles");
+  revalidatePath(`/admin/vehicles/${vehicleId}`);
   return { success: true };
 }
 
@@ -424,7 +424,7 @@ export async function approveVehicleDocumentById(
     remarks,
   });
 
-  revalidatePath("/admin/documents");
+  revalidatePath("/admin/vehicles");
   return { success: true };
 }
 

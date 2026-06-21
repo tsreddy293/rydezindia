@@ -10,7 +10,10 @@ export default async function AdminVehiclesPage() {
   const vehicles = await getAdminVehicleList(100);
 
   return (
-    <AdminPageShell title="Vehicle Approval" description="Review and approve owner vehicle submissions">
+    <AdminPageShell
+      title="Vehicle Management"
+      description="Review vehicles, RC & insurance documents, and approve listings"
+    >
       <AdminVehiclesClient vehicles={vehicles} />
     </AdminPageShell>
   );

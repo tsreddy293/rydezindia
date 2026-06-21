@@ -36,6 +36,11 @@ export default function RoleLoginForm({
   unverified,
   verified,
 }: Props) {
+  const signupUrl =
+    redirect && signupHref
+      ? `${signupHref}${signupHref.includes("?") ? "&" : "?"}redirect=${encodeURIComponent(redirect)}`
+      : signupHref;
+
   return (
     <div className="mx-auto max-w-md px-4 py-12 md:px-6">
       <div className="text-center mb-10">
@@ -82,7 +87,7 @@ export default function RoleLoginForm({
           Login
         </Button>
         {signupHref && signupLabel && (
-          <Button href={signupHref} variant="outline" className="w-full">
+          <Button href={signupUrl} variant="outline" className="w-full">
             {signupLabel}
           </Button>
         )}

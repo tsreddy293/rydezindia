@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import PageLayout from "@/components/layout/PageLayout";
 import BookingForm from "@/components/forms/BookingForm";
 import UnifiedBookingForm from "@/components/forms/UnifiedBookingForm";
@@ -10,8 +10,20 @@ import {
 } from "@/lib/supabase/queries";
 import { getReturnJourneySeats } from "@/lib/services/return-journey-seats";
 import { checkSelfDriveKycGate } from "@/lib/kyc/self-drive-gate";
-import { getOptionalRiderUser, getOptionalAuthSession } from "@/server/actions/auth";
+import { getOptionalRiderUser } from "@/server/actions/auth";
 import { recordSelfDriveInterestForUser } from "@/server/actions/selfDrive";
+import { selfDriveAuthLoginPath, selfDriveKycPath } from "@/lib/kyc/self-drive-nav";
+import { getRiderBookingProfile } from "@/lib/users/rider-profile";
+
+async function resolveCustomerPrefill() {
+  const rider = await getOptionalRiderUser();
+  if (!rider) return null;
+  return getRiderBookingProfile(rider.user.id, {
+    email: rider.user.email,
+    name: String(rider.user.user_metadata?.name ?? ""),
+    mobile: String(rider.user.user_metadata?.mobile ?? ""),
+  });
+}
 
 export const dynamic = "force-dynamic";
 
@@ -30,44 +42,26 @@ export default async function BookingPage({ params, searchParams }: Props) {
     if (!listing) notFound();
 
     const rider = await getOptionalRiderUser();
-    const authSession = await getOptionalAuthSession();
-    const isRiderLoggedIn = rider !== null;
+    const customerPrefill = rider ? await resolveCustomerPrefill() : null;
 
-    if (rider) {
-      await recordSelfDriveInterestForUser(rider.user.id);
-      const gate = await checkSelfDriveKycGate(rider.user.id);
-      if (!gate.allowed) {
-        return (
-          <PageLayout>
-            <div className="mx-auto max-w-5xl px-4 py-12 md:px-6">
-              <h1 className="text-3xl font-bold text-secondary mb-2">Book Self Drive Vehicle</h1>
-              <p className="text-gray-600 mb-8">Identity verification is required for self-drive rentals</p>
-              <SelfDriveKycGate gate={gate} returnPath={returnPath} isRiderLoggedIn={isRiderLoggedIn} />
-            </div>
-          </PageLayout>
-        );
+    if (!rider) {
+      redirect(selfDriveAuthLoginPath(returnPath));
+    }
+
+    await recordSelfDriveInterestForUser(rider.user.id);
+    const gate = await checkSelfDriveKycGate(rider.user.id);
+
+    if (!gate.allowed) {
+      if (gate.status === "not_submitted" || gate.status === "rejected") {
+        redirect(selfDriveKycPath(returnPath));
       }
-    } else {
+
       return (
         <PageLayout>
           <div className="mx-auto max-w-5xl px-4 py-12 md:px-6">
             <h1 className="text-3xl font-bold text-secondary mb-2">Book Self Drive Vehicle</h1>
-            <p className="text-gray-600 mb-8">Identity verification is required for self-drive rentals</p>
-            {authSession && authSession.role !== "rider" && (
-              <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                Self-drive customer KYC requires a rider account. Please sign in as a rider to upload documents.
-              </p>
-            )}
-            <SelfDriveKycGate
-              gate={{
-                allowed: false,
-                status: "not_submitted",
-                message:
-                  "Please log in and upload KYC documents to book a self-drive vehicle. Other trip types need mobile OTP only.",
-              }}
-              returnPath={returnPath}
-              isRiderLoggedIn={false}
-            />
+            <p className="text-gray-600 mb-8">Complete verification to continue your booking</p>
+            <SelfDriveKycGate gate={gate} returnPath={returnPath} />
           </div>
         </PageLayout>
       );
@@ -78,7 +72,7 @@ export default async function BookingPage({ params, searchParams }: Props) {
         <div className="mx-auto max-w-5xl px-4 py-12 md:px-6">
           <h1 className="text-3xl font-bold text-secondary mb-2">Book Self Drive Vehicle</h1>
           <p className="text-gray-600 mb-8">Submit your rental request below</p>
-          <UnifiedBookingForm type="self_drive" listing={listing} />
+          <UnifiedBookingForm type="self_drive" listing={listing} customerPrefill={customerPrefill} />
         </div>
       </PageLayout>
     );
@@ -87,12 +81,13 @@ export default async function BookingPage({ params, searchParams }: Props) {
   if (type === "with_driver") {
     const listing = await getDriverListingById(id);
     if (!listing) notFound();
+    const customerPrefill = await resolveCustomerPrefill();
     return (
       <PageLayout>
         <div className="mx-auto max-w-5xl px-4 py-12 md:px-6">
           <h1 className="text-3xl font-bold text-secondary mb-2">Book Vehicle With Driver</h1>
           <p className="text-gray-600 mb-8">Submit your trip request below</p>
-          <UnifiedBookingForm type="with_driver" listing={listing} />
+          <UnifiedBookingForm type="with_driver" listing={listing} customerPrefill={customerPrefill} />
         </div>
       </PageLayout>
     );

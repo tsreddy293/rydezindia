@@ -1,8 +1,22 @@
 /** Customer self-drive KYC navigation — never use /admin routes. */
 
+export function isSelfDriveBookingPath(path: string): boolean {
+  return path.includes("/booking/") && path.includes("type=self_drive");
+}
+
 export function selfDriveKycPath(bookingReturnPath?: string): string {
   if (!bookingReturnPath) return "/dashboard/kyc?reason=self_drive";
   return `/dashboard/kyc?reason=self_drive&return=${encodeURIComponent(bookingReturnPath)}`;
+}
+
+/** Login first — return to booking after auth (not KYC). */
+export function selfDriveAuthLoginPath(bookingReturnPath: string): string {
+  return `/login/rider?redirect=${encodeURIComponent(bookingReturnPath)}`;
+}
+
+export function selfDriveAuthSignupPath(bookingReturnPath?: string): string {
+  if (!bookingReturnPath) return "/signup/rider";
+  return `/signup/rider?redirect=${encodeURIComponent(bookingReturnPath)}`;
 }
 
 export function selfDriveKycLoginPath(kycPath?: string): string {
@@ -10,13 +24,14 @@ export function selfDriveKycLoginPath(kycPath?: string): string {
   return `/login/rider?redirect=${encodeURIComponent(target)}`;
 }
 
-/** Rider logged in → KYC page; guest or wrong role → rider login with redirect back to KYC. */
+/** Rider logged in → KYC page; guest → login with booking return (not KYC first). */
 export function resolveSelfDriveKycHref(
   isRiderLoggedIn: boolean,
   bookingReturnPath?: string
 ): string {
-  const kycPath = selfDriveKycPath(bookingReturnPath);
-  return isRiderLoggedIn ? kycPath : selfDriveKycLoginPath(kycPath);
+  if (isRiderLoggedIn) return selfDriveKycPath(bookingReturnPath);
+  if (bookingReturnPath) return selfDriveAuthLoginPath(bookingReturnPath);
+  return "/login/rider";
 }
 
 /** Safe post-login redirect for rider flows (blocks /admin and external URLs). */

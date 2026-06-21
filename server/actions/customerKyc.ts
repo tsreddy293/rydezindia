@@ -108,6 +108,75 @@ export async function getCustomerKycStatus(userId?: string): Promise<CustomerKyc
   }
 }
 
+export async function submitCustomerKycForUser(userId: string, formData: FormData): Promise<ActionResult> {
+  let step = "load_existing";
+  try {
+    const existing = await getCustomerKyc(userId);
+    const prev = readCustomerKycDocuments(hasCustomerKycRecord(existing) ? existing : null);
+
+    step = "storage_upload";
+    const aadhaarFrontUrl =
+      (await uploadIfPresent(userId, formData, "aadhaar_front", "aadhaar-front")) ?? prev.aadhaar_front_url;
+    const aadhaarBackUrl =
+      (await uploadIfPresent(userId, formData, "aadhaar_back", "aadhaar-back")) ?? prev.aadhaar_back_url;
+    const drivingLicenseUrl =
+      (await uploadIfPresent(userId, formData, "driving_license", "driving-license")) ??
+      prev.driving_license_url;
+    const selfieUrl = (await uploadIfPresent(userId, formData, "selfie", "selfie")) ?? prev.selfie_url;
+
+    step = "validation";
+    const merged: CustomerKycDocumentSet = {
+      aadhaar_front_url: aadhaarFrontUrl,
+      aadhaar_back_url: aadhaarBackUrl,
+      driving_license_url: drivingLicenseUrl,
+      selfie_url: selfieUrl,
+    };
+
+    if (!customerKycHasRequiredDocs(merged)) {
+      return {
+        success: false,
+        error: "Aadhaar Front, Aadhaar Back, and Driving License are required.",
+      };
+    }
+
+    if (!selfieUrl) {
+      return { success: false, error: "Selfie photo is required." };
+    }
+
+    step = "database_upsert";
+    const selfDriveReturn = safeRiderRedirectPath(String(formData.get("redirect") ?? ""));
+    await upsertCustomerKyc({
+      userId,
+      aadhaarFrontUrl,
+      aadhaarBackUrl,
+      drivingLicenseUrl,
+      selfieUrl,
+      selfDriveReturnPath: selfDriveReturn,
+    });
+
+    await markSelfDriveInterest(userId);
+
+    await createNotification({
+      recipientRole: "admin",
+      actorId: userId,
+      actorRole: "rider",
+      type: "customer_kyc_submitted",
+      title: "Rider KYC submitted",
+      message: "A rider submitted KYC documents for review.",
+      metadata: { userId },
+    });
+
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/kyc");
+
+    return { success: true, message: "KYC documents submitted. Status is now Pending." };
+  } catch (error) {
+    const failure = toKycSubmitFailure(error, "submitCustomerKycForUser");
+    logKycFailure("submitCustomerKycForUser", failure);
+    return { success: false, error: formatKycFailureForClient(failure) };
+  }
+}
+
 export async function submitCustomerKyc(formData: FormData): Promise<ActionResult> {
   let step = "auth";
   try {

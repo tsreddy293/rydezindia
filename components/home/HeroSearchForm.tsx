@@ -9,6 +9,7 @@ import PlaceAutocompleteInput from "@/components/maps/PlaceAutocompleteInput";
 import RouteInsightsPanel from "@/components/maps/RouteInsightsPanel";
 import { LOCAL_RENTAL_PACKAGES } from "@/lib/maps/constants";
 import { appendPlaceToParams } from "@/lib/maps/url-params";
+import { saveBookingSearchDraft } from "@/lib/booking/booking-draft";
 import type { PlaceLocation } from "@/lib/maps/types";
 
 type ServiceType = "self_drive" | "with_driver" | "return_journey" | "local_rental";
@@ -109,6 +110,11 @@ export default function HeroSearchForm() {
       appendPlaceToParams(params, "pickup", fromPlace);
       params.set("package", localPackage);
       params.set("tripType", "Local Rental");
+      saveBookingSearchDraft({
+        pickupLocation: fromPlace.label,
+        dropLocation: "",
+        serviceType: "local_rental",
+      });
       router.push(`/search-local?${params.toString()}`);
       return;
     } else {
@@ -121,6 +127,21 @@ export default function HeroSearchForm() {
         if (toPlace?.label) params.set("toCity", toPlace.label);
       }
     }
+
+    const pickupLabel = isMultiCityTrip(serviceType, driverTripType)
+      ? multiCityPlaces.find((place) => place?.label?.trim())?.label ?? ""
+      : fromPlace?.label ?? "";
+    const dropLabel = isMultiCityTrip(serviceType, driverTripType)
+      ? [...multiCityPlaces].reverse().find((place) => place?.label?.trim())?.label ?? ""
+      : showsToLocation(serviceType, driverTripType)
+        ? toPlace?.label ?? ""
+        : "";
+
+    saveBookingSearchDraft({
+      pickupLocation: pickupLabel,
+      dropLocation: dropLabel,
+      serviceType,
+    });
 
     switch (serviceType) {
       case "self_drive":

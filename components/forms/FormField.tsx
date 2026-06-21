@@ -6,6 +6,7 @@ interface FormFieldProps {
   required?: boolean;
   defaultValue?: string;
   value?: string;
+  readOnly?: boolean;
   onChange?: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => void;
   as?: "input" | "textarea" | "select";
   options?: { value: string; label: string }[];
@@ -20,6 +21,7 @@ export default function FormField({
   required,
   defaultValue,
   value,
+  readOnly,
   onChange,
   as = "input",
   options,
@@ -27,6 +29,7 @@ export default function FormField({
 }: FormFieldProps) {
   const baseClass =
     "w-full rounded-xl border border-gray-200 px-4 py-3 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition";
+  const readOnlyClass = readOnly ? " bg-gray-50 text-gray-600 cursor-not-allowed" : "";
 
   return (
     <div>
@@ -34,16 +37,16 @@ export default function FormField({
         {label} {required && <span className="text-red-500">*</span>}
       </label>
       {as === "textarea" ? (
-        <textarea id={name} name={name} rows={rows} placeholder={placeholder} required={required} defaultValue={defaultValue} value={value} onChange={onChange} className={baseClass} />
+        <textarea id={name} name={name} rows={rows} placeholder={placeholder} required={required} defaultValue={defaultValue} value={value} readOnly={readOnly} onChange={onChange} className={baseClass + readOnlyClass} />
       ) : as === "select" ? (
-        <select id={name} name={name} required={required} defaultValue={defaultValue} value={value} onChange={onChange} className={baseClass}>
+        <select id={name} name={name} required={required} defaultValue={defaultValue} value={value} onChange={onChange} className={baseClass + readOnlyClass}>
           <option value="">Select {label}</option>
           {options?.map((opt) => (
             <option key={opt.value} value={opt.value}>{opt.label}</option>
           ))}
         </select>
       ) : (
-        <input id={name} name={name} type={type} placeholder={placeholder} required={required} defaultValue={defaultValue} value={value} onChange={onChange} className={baseClass} />
+        <input id={name} name={name} type={type} placeholder={placeholder} required={required} defaultValue={defaultValue} value={value} readOnly={readOnly} onChange={onChange} className={baseClass + readOnlyClass} />
       )}
     </div>
   );

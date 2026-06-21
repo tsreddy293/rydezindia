@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { MapPin, Calendar, Clock, Search } from "lucide-react";
 import SectionHeading from "@/components/ui/SectionHeading";
 import Button from "@/components/ui/Button";
+import { saveBookingSearchDraft } from "@/lib/booking/booking-draft";
 
 export default function SearchSection() {
   const router = useRouter();
@@ -14,6 +15,8 @@ export default function SearchSection() {
   const [drop, setDrop] = useState("");
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
+  const [returnDate, setReturnDate] = useState("");
+  const [returnTime, setReturnTime] = useState("");
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -22,6 +25,20 @@ export default function SearchSection() {
     if (drop) params.set("dropCity", drop);
     if (date) params.set("date", date);
     if (time) params.set("time", time);
+    if (category === "self_drive") {
+      if (returnDate) params.set("returnDate", returnDate);
+      if (returnTime) params.set("returnTime", returnTime);
+    }
+
+    saveBookingSearchDraft({
+      pickupLocation: pickup,
+      dropLocation: drop,
+      pickupDate: date,
+      pickupTime: time,
+      returnDate: category === "self_drive" ? returnDate : "",
+      returnTime: category === "self_drive" ? returnTime : "",
+      serviceType: category,
+    });
 
     if (category === "self_drive") {
       router.push(`/search-self-drive?${params.toString()}`);
@@ -104,7 +121,7 @@ export default function SearchSection() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Pickup Date</label>
               <div className="relative">
                 <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-primary" />
                 <input
@@ -117,7 +134,7 @@ export default function SearchSection() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Time</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Pickup Time</label>
               <div className="relative">
                 <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-primary" />
                 <input
@@ -128,6 +145,36 @@ export default function SearchSection() {
                 />
               </div>
             </div>
+
+            {category === "self_drive" && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Return Date</label>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-primary" />
+                    <input
+                      type="date"
+                      value={returnDate}
+                      onChange={(e) => setReturnDate(e.target.value)}
+                      className="w-full rounded-xl border border-gray-200 pl-10 pr-4 py-3 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Return Time</label>
+                  <div className="relative">
+                    <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-primary" />
+                    <input
+                      type="time"
+                      value={returnTime}
+                      onChange={(e) => setReturnTime(e.target.value)}
+                      className="w-full rounded-xl border border-gray-200 pl-10 pr-4 py-3 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
           </div>
 
           <div className="mt-8 flex justify-center">

@@ -18,6 +18,7 @@ interface Props {
     pickup?: string;
     drop?: string;
     date?: string;
+    time?: string;
     vehicleType?: string;
     fromCity?: string;
     toCity?: string;
@@ -37,6 +38,7 @@ export default async function SearchReturnPage({ searchParams }: Props) {
   const fromCity = params.fromCity ?? params.pickupCity ?? params.pickup ?? "";
   const toCity = params.toCity ?? params.dropCity ?? params.drop ?? "";
   const date = params.date ?? "";
+  const time = params.time ?? "";
   const vehicleType = params.vehicleType ?? "";
 
   const { data: results, error } = await searchReturnJourneys({
@@ -59,6 +61,7 @@ export default async function SearchReturnPage({ searchParams }: Props) {
           fromCity,
           toCity,
           date,
+          time,
           vehicleType,
           pickupLat: params.pickupLat,
           pickupLng: params.pickupLng,

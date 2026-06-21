@@ -21,6 +21,7 @@ import {
   customerKycDocumentsFromRow,
 } from "@/lib/admin/customer-kyc-fields";
 import { effectiveVehicleStat } from "@/lib/admin/vehicle-approval";
+import { getVehicleImages } from "@/lib/services/vehicle-upload";
 import type {
   AdminOwnerKycRecord,
   AdminCustomerKycRecord,
@@ -648,9 +649,12 @@ export async function getPlatformStats(): Promise<PlatformStats> {
   const approvedVehicles = vehicleCounts.approved;
   const pendingVehicles = vehicleCounts.pending;
   const rejectedVehicles = vehicleCounts.rejected;
-  const pendingVehicleApprovals = documentRows.filter(
-    (row) => getString(row, "approval_status", "pending") === "pending"
-  ).length;
+  const pendingVehicleApprovals = documentRows.filter((row) => {
+    const approvalPending = getString(row, "approval_status", "pending") === "pending";
+    const docsPending =
+      normalizeDocumentsStatus(getString(row, "documents_status", "pending")) === "pending";
+    return approvalPending || docsPending;
+  }).length;
   const pendingDocuments = documentRows.filter(
     (row) => normalizeDocumentsStatus(getString(row, "documents_status", "pending")) === "pending"
   ).length;
@@ -1702,6 +1706,107 @@ export async function getAdminVehicleList(limit = 200): Promise<AdminVehicleReco
       service_return_journey: mapped.service_return_journey ?? false,
     };
   });
+}
+
+export async function getApprovalLogsForEntity(
+  entityId: string,
+  limit = 50
+): Promise<import("@/types/database").ApprovalLogRecord[]> {
+  const { data, error } = await db()
+    .from("approval_logs")
+    .select("id, entity_type, entity_id, action, approved_by, remarks, created_at")
+    .eq("entity_id", entityId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    if (isMissingTableError(error)) return [];
+    console.error("[getApprovalLogsForEntity]", error.message);
+    return [];
+  }
+
+  const rows = asRows(data);
+  const approverIds = rows
+    .map((row) => getString(row, "approved_by"))
+    .filter(Boolean);
+  const approverNames = await getUserNameMap(approverIds);
+
+  return rows.map((row) => ({
+    id: getString(row, "id"),
+    entity_type: getString(row, "entity_type"),
+    entity_id: getString(row, "entity_id"),
+    action: getString(row, "action"),
+    approved_by: getString(row, "approved_by") || null,
+    approver_name: approverNames.get(getString(row, "approved_by")) ?? "Admin",
+    remarks: getString(row, "remarks") || null,
+    created_at: getString(row, "created_at"),
+  }));
+}
+
+/** Single vehicle for admin detail view — includes photos and approval history. */
+export async function getAdminVehicleDetail(
+  vehicleId: string
+): Promise<import("@/types/database").AdminVehicleDetailRecord | null> {
+  const { data, error } = await db().from("vehicles").select("*").eq("id", vehicleId).maybeSingle();
+  if (error || !data) return null;
+
+  const row = data as Record<string, unknown>;
+  const mapped = mapVehicleRow(row);
+  const [ownerNames, eligibilityMap, images, approvalLogs] = await Promise.all([
+    getUserNameMap([mapped.owner_id]),
+    getOwnerMarketplaceEligibilityMap([mapped.owner_id]),
+    getVehicleImages(vehicleId),
+    getApprovalLogsForEntity(vehicleId),
+  ]);
+
+  const eligibility = eligibilityMap.get(mapped.owner_id) ?? ownerMarketplaceEligibilityFromRow({});
+  const canApprove =
+    eligibility.ownerStatus === "approved" && eligibility.kycStatus === "approved";
+  const approvalBlockedReason = vehicleApprovalBlockedReason({
+    ownerStatus: eligibility.ownerStatus,
+    kycStatus: eligibility.kycStatus,
+  });
+
+  const photoUrls = [
+    ...(mapped.vehicle_photo_url ? [mapped.vehicle_photo_url] : []),
+    ...images.filter((url) => url !== mapped.vehicle_photo_url),
+  ];
+
+  return {
+    id: mapped.id,
+    vehicle_name: formatVehicleDisplayName(row),
+    vehicle_category: mapped.vehicle_category,
+    registration_number: mapped.registration_number,
+    approval_status: mapped.approval_status,
+    documents_status: mapped.documents_status ?? "pending",
+    owner_id: mapped.owner_id,
+    owner_name: ownerNames.get(mapped.owner_id) ?? "Owner",
+    owner_status: eligibility.ownerStatus,
+    kyc_status: eligibility.kycStatus,
+    canApprove,
+    approvalBlockedReason,
+    vehicle_photo_url: mapped.vehicle_photo_url ?? null,
+    rc_document_url: mapped.rc_document_url ?? null,
+    insurance_document_url: mapped.insurance_document_url ?? null,
+    service_self_drive: mapped.service_self_drive ?? true,
+    service_with_driver: mapped.service_with_driver ?? true,
+    service_local_rental: mapped.service_local_rental ?? true,
+    service_return_journey: mapped.service_return_journey ?? false,
+    vehicle_make: mapped.vehicle_make,
+    vehicle_model: mapped.vehicle_model,
+    vehicle_year: mapped.vehicle_year,
+    fuel_type: String(row.fuel_type ?? "-"),
+    transmission: String(row.transmission ?? "-"),
+    seating_capacity: Number(row.seating_capacity ?? row.seats ?? 0),
+    ac: row.ac === undefined ? Boolean(row.is_ac) : Boolean(row.ac),
+    city: mapped.city ?? null,
+    daily_fare: mapped.daily_fare ?? 0,
+    security_deposit: mapped.security_deposit ?? 0,
+    images: photoUrls,
+    created_at: mapped.created_at ?? "",
+    updated_at: mapped.updated_at ?? "",
+    approval_logs: approvalLogs,
+  };
 }
 
 /** Owner KYC — merges owner profiles, users, owner_kyc, and vehicle_owners fallback. */

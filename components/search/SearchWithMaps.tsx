@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Calendar, Filter, Search } from "lucide-react";
+import { Calendar, Clock, Filter, Search } from "lucide-react";
 import Button from "@/components/ui/Button";
 import GoogleMapsProvider from "@/components/maps/GoogleMapsProvider";
 import PlaceAutocompleteInput from "@/components/maps/PlaceAutocompleteInput";
@@ -15,6 +15,7 @@ import { scoreRouteMatch } from "@/lib/services/route-matching";
 import { mapDriverTripTypeLabel } from "@/lib/pricing/trip-pricing";
 import { LOCAL_RENTAL_PACKAGES } from "@/lib/maps/constants";
 import { appendPlaceToParams, buildPlaceFromParts } from "@/lib/maps/url-params";
+import { persistSearchDraftFromFilters, saveBookingSearchDraft } from "@/lib/booking/booking-draft";
 import type { DriverVehicleResult, SearchResult, SelfDriveResult } from "@/types/database";
 import type { PlaceLocation, SearchServiceMode } from "@/lib/maps/types";
 
@@ -41,13 +42,19 @@ interface BaseProps {
   citiesLabel?: string;
 }
 
+interface SearchDateTimeFilters {
+  date: string;
+  time?: string;
+  returnDate?: string;
+  returnTime?: string;
+}
+
 interface ReturnProps extends BaseProps {
   mode: "return_journey";
   results: SearchResult[];
-  initialFilters: {
+  initialFilters: SearchDateTimeFilters & {
     fromCity: string;
     toCity: string;
-    date: string;
     vehicleType: string;
     pickupLat?: string;
     pickupLng?: string;
@@ -61,10 +68,9 @@ interface ReturnProps extends BaseProps {
 interface DriverProps extends BaseProps {
   mode: "with_driver";
   results: DriverVehicleResult[];
-  initialFilters: {
+  initialFilters: SearchDateTimeFilters & {
     pickupCity: string;
     dropCity: string;
-    date: string;
     tripType: string;
     vehicleType: string;
     cities?: string;
@@ -80,10 +86,9 @@ interface DriverProps extends BaseProps {
 interface SelfDriveProps extends BaseProps {
   mode: "self_drive";
   results: SelfDriveResult[];
-  initialFilters: {
+  initialFilters: SearchDateTimeFilters & {
     pickupCity: string;
     dropCity: string;
-    date: string;
     vehicleType: string;
     duration?: string;
     pickupLat?: string;
@@ -98,9 +103,8 @@ interface SelfDriveProps extends BaseProps {
 interface LocalRentalProps extends BaseProps {
   mode: "local_rental";
   results: DriverVehicleResult[];
-  initialFilters: {
+  initialFilters: SearchDateTimeFilters & {
     pickupCity: string;
-    date: string;
     vehicleType: string;
     packageKey: string;
     pickupLat?: string;
@@ -160,9 +164,10 @@ function SearchWithMapsInner(props: SearchWithMapsProps) {
     return null;
   });
 
-  const [date, setDate] = useState(
-    props.mode === "local_rental" ? props.initialFilters.date : props.initialFilters.date
-  );
+  const [date, setDate] = useState(props.initialFilters.date);
+  const [time, setTime] = useState(props.initialFilters.time ?? "");
+  const [returnDate, setReturnDate] = useState(props.initialFilters.returnDate ?? "");
+  const [returnTime, setReturnTime] = useState(props.initialFilters.returnTime ?? "");
   const [vehicleType, setVehicleType] = useState(props.initialFilters.vehicleType);
   const [tripType, setTripType] = useState(
     props.mode === "with_driver" ? props.initialFilters.tripType : ""
@@ -190,13 +195,81 @@ function SearchWithMapsInner(props: SearchWithMapsProps) {
           ? "/search-self-drive"
           : "/search-local";
 
+  useEffect(() => {
+    if (props.mode === "return_journey") {
+      const filters = props.initialFilters;
+      persistSearchDraftFromFilters(
+        {
+          fromCity: filters.fromCity,
+          toCity: filters.toCity,
+          date: filters.date,
+          time: filters.time,
+          serviceType: props.mode,
+        },
+        {
+          pickupLocation: pickup?.label || filters.fromCity,
+          dropLocation: drop?.label || filters.toCity,
+        }
+      );
+      return;
+    }
+
+    if (props.mode === "local_rental") {
+      const filters = props.initialFilters;
+      persistSearchDraftFromFilters(
+        {
+          pickupCity: filters.pickupCity,
+          date: filters.date,
+          time: filters.time,
+          serviceType: props.mode,
+        },
+        { pickupLocation: pickup?.label || filters.pickupCity }
+      );
+      return;
+    }
+
+    const filters = props.initialFilters;
+    persistSearchDraftFromFilters(
+      {
+        pickupCity: filters.pickupCity,
+        dropCity: filters.dropCity,
+        date: filters.date,
+        time: filters.time,
+        returnDate: filters.returnDate,
+        returnTime: filters.returnTime,
+        serviceType: props.mode,
+      },
+      {
+        pickupLocation: pickup?.label || filters.pickupCity,
+        dropLocation: drop?.label || filters.dropCity || "",
+      }
+    );
+    // Sync URL params into draft once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function handleSearch(event: React.FormEvent) {
     event.preventDefault();
     const params = new URLSearchParams();
     appendPlaceToParams(params, "pickup", pickup);
     if (showDrop) appendPlaceToParams(params, "drop", drop);
     if (date) params.set("date", date);
+    if (time) params.set("time", time);
+    if (props.mode === "self_drive") {
+      if (returnDate) params.set("returnDate", returnDate);
+      if (returnTime) params.set("returnTime", returnTime);
+    }
     if (vehicleType) params.set("vehicleType", vehicleType);
+
+    saveBookingSearchDraft({
+      pickupLocation: pickup?.label ?? "",
+      dropLocation: showDrop ? (drop?.label ?? "") : "",
+      pickupDate: date,
+      pickupTime: time,
+      returnDate: props.mode === "self_drive" ? returnDate : "",
+      returnTime: props.mode === "self_drive" ? returnTime : "",
+      serviceType: props.mode,
+    });
 
     if (props.mode === "return_journey") {
       if (pickup?.label) params.set("fromCity", pickup.label);
@@ -273,7 +346,7 @@ function SearchWithMapsInner(props: SearchWithMapsProps) {
 
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="block">
-                <span className="mb-1.5 block text-sm font-medium text-gray-700">Date</span>
+                <span className="mb-1.5 block text-sm font-medium text-gray-700">Pickup Date</span>
                 <div className="relative">
                   <Calendar className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-primary" />
                   <input
@@ -284,6 +357,49 @@ function SearchWithMapsInner(props: SearchWithMapsProps) {
                   />
                 </div>
               </label>
+
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-medium text-gray-700">Pickup Time</span>
+                <div className="relative">
+                  <Clock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-primary" />
+                  <input
+                    type="time"
+                    value={time}
+                    onChange={(event) => setTime(event.target.value)}
+                    className="w-full rounded-xl border border-gray-200 py-2.5 pl-9 pr-4 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  />
+                </div>
+              </label>
+
+              {props.mode === "self_drive" ? (
+                <>
+                  <label className="block">
+                    <span className="mb-1.5 block text-sm font-medium text-gray-700">Return Date</span>
+                    <div className="relative">
+                      <Calendar className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-primary" />
+                      <input
+                        type="date"
+                        value={returnDate}
+                        onChange={(event) => setReturnDate(event.target.value)}
+                        className="w-full rounded-xl border border-gray-200 py-2.5 pl-9 pr-4 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-1.5 block text-sm font-medium text-gray-700">Return Time</span>
+                    <div className="relative">
+                      <Clock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-primary" />
+                      <input
+                        type="time"
+                        value={returnTime}
+                        onChange={(event) => setReturnTime(event.target.value)}
+                        className="w-full rounded-xl border border-gray-200 py-2.5 pl-9 pr-4 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+                  </label>
+                </>
+              ) : null}
 
               <label className="block">
                 <span className="mb-1.5 block text-sm font-medium text-gray-700">Vehicle Type</span>

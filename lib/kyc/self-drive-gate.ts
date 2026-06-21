@@ -22,7 +22,8 @@ export async function checkSelfDriveKycGate(userId: string): Promise<SelfDriveKy
     return {
       allowed: false,
       status: "pending",
-      message: "Your KYC is under review. Self-drive booking will be available once admin approves your documents.",
+      message:
+        "Your KYC documents are under review. Booking will be enabled after admin approval.",
     };
   }
 

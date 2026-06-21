@@ -501,7 +501,7 @@ export async function approveOwnerVehicle(vehicleId: string): Promise<ActionResu
   revalidateVehiclePaths();
   revalidatePath("/admin");
   revalidatePath("/admin/vehicles");
-  revalidatePath("/admin/documents");
+  revalidatePath(`/admin/vehicles/${vehicleId}`);
   return { success: true };
 }
 
@@ -547,6 +547,8 @@ export async function rejectOwnerVehicle(vehicleId: string, reason: string): Pro
 
   revalidateVehiclePaths();
   revalidatePath("/admin");
+  revalidatePath("/admin/vehicles");
+  revalidatePath(`/admin/vehicles/${vehicleId}`);
   return { success: true };
 }
 

@@ -13,6 +13,8 @@ import {
   ROLE_REDIRECTS,
 } from "@/lib/auth/roles";
 import { safeRiderRedirectPath } from "@/lib/kyc/self-drive-nav";
+import { resolveSelfDrivePostAuthRedirect } from "@/lib/kyc/self-drive-post-auth";
+import { submitCustomerKycForUser } from "@/server/actions/customerKyc";
 import type { ActionResult, UserRole } from "@/types/database";
 
 const MOBILE_REGEX = /^[6-9]\d{9}$/;
@@ -255,7 +257,11 @@ async function rollbackAuthUser(userId: string) {
 
 import { getRoleForUser } from "@/lib/auth/get-role-for-user";
 
-async function signUpWithRole(input: SignupInput, role: UserRole): Promise<ActionResult<{ id: string }>> {
+async function signUpWithRole(
+  input: SignupInput,
+  role: UserRole,
+  options?: { confirmEmail?: boolean }
+): Promise<ActionResult<{ id: string }>> {
   const configError = getSupabaseConfigError();
   if (configError) {
     console.error("[signUpWithRole] config error", configError);
@@ -264,7 +270,7 @@ async function signUpWithRole(input: SignupInput, role: UserRole): Promise<Actio
 
   if (!input.name.trim()) return { success: false, error: "Name is required" };
   if (!input.email.trim()) return { success: false, error: "Email is required" };
-  if (!input.city.trim()) return { success: false, error: "City is required" };
+  const city = input.city.trim() || "India";
 
   const mobile = input.mobile?.replace(/\s/g, "") ?? "";
   if (mobile && !MOBILE_REGEX.test(mobile)) {
@@ -283,11 +289,11 @@ async function signUpWithRole(input: SignupInput, role: UserRole): Promise<Actio
     const { data: authData, error: authError } = await db.auth.admin.createUser({
       email,
       password: input.password,
-      email_confirm: role !== "rider",
+      email_confirm: options?.confirmEmail ?? role !== "rider",
       user_metadata: {
         name: input.name.trim(),
         mobile,
-        city: input.city.trim(),
+        city,
       },
       app_metadata: { role },
     });
@@ -306,7 +312,7 @@ async function signUpWithRole(input: SignupInput, role: UserRole): Promise<Actio
     const userId = authData.user.id;
     console.log("[signUpWithRole] auth user created", { userId, role, email });
 
-    const profileResult = await upsertUserProfile(input, role, userId);
+    const profileResult = await upsertUserProfile({ ...input, city }, role, userId);
     if (!profileResult.ok) {
       console.error("[signUpWithRole] profile save failed — rolling back", profileResult);
       await rollbackAuthUser(userId);
@@ -339,6 +345,69 @@ export async function signUpRider(input: SignupInput): Promise<ActionResult<{ id
 
 export async function signUpOwner(input: SignupInput): Promise<ActionResult<{ id: string }>> {
   return signUpWithRole(input, "owner");
+}
+
+export async function registerRiderWithKyc(formData: FormData) {
+  const name = String(formData.get("name") ?? "").trim();
+  const email = String(formData.get("email") ?? "").trim();
+  const mobile = String(formData.get("mobile") ?? "").trim();
+  const password = String(formData.get("password") ?? "");
+  const redirectAfter = safeRiderRedirectPath(String(formData.get("redirect") ?? ""));
+
+  if (!name) redirect("/signup/rider?error=" + encodeURIComponent("Full name is required"));
+  if (!email) redirect("/signup/rider?error=" + encodeURIComponent("Email is required"));
+  if (!mobile || !MOBILE_REGEX.test(mobile.replace(/\s/g, ""))) {
+    redirect("/signup/rider?error=" + encodeURIComponent("Valid 10-digit mobile number is required"));
+  }
+
+  const requiredFiles = ["aadhaar_front", "aadhaar_back", "driving_license", "selfie"] as const;
+  for (const field of requiredFiles) {
+    const file = formData.get(field);
+    if (!(file instanceof File) || file.size === 0) {
+      redirect("/signup/rider?error=" + encodeURIComponent(`Please upload ${field.replace(/_/g, " ")}`));
+    }
+  }
+
+  const signupResult = await signUpWithRole(
+    { name, email, mobile, city: "India", password },
+    "rider",
+    { confirmEmail: true }
+  );
+
+  if (!signupResult.success || !signupResult.data?.id) {
+    const qs = redirectAfter ? `&redirect=${encodeURIComponent(redirectAfter)}` : "";
+    redirect(
+      `/signup/rider?error=${encodeURIComponent(signupResult.error ?? "Registration failed")}${qs}`
+    );
+  }
+
+  const userId = signupResult.data.id;
+  const kycResult = await submitCustomerKycForUser(userId, formData);
+
+  if (!kycResult.success) {
+    const qs = redirectAfter ? `&redirect=${encodeURIComponent(redirectAfter)}` : "";
+    redirect(`/signup/rider?error=${encodeURIComponent(kycResult.error ?? "KYC upload failed")}${qs}`);
+  }
+
+  const supabase = await createClient();
+  const { error: signInError } = await supabase.auth.signInWithPassword({
+    email: email.toLowerCase(),
+    password,
+  });
+
+  if (signInError) {
+    const params = new URLSearchParams();
+    params.set("success", "Account created. Please log in to continue.");
+    if (redirectAfter) params.set("redirect", redirectAfter);
+    redirect(`/login/rider?${params.toString()}`);
+  }
+
+  if (redirectAfter) {
+    const resolved = await resolveSelfDrivePostAuthRedirect(redirectAfter, userId);
+    redirect(resolved);
+  }
+
+  redirect("/dashboard");
 }
 
 export async function signInWithRole(formData: FormData) {
@@ -379,7 +448,8 @@ export async function signInWithRole(formData: FormData) {
 
   const postLoginRedirect = safeRiderRedirectPath(String(formData.get("redirect") ?? ""));
   if (role === "rider" && postLoginRedirect) {
-    redirect(postLoginRedirect);
+    const resolved = await resolveSelfDrivePostAuthRedirect(postLoginRedirect, data.user.id);
+    redirect(resolved);
   }
 
   redirect(ROLE_REDIRECTS[role]);

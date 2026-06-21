@@ -19,6 +19,9 @@ interface Props {
     pickupCity?: string;
     dropCity?: string;
     date?: string;
+    time?: string;
+    returnDate?: string;
+    returnTime?: string;
     tripType?: string;
     vehicleType?: string;
     cities?: string;
@@ -36,6 +39,9 @@ export default async function SearchDriverPage({ searchParams }: Props) {
   const pickupCity = params.pickupCity ?? params.city ?? "";
   const dropCity = params.dropCity ?? "";
   const date = params.date ?? "";
+  const time = params.time ?? "";
+  const returnDate = params.returnDate ?? "";
+  const returnTime = params.returnTime ?? "";
   const tripType = params.tripType ?? "";
   const vehicleType = params.vehicleType ?? "";
   const cities = params.cities ?? "";
@@ -61,6 +67,9 @@ export default async function SearchDriverPage({ searchParams }: Props) {
           pickupCity,
           dropCity,
           date,
+          time,
+          returnDate,
+          returnTime,
           tripType,
           vehicleType,
           cities,

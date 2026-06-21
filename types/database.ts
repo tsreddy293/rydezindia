@@ -426,6 +426,34 @@ export interface AdminVehicleRecord {
   service_return_journey: boolean;
 }
 
+export interface ApprovalLogRecord {
+  id: string;
+  entity_type: string;
+  entity_id: string;
+  action: string;
+  approved_by: string | null;
+  approver_name?: string;
+  remarks: string | null;
+  created_at: string;
+}
+
+export interface AdminVehicleDetailRecord extends AdminVehicleRecord {
+  vehicle_make: string;
+  vehicle_model: string;
+  vehicle_year: number;
+  fuel_type: string;
+  transmission: string;
+  seating_capacity: number;
+  ac: boolean;
+  city: string | null;
+  daily_fare: number;
+  security_deposit: number;
+  images: string[];
+  created_at: string;
+  updated_at: string;
+  approval_logs: ApprovalLogRecord[];
+}
+
 export interface AdminOwnerKycRecord {
   id: string;
   kycRecordId: string | null;

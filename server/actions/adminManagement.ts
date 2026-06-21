@@ -16,7 +16,6 @@ const ADMIN_PATHS = [
   "/admin/owner-management",
   "/admin/customer-management",
   "/admin/vehicles",
-  "/admin/documents",
   "/admin/kyc",
   "/admin/owners",
   "/admin/users",

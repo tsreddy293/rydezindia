@@ -20,6 +20,9 @@ interface Props {
     pickupCity?: string;
     dropCity?: string;
     date?: string;
+    time?: string;
+    returnDate?: string;
+    returnTime?: string;
     vehicleType?: string;
     duration?: string;
     pickupLat?: string;
@@ -36,6 +39,9 @@ export default async function SearchSelfDrivePage({ searchParams }: Props) {
   const pickupCity = params.pickupCity ?? params.city ?? "";
   const dropCity = params.dropCity ?? "";
   const date = params.date ?? "";
+  const time = params.time ?? "";
+  const returnDate = params.returnDate ?? "";
+  const returnTime = params.returnTime ?? "";
   const vehicleType = params.vehicleType ?? "";
   const duration = params.duration ?? "";
 
@@ -60,6 +66,9 @@ export default async function SearchSelfDrivePage({ searchParams }: Props) {
           pickupCity,
           dropCity,
           date,
+          time,
+          returnDate,
+          returnTime,
           vehicleType,
           duration,
           pickupLat: params.pickupLat,
