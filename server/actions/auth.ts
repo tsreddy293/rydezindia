@@ -13,6 +13,13 @@ import {
   ROLE_REDIRECTS,
 } from "@/lib/auth/roles";
 import { redirectToCustomerLogin } from "@/lib/auth/customer-auth";
+import {
+  ADMIN_HOME_PATH,
+  ADMIN_LOGIN_PATH,
+  OWNER_DASHBOARD_PATH,
+  redirectPathForWrongAdminAccess,
+} from "@/lib/auth/rbac-paths";
+import { safePostLoginRedirect } from "@/lib/auth/safe-redirect";
 import { safeRiderRedirectPath, selfDriveKycPath } from "@/lib/kyc/self-drive-nav";
 import { resolveSelfDrivePostAuthRedirect } from "@/lib/kyc/self-drive-post-auth";
 import { assertRecentSignupOtp } from "@/lib/services/otp";
@@ -446,12 +453,15 @@ export async function signInWithRole(formData: FormData) {
     redirect(`${loginPath}?error=${encodeURIComponent(message)}`);
   }
 
-  const postLoginRedirect = safeRiderRedirectPath(String(formData.get("redirect") ?? ""));
+  const postLoginRedirect = safePostLoginRedirect(String(formData.get("redirect") ?? ""));
 
   if (postLoginRedirect) {
     if (role === "rider") {
       const resolved = await resolveSelfDrivePostAuthRedirect(postLoginRedirect, data.user.id);
       redirect(resolved);
+    }
+    if (role === "owner") {
+      redirect(postLoginRedirect);
     }
     await supabase.auth.signOut();
     redirect(
@@ -578,8 +588,11 @@ export async function requireRole(role: UserRole | "user", returnPath?: string) 
     if (expectedRole === "rider") {
       redirectToCustomerLogin(returnPath);
     }
-    if (currentRole === "owner") redirect("/owner/dashboard");
-    if (currentRole === "admin") redirect("/admin");
+    if (expectedRole === "admin") {
+      redirect(redirectPathForWrongAdminAccess(currentRole));
+    }
+    if (currentRole === "owner") redirect(OWNER_DASHBOARD_PATH);
+    if (currentRole === "admin") redirect(ADMIN_HOME_PATH);
     redirect(ROLE_LOGIN_PATHS[expectedRole]);
   }
 

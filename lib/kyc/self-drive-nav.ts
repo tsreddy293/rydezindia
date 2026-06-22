@@ -1,6 +1,7 @@
 /** Customer self-drive KYC navigation — never use /admin routes. */
 
 import { bookingAuthLoginPath } from "@/lib/booking/booking-return-path";
+import { isBlockedCustomerRedirect } from "@/lib/auth/rbac-paths";
 
 export function isSelfDriveBookingPath(path: string): boolean {
   return path.includes("/booking/") && path.includes("type=self_drive");
@@ -38,11 +39,8 @@ export function resolveSelfDriveKycHref(
 
 /** Safe post-login redirect for rider flows (blocks /admin and external URLs). */
 export function safeRiderRedirectPath(value: string | null | undefined): string | null {
-  if (!value || typeof value !== "string") return null;
-  const trimmed = value.trim();
-  if (!trimmed.startsWith("/") || trimmed.startsWith("//")) return null;
-  if (trimmed.startsWith("/admin")) return null;
-  return trimmed;
+  if (isBlockedCustomerRedirect(value)) return null;
+  return value!.trim();
 }
 
 export function buildDashboardKycReturnPath(params: {

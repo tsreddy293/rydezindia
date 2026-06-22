@@ -3,6 +3,14 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseAnonKey, getSupabaseUrl } from "@/lib/supabase/env";
 import { resolveAuthenticatedUserRole } from "@/lib/auth/get-role-for-user";
 import { normalizeRole } from "@/lib/auth/roles";
+import {
+  ADMIN_LOGIN_PATH,
+  CUSTOMER_HOME_PATH,
+  isAdminLoginPath,
+  isProtectedAdminPath,
+  OWNER_DASHBOARD_PATH,
+  redirectPathForWrongAdminAccess,
+} from "@/lib/auth/rbac-paths";
 import type { UserRole } from "@/types/database";
 
 async function resolveRoleSafe(
@@ -41,10 +49,11 @@ export async function proxy(request: NextRequest) {
     ? await resolveRoleSafe(data.user.id, data.user.user_metadata?.role)
     : null;
 
-  const redirectTo = (pathname: string, keepSearch = false) => {
+  /** Always strip query string on security redirects (blocks /admin?type=self_drive bypass). */
+  const redirectTo = (pathname: string) => {
     const url = request.nextUrl.clone();
     url.pathname = pathname;
-    if (!keepSearch) url.search = "";
+    url.search = "";
     return NextResponse.redirect(url);
   };
 
@@ -55,17 +64,21 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   };
 
-  // --- Admin routes — admin role only; customers never stay on /admin ---
-  const adminPublic = path === "/login/admin" || path === "/admin/login";
-  if (path.startsWith("/admin") && !adminPublic) {
+  // --- Admin routes: role=admin only; query strings never grant access ---
+  if (isProtectedAdminPath(path)) {
     if (!data.user) {
-      return redirectTo("/login/admin");
+      return redirectTo(ADMIN_LOGIN_PATH);
     }
     if (role !== "admin") {
-      if (role === "rider") return redirectTo("/dashboard");
-      if (role === "owner") return redirectTo("/owner/dashboard");
-      return redirectTo("/login/rider");
+      return redirectTo(redirectPathForWrongAdminAccess(role));
     }
+  }
+
+  // --- Legacy admin login URLs → canonical /admin-login (preserve error query params) ---
+  if (path === "/login/admin" || path === "/admin/login") {
+    const url = request.nextUrl.clone();
+    url.pathname = ADMIN_LOGIN_PATH;
+    return NextResponse.redirect(url);
   }
 
   // --- Owner routes ---
@@ -73,7 +86,9 @@ export async function proxy(request: NextRequest) {
     path === "/login/owner" ||
     path === "/signup/owner" ||
     path === "/owner/login" ||
-    path === "/owner/register";
+    path === "/owner/register" ||
+    path === OWNER_DASHBOARD_PATH;
+
   const ownerOnly =
     path.startsWith("/owner/dashboard") ||
     path.startsWith("/owner/kyc") ||
@@ -93,7 +108,11 @@ export async function proxy(request: NextRequest) {
   }
 
   if (ownerOnly && data.user && role === "rider") {
-    return redirectTo("/dashboard");
+    return redirectTo(CUSTOMER_HOME_PATH);
+  }
+
+  if (ownerOnly && data.user && role === "admin") {
+    return redirectTo("/admin");
   }
 
   // --- Rider dashboard routes ---
@@ -117,14 +136,14 @@ export async function proxy(request: NextRequest) {
   }
 
   if (riderOnly && data.user && role === "owner") {
-    return redirectTo("/owner/dashboard");
+    return redirectTo(OWNER_DASHBOARD_PATH);
   }
 
   if (riderOnly && data.user && role === "admin") {
     return redirectTo("/admin");
   }
 
-  // --- Booking routes — must be authenticated (role + KYC checked on server) ---
+  // --- Booking routes — authenticated only (KYC checked on server) ---
   const bookingDetailMatch = path.match(/^\/booking\/([^/]+)$/);
   const bookingConfirmationMatch = path.match(/^\/booking\/confirmation\/([^/]+)$/);
 
@@ -133,8 +152,12 @@ export async function proxy(request: NextRequest) {
     return redirectToLoginWithReturnTo(returnPath);
   }
 
-  // Legacy login redirects
-  if (path === "/admin/login") return redirectTo("/login/admin");
+  // --- Block non-admins from lingering on admin login after session exists ---
+  if (isAdminLoginPath(path) && data.user && role === "admin") {
+    return redirectTo("/admin");
+  }
+
+  // Legacy login redirects (never point customer/owner flows to /admin)
   if (path === "/owner/login") return redirectTo("/login/owner");
   if (path === "/user/login") return redirectTo("/login/rider");
   if (path === "/user/register") return redirectTo("/signup/rider");

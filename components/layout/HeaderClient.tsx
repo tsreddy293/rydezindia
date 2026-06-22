@@ -8,6 +8,7 @@ import Button from "@/components/ui/Button";
 import AuthRoleModal from "@/components/auth/AuthRoleModal";
 import { createClient } from "@/lib/supabase/client";
 import { normalizeRole } from "@/lib/auth/roles";
+import { OWNER_DASHBOARD_PATH, ADMIN_HOME_PATH } from "@/lib/auth/rbac-paths";
 import { signOutUser } from "@/server/actions/auth";
 import type { UserRole } from "@/types/database";
 
@@ -20,8 +21,8 @@ const NAV_LINKS = [
 ];
 
 function getAccountLink(role: HeaderRole) {
-  if (role === "owner") return { href: "/owner/dashboard", label: "Owner Dashboard" };
-  if (role === "admin") return { href: "/admin", label: "Admin Dashboard" };
+  if (role === "owner") return { href: OWNER_DASHBOARD_PATH, label: "Owner Dashboard" };
+  if (role === "admin") return { href: ADMIN_HOME_PATH, label: "Admin Dashboard" };
   return { href: "/dashboard", label: "My Dashboard" };
 }
 
