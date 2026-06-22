@@ -13,7 +13,7 @@ export function resolveOwnerAdminStatus(sources: {
     sources.userOwnerStatus,
   ]
     .filter((value) => value !== null && value !== undefined && String(value).trim() !== "")
-    .map((value) => String(value).toLowerCase());
+    .map((value) => String(value).toLowerCase().trim());
 
   if (values.some((value) => value === "approved" || value === "verified")) return "approved";
   if (values.some((value) => value === "rejected")) return "rejected";

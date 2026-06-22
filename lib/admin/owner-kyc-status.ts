@@ -8,7 +8,7 @@ export function resolveOwnerKycAdminStatus(sources: {
 }): OwnerStatus {
   const values = [sources.profileKyc, sources.userKyc, sources.legacyKyc]
     .filter((value) => value !== null && value !== undefined && String(value).trim() !== "")
-    .map((value) => String(value).toLowerCase());
+    .map((value) => String(value).toLowerCase().trim());
 
   if (values.some((value) => value === "approved" || value === "verified")) return "approved";
   if (values.some((value) => value === "rejected")) return "rejected";

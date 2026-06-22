@@ -30,6 +30,7 @@ export function isBlockedCustomerRedirect(path: string | null | undefined): bool
   return false;
 }
 
+/** Where to send users who hit /admin without admin role (never the public home page). */
 export function redirectPathForWrongAdminAccess(_role: UserRole | null): string {
-  return CUSTOMER_HOME_PATH;
+  return ADMIN_LOGIN_PATH;
 }

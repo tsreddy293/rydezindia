@@ -15,6 +15,8 @@ import {
 import { ownerProfileDocumentsToSet } from "@/lib/services/owner-profile-kyc";
 import { ownerKycCanApprove } from "@/lib/admin/owner-kyc";
 import { normalizeProfileStatus } from "@/lib/admin/owner-profile-fields";
+import { ownerStatusFromRow } from "@/lib/admin/owner-profile-status";
+import { resolveOwnerKycAdminStatus } from "@/lib/admin/owner-kyc-status";
 import {
   customerKycDocumentsForAdmin,
   customerKycHasRequiredDocs,
@@ -66,6 +68,14 @@ import {
   isServiceEnabled,
   type VehicleServiceKey,
 } from "@/lib/vehicles/services";
+import {
+  logFetchApprovedMarketplaceVehicleChecks,
+  logSearchSelfDrivePostFilters,
+  logSelfDriveDebugVehicleHeader,
+  SELF_DRIVE_DEBUG_REGISTRATION,
+  vehicleMatchesSelfDriveDebug,
+  type OwnerEligibilityDebug,
+} from "@/lib/vehicles/self-drive-search-debug";
 
 const db = () => createAdminClient();
 
@@ -404,9 +414,47 @@ async function resolveOwnerMobiles(ownerIds: string[]): Promise<Map<string, stri
   return mobileMap;
 }
 
+async function loadSelfDriveDebugVehicleRow(fetchedRows: Row[]): Promise<Row | null> {
+  const inBatch = fetchedRows.find(vehicleMatchesSelfDriveDebug);
+  if (inBatch) return inBatch;
+
+  const client = db();
+  for (const column of ["registration_number", "vehicle_number"] as const) {
+    const { data, error } = await client
+      .from("vehicles")
+      .select("*")
+      .ilike(column, `%${SELF_DRIVE_DEBUG_REGISTRATION}%`)
+      .limit(1)
+      .maybeSingle();
+
+    if (!error && data) {
+      return data as Row;
+    }
+  }
+
+  console.warn(
+    `[search-self-drive DEBUG] Vehicle ${SELF_DRIVE_DEBUG_REGISTRATION} not found in public.vehicles`
+  );
+  return null;
+}
+
+function ownerEligibilityDebug(
+  ownerId: string,
+  eligibilityMap: Map<string, ReturnType<typeof ownerMarketplaceEligibilityFromRow>>
+): OwnerEligibilityDebug {
+  const eligibility = eligibilityMap.get(ownerId) ?? ownerMarketplaceEligibilityFromRow({});
+  return {
+    ownerStatus: eligibility.ownerStatus,
+    kycStatus: eligibility.kycStatus,
+    ownerApproved: eligibility.ownerApproved,
+    kycApproved: eligibility.kycApproved,
+  };
+}
+
 async function fetchApprovedMarketplaceVehicles(
   service?: VehicleServiceKey
 ): Promise<{ rows: Row[]; error: string | null }> {
+  let usedIsActiveFilter = true;
   let { data, error } = await db()
     .from("vehicles")
     .select("*")
@@ -415,6 +463,7 @@ async function fetchApprovedMarketplaceVehicles(
     .order("created_at", { ascending: false });
 
   if (error?.message?.includes("is_active")) {
+    usedIsActiveFilter = false;
     console.warn("[fetchApprovedMarketplaceVehicles] is_active column missing — run supabase/RUN_VEHICLES_SEARCH_COLUMNS.sql");
     ({ data, error } = await db()
       .from("vehicles")
@@ -428,17 +477,54 @@ async function fetchApprovedMarketplaceVehicles(
     return { rows: [], error: error.message };
   }
 
-  let rows = asRows(data);
+  const rawRows = asRows(data);
+  const debugRow = await loadSelfDriveDebugVehicleRow(rawRows);
+  const debugInApprovedBatch = debugRow
+    ? rawRows.some((row) => String(row.id) === String(debugRow.id))
+    : false;
+
+  let rows = rawRows;
   const ownerIds = rows.map((row) => getString(row, "owner_id")).filter(Boolean);
-  const eligibilityMap = await getOwnerMarketplaceEligibilityMap(ownerIds);
-  rows = rows.filter((row) =>
+  const debugOwnerId = debugRow ? getString(debugRow, "owner_id") : "";
+  const eligibilityOwnerIds = debugOwnerId && !ownerIds.includes(debugOwnerId)
+    ? [...ownerIds, debugOwnerId]
+    : ownerIds;
+  const eligibilityMap = await getOwnerMarketplaceEligibilityMap(eligibilityOwnerIds);
+
+  const rowsAfterOwnerGate = rows.filter((row) =>
     isVehicleCustomerVisible(row, getString(row, "owner_id"), eligibilityMap)
   );
 
+  rows = rowsAfterOwnerGate;
+
+  let rowsAfterServiceGate = rows;
   if (service) {
     const before = rows.length;
-    rows = rows.filter((row) => isServiceEnabled(row, service));
+    rowsAfterServiceGate = rows.filter((row) => isServiceEnabled(row, service));
+    rows = rowsAfterServiceGate;
     console.log(`[fetchApprovedMarketplaceVehicles] service "${service}": ${before} → ${rows.length}`);
+  }
+
+  if (debugRow) {
+    const ownerId = getString(debugRow, "owner_id");
+    const eligibility = ownerEligibilityDebug(ownerId, eligibilityMap);
+    const includedAfterOwnerGate = rowsAfterOwnerGate.some(
+      (row) => String(row.id) === String(debugRow.id)
+    );
+    const includedAfterServiceGate = rowsAfterServiceGate.some(
+      (row) => String(row.id) === String(debugRow.id)
+    );
+
+    logFetchApprovedMarketplaceVehicleChecks({
+      row: debugRow,
+      ownerId,
+      eligibility,
+      usedIsActiveFilter,
+      inApprovedDbRows: debugInApprovedBatch,
+      service,
+      includedAfterOwnerGate,
+      includedAfterServiceGate,
+    });
   }
 
   return { rows, error: null };
@@ -995,6 +1081,11 @@ export async function searchSelfDriveVehicles(filters: {
     return mapVehicleRowToSelfDriveResult(row, ownerCity, ownerName);
   });
 
+  const debugSourceRow = rows.find(vehicleMatchesSelfDriveDebug) ?? null;
+  const debugMapped = debugSourceRow
+    ? results.find((result) => String(result.id) === String(debugSourceRow.id)) ?? null
+    : null;
+
   if (cityFilter) {
     const before = results.length;
     results = results.filter((result) => {
@@ -1027,6 +1118,25 @@ export async function searchSelfDriveVehicles(filters: {
 
   if (filters.date) {
     results = results.filter((r) => !r.journey_date || r.journey_date === filters.date);
+  }
+
+  if (debugSourceRow && debugMapped) {
+    const includedInFinal = results.some((result) => String(result.id) === String(debugMapped.id));
+    logSearchSelfDrivePostFilters({
+      row: debugSourceRow,
+      result: debugMapped,
+      filters,
+      includedInFinalResults: includedInFinal,
+    });
+  } else if (debugSourceRow) {
+    logSelfDriveDebugVehicleHeader(debugSourceRow);
+    console.log(
+      `[searchSelfDriveVehicles] ${SELF_DRIVE_DEBUG_REGISTRATION} passed marketplace gates but was not mapped to a result`
+    );
+  } else {
+    console.warn(
+      `[searchSelfDriveVehicles] ${SELF_DRIVE_DEBUG_REGISTRATION} not in marketplace rows — see fetchApprovedMarketplaceVehicles debug above`
+    );
   }
 
   if (debugExclusions.length > 0) {
@@ -1419,22 +1529,39 @@ async function getOwnerMarketplaceEligibilityMap(ownerIds: string[]) {
   const map = new Map<string, ReturnType<typeof ownerMarketplaceEligibilityFromRow>>();
   if (uniqueIds.length === 0) return map;
 
-  const profileResult = await db()
-    .from("owner_profiles")
-    .select("user_id, owner_status, kyc_status")
-    .in("user_id", uniqueIds);
+  const [profileResult, userResult] = await Promise.all([
+    db()
+      .from("owner_profiles")
+      .select("user_id, owner_status, kyc_status, status")
+      .in("user_id", uniqueIds),
+    db()
+      .from("users")
+      .select("id, owner_status, kyc_status")
+      .in("id", uniqueIds),
+  ]);
 
   let profileRows = asRows(profileResult.data);
   if (profileResult.error && isMissingColumnError(profileResult.error, "owner_status", "kyc_status")) {
     profileRows = [];
   }
 
+  let userRows = asRows(userResult.data);
+  if (userResult.error && isMissingColumnError(userResult.error, "owner_status", "kyc_status")) {
+    const fallback = await db().from("users").select("id, kyc_status").in("id", uniqueIds);
+    userRows = asRows(fallback.data);
+  }
+
   const profileMap = new Map(profileRows.map((row) => [getString(row, "user_id"), row]));
+  const userMap = new Map(userRows.map((row) => [getString(row, "id"), row]));
 
   for (const id of uniqueIds) {
     const profile = profileMap.get(id);
-    const kycStatus = normalizeProfileStatus(getString(profile, "kyc_status"), "pending");
-    const ownerStatus = normalizeProfileStatus(getString(profile, "owner_status"), "pending");
+    const user = userMap.get(id);
+    const ownerStatus = ownerStatusFromRow(profile, user);
+    const kycStatus = resolveOwnerKycAdminStatus({
+      profileKyc: getString(profile, "kyc_status") || undefined,
+      userKyc: getString(user, "kyc_status") || undefined,
+    });
     map.set(id, {
       ownerStatus,
       kycStatus,
@@ -1498,19 +1625,12 @@ async function getVehicleDashboardCounts(): Promise<{
 export async function assertOwnerApprovedForVehicle(
   ownerId: string
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const { data, error } = await db()
-    .from("owner_profiles")
-    .select("owner_status, kyc_status")
-    .eq("user_id", ownerId)
-    .maybeSingle();
-
-  if (error) {
-    return { ok: false, error: error.message };
-  }
-
-  const ownerStatus = normalizeProfileStatus(getString(data as Row | undefined, "owner_status"), "pending");
-  const kycStatus = normalizeProfileStatus(getString(data as Row | undefined, "kyc_status"), "pending");
-  const blocked = vehicleApprovalBlockedReason({ ownerStatus, kycStatus });
+  const { fetchOwnerApprovalState } = await import("@/lib/services/owner-approval-sync");
+  const state = await fetchOwnerApprovalState(ownerId);
+  const blocked = vehicleApprovalBlockedReason({
+    ownerStatus: state.ownerStatus,
+    kycStatus: state.kycStatus,
+  });
 
   if (blocked) {
     return { ok: false, error: blocked };
@@ -1945,7 +2065,7 @@ export async function getAdminOwnerManagementList(): Promise<AdminOwnerManagemen
   noStore();
   const owners = await getAdminOwnerList();
 
-  const [kycRows, profileRows, vehicleRows] = await Promise.all([
+  const [kycRows, profileRows, vehicleRows, userStatusRows] = await Promise.all([
     getAdminOwnerKycList(),
     selectOwnerProfilesForAdmin(500),
     selectRows(
@@ -1953,10 +2073,12 @@ export async function getAdminOwnerManagementList(): Promise<AdminOwnerManagemen
       "id, owner_id, vehicle_make, vehicle_model, vehicle_year, registration_number, approval_status",
       500
     ),
+    selectRows("users", "id, owner_status, kyc_status", 500),
   ]);
 
   const kycMap = new Map(kycRows.map((row) => [row.id, row]));
   const profileMap = new Map(profileRows.map((row) => [getString(row, "user_id"), row]));
+  const userMap = new Map(userStatusRows.map((row) => [getString(row, "id"), row]));
 
   const vehiclesByOwner = new Map<string, AdminOwnerManagementRecord["vehicles"]>();
   vehicleRows.forEach((row) => {
@@ -1979,8 +2101,13 @@ export async function getAdminOwnerManagementList(): Promise<AdminOwnerManagemen
   return owners.map((owner) => {
     const kyc = kycMap.get(owner.id);
     const profile = profileMap.get(owner.id);
-    const kycStatus = normalizeProfileStatus(getString(profile, "kyc_status"), "pending");
-    const ownerStatus = normalizeProfileStatus(getString(profile, "owner_status"), "pending");
+    const user = userMap.get(owner.id);
+    const kycStatus = resolveOwnerKycAdminStatus({
+      profileKyc: getString(profile, "kyc_status") || undefined,
+      userKyc: getString(user, "kyc_status") || undefined,
+      legacyKyc: kyc?.status,
+    });
+    const ownerStatus = ownerStatusFromRow(profile, user);
 
     const profileRow = profile
       ? {

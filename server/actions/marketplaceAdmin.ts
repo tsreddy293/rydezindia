@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { usersWritePayload } from "@/lib/supabase/users-table";
 import { createNotification } from "@/lib/services/notifications";
+import { syncOwnerApprovalToProfile } from "@/lib/services/owner-approval-sync";
 import { publishVehicleToMarketplace, unpublishVehicleFromMarketplace } from "@/lib/services/vehicle-onboarding";
 import { requireRole } from "@/server/actions/auth";
 import type { UserRole } from "@/types/database";
@@ -153,10 +154,20 @@ export async function updateOwnerStatus(ownerId: string, status: "approved" | "r
     });
   }
 
+  await syncOwnerApprovalToProfile(ownerId, {
+    owner_status: status,
+    kyc_status: status === "approved" ? "approved" : status === "rejected" ? "rejected" : "pending",
+    ...(status === "approved"
+      ? { approved_at: new Date().toISOString(), approved_by: user.id }
+      : {}),
+  });
+
   revalidatePath("/admin");
   revalidatePath("/admin/owners");
   revalidatePath("/admin/kyc");
+  revalidatePath("/admin/owner-management");
   revalidatePath("/admin/vehicles");
+  revalidatePath("/search-self-drive");
   return { success: true };
 }
 
@@ -214,6 +225,11 @@ export async function updateKycStatus(id: string, status: "approved" | "rejected
 
   if (ownerId && status === "approved") {
     await db.from("owners").update({ kyc_verified: true }).eq("id", ownerId);
+    await syncOwnerApprovalToProfile(ownerId, {
+      kyc_status: "approved",
+      approved_at: new Date().toISOString(),
+      approved_by: user.id,
+    });
     await createNotification({
       recipientId: ownerId,
       recipientRole: "owner",
@@ -226,6 +242,7 @@ export async function updateKycStatus(id: string, status: "approved" | "rejected
     });
   } else if (ownerId) {
     await db.from("owners").update({ kyc_verified: false }).eq("id", ownerId);
+    await syncOwnerApprovalToProfile(ownerId, { kyc_status: status });
     await createNotification({
       recipientId: ownerId,
       recipientRole: "owner",
@@ -237,6 +254,9 @@ export async function updateKycStatus(id: string, status: "approved" | "rejected
   }
 
   revalidatePath("/admin/kyc");
+  revalidatePath("/admin/owner-management");
+  revalidatePath("/admin/vehicles");
+  revalidatePath("/search-self-drive");
   return { success: true };
 }
 
