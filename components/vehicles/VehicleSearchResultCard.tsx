@@ -14,6 +14,7 @@ import {
   Users,
 } from "lucide-react";
 import Button from "@/components/ui/Button";
+import AuthAwareBookNowLink from "@/components/booking/AuthAwareBookNowLink";
 import TrustBadgeDisplay from "@/components/trust/TrustBadgeDisplay";
 import { formatINR } from "@/lib/utils";
 import type { TrustBadges } from "@/lib/services/trust-badges";
@@ -190,9 +191,15 @@ export default function VehicleSearchResultCard({
                   View Details
                 </Button>
               )}
-              <Button href={bookingLink} variant="primary" size="sm">
-                Book Now
-              </Button>
+              {isSelfDrive ? (
+                <AuthAwareBookNowLink href={bookingLink} variant="primary" size="sm">
+                  Book Now
+                </AuthAwareBookNowLink>
+              ) : (
+                <Button href={bookingLink} variant="primary" size="sm">
+                  Book Now
+                </Button>
+              )}
             </div>
           </div>
         </div>

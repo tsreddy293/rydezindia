@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Calendar, Car, IndianRupee, MapPin, Shield, Users } from "lucide-react";
+import AuthAwareBookingLink from "@/components/booking/AuthAwareBookingLink";
 import { formatDate, formatINR } from "@/lib/utils";
 import type { DriverVehicleResult, SelfDriveResult } from "@/types/database";
 
@@ -16,11 +17,11 @@ export default function MarketplaceResultCard({ type, result }: Props) {
   const price = result.price || (isSelfDrive ? (result as SelfDriveResult).daily_rent : (result as DriverVehicleResult).rate_per_km);
   const priceSuffix = isSelfDrive ? "/ day" : "/ full vehicle";
 
-  return (
-    <Link
-      href={href}
-      className="card-hover group block rounded-2xl bg-white border border-gray-100 overflow-hidden shadow-sm"
-    >
+  const cardClassName =
+    "card-hover group block rounded-2xl bg-white border border-gray-100 overflow-hidden shadow-sm";
+
+  const cardBody = (
+    <>
       <div className="bg-gradient-to-r from-secondary to-primary p-5 text-white">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -70,6 +71,20 @@ export default function MarketplaceResultCard({ type, result }: Props) {
           </span>
         </div>
       </div>
+    </>
+  );
+
+  if (isSelfDrive) {
+    return (
+      <AuthAwareBookingLink href={href} className={cardClassName}>
+        {cardBody}
+      </AuthAwareBookingLink>
+    );
+  }
+
+  return (
+    <Link href={href} className={cardClassName}>
+      {cardBody}
     </Link>
   );
 }

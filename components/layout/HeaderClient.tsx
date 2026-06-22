@@ -20,10 +20,11 @@ const NAV_LINKS = [
   { href: "/contact", label: "Contact" },
 ];
 
-function getAccountLink(role: HeaderRole) {
-  if (role === "owner") return { href: OWNER_DASHBOARD_PATH, label: "Owner Dashboard" };
+function getAccountLink(role: HeaderRole): { href: string; label: string } | null {
   if (role === "admin") return { href: ADMIN_HOME_PATH, label: "Admin Dashboard" };
-  return { href: "/dashboard", label: "My Dashboard" };
+  if (role === "owner") return { href: OWNER_DASHBOARD_PATH, label: "Owner Dashboard" };
+  if (role === "rider") return { href: "/dashboard", label: "My Account" };
+  return null;
 }
 
 function useIsMobile(breakpoint = 1024) {
@@ -41,10 +42,12 @@ function useIsMobile(breakpoint = 1024) {
 export default function HeaderClient() {
   const [open, setOpen] = useState(false);
   const [role, setRole] = useState<HeaderRole>(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [authModal, setAuthModal] = useState<"login" | "signup" | null>(null);
   const isMobile = useIsMobile();
   const mountedRef = useRef(false);
   const accountLink = getAccountLink(role);
+  const showAccountActions = authChecked && accountLink !== null;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -54,23 +57,42 @@ export default function HeaderClient() {
       if (mountedRef.current) setRole(nextRole);
     }
 
+    function safeSetAuthChecked(checked: boolean) {
+      if (mountedRef.current) setAuthChecked(checked);
+    }
+
     async function loadRole() {
-      const { data, error } = await supabase.auth.getUser();
+      const { data, error } = await supabase.auth.getSession();
       if (!mountedRef.current) return;
-      if (error || !data.user) {
+
+      if (error || !data.session?.user) {
         safeSetRole(null);
+        safeSetAuthChecked(true);
         return;
       }
+
+      const user = data.session.user;
       const { data: profile } = await supabase
         .from("users")
         .select("role")
-        .eq("id", data.user.id)
+        .eq("id", user.id)
         .maybeSingle();
-      const nextRole =
-        normalizeRole((profile as { role?: unknown } | null)?.role) ??
-        normalizeRole(data.user.user_metadata?.role) ??
-        "rider";
+
+      const dbRole = normalizeRole((profile as { role?: unknown } | null)?.role);
+      const metadataRole = normalizeRole(user.user_metadata?.role);
+
+      // Admin/owner links require DB role — never trust metadata alone.
+      let nextRole: HeaderRole = null;
+      if (dbRole === "admin" || dbRole === "owner") {
+        nextRole = dbRole;
+      } else if (dbRole === "rider") {
+        nextRole = "rider";
+      } else if (metadataRole === "rider") {
+        nextRole = "rider";
+      }
+
       safeSetRole(nextRole);
+      safeSetAuthChecked(true);
     }
 
     loadRole();
@@ -119,7 +141,7 @@ export default function HeaderClient() {
           </nav>
 
           <div className="hidden items-center gap-3 lg:flex">
-            {role ? (
+            {showAccountActions && accountLink ? (
               <>
                 <Button href={accountLink.href} variant="outline" size="sm">
                   {accountLink.label}
@@ -133,7 +155,7 @@ export default function HeaderClient() {
                   </button>
                 </form>
               </>
-            ) : (
+            ) : authChecked ? (
               <>
                 <Button type="button" variant="ghost" size="sm" onClick={() => openAuth("login")}>
                   Login
@@ -142,7 +164,7 @@ export default function HeaderClient() {
                   Sign Up
                 </Button>
               </>
-            )}
+            ) : null}
           </div>
 
           <button
@@ -168,7 +190,7 @@ export default function HeaderClient() {
                 </Link>
               ))}
               <div className="mt-4 flex flex-col gap-3">
-                {role ? (
+                {showAccountActions && accountLink ? (
                   <>
                     <Button href={accountLink.href} variant="outline" size="sm" onClick={() => setOpen(false)}>
                       {accountLink.label}
@@ -182,7 +204,7 @@ export default function HeaderClient() {
                       </button>
                     </form>
                   </>
-                ) : (
+                ) : authChecked ? (
                   <>
                     <Button href="/login" variant="ghost" size="sm" onClick={() => setOpen(false)}>
                       Login
@@ -191,7 +213,7 @@ export default function HeaderClient() {
                       Sign Up
                     </Button>
                   </>
-                )}
+                ) : null}
               </div>
             </nav>
           </div>

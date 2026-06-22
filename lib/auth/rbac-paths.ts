@@ -30,8 +30,6 @@ export function isBlockedCustomerRedirect(path: string | null | undefined): bool
   return false;
 }
 
-export function redirectPathForWrongAdminAccess(role: UserRole | null): string {
-  if (role === "rider") return CUSTOMER_HOME_PATH;
-  if (role === "owner") return OWNER_DASHBOARD_PATH;
-  return ADMIN_LOGIN_PATH;
+export function redirectPathForWrongAdminAccess(_role: UserRole | null): string {
+  return CUSTOMER_HOME_PATH;
 }
