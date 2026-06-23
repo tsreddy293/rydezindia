@@ -75,6 +75,24 @@ export function logSelfDriveDebugVehicleFields(input: {
   console.log(`availability result: ${availabilityResult}`);
 }
 
+/** Gates applied inside fetchSelfDriveSearchVehicles() (permissive self-drive path). */
+export function logSelfDriveSearchFetchChecks(input: {
+  row: Record<string, unknown>;
+  approvedInVehiclesTable: boolean;
+  activeOk: boolean;
+  selfDriveServiceOk: boolean;
+  included: boolean;
+}): void {
+  const { row, approvedInVehiclesTable, activeOk, selfDriveServiceOk, included } = input;
+
+  logSelfDriveDebugVehicleHeader(row);
+  console.log("[fetchSelfDriveSearchVehicles] filter checks (owner gate skipped):");
+  passFail("Vehicle approved (either column)", approvedInVehiclesTable, vehicleApprovalFromRow(row));
+  passFail("Vehicle is_active", activeOk, String(row.is_active ?? "null"));
+  passFail("Self Drive service enabled", selfDriveServiceOk);
+  passFail("Final self-drive include", included);
+}
+
 /** Gates applied inside fetchApprovedMarketplaceVehicles(). */
 export function logFetchApprovedMarketplaceVehicleChecks(input: {
   row: Record<string, unknown>;

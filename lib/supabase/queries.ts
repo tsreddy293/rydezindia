@@ -71,6 +71,7 @@ import {
 import {
   logFetchApprovedMarketplaceVehicleChecks,
   logSearchSelfDrivePostFilters,
+  logSelfDriveSearchFetchChecks,
   logSelfDriveDebugVehicleHeader,
   SELF_DRIVE_DEBUG_REGISTRATION,
   vehicleMatchesSelfDriveDebug,
@@ -172,6 +173,18 @@ async function countTableWhere(table: string, column: string, value: string): Pr
 
 function getVehicleApprovalStatus(row: Row): string {
   return getString(row, "approval_status", getString(row, "vehicle_approval_status", "pending"));
+}
+
+function isVehicleMarketplaceApproved(row: Row): boolean {
+  return getVehicleApprovalStatus(row).toLowerCase().trim() === "approved";
+}
+
+function isVehicleSearchActive(row: Row): boolean {
+  return row.is_active !== false;
+}
+
+function passesSelfDriveService(row: Row): boolean {
+  return row.service_self_drive !== false;
 }
 
 function formatVehicleDisplayName(row: Row): string {
@@ -451,33 +464,104 @@ function ownerEligibilityDebug(
   };
 }
 
-async function fetchApprovedMarketplaceVehicles(
-  service?: VehicleServiceKey
-): Promise<{ rows: Row[]; error: string | null }> {
-  let usedIsActiveFilter = true;
-  let { data, error } = await db()
+async function mergeApprovedSelfDriveListings(primary: Row[]): Promise<Row[]> {
+  const byId = new Map(primary.map((row) => [getString(row, "id"), row]));
+
+  const { data, error } = await db()
+    .from("self_drive_vehicles")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(500);
+
+  if (error) {
+    if (!isMissingTableError(error)) {
+      console.warn("[fetchSelfDriveSearchVehicles] self_drive_vehicles:", error.message);
+    }
+    return primary;
+  }
+
+  const missingIds: string[] = [];
+  for (const listing of asRows(data)) {
+    const listingApproved =
+      getString(listing, "vehicle_approval_status", "pending") === "approved" ||
+      getString(listing, "status") === "available";
+    if (!listingApproved) continue;
+
+    const vehicleId = getString(listing, "vehicle_id");
+    if (!vehicleId || byId.has(vehicleId)) continue;
+    missingIds.push(vehicleId);
+  }
+
+  if (missingIds.length === 0) return primary;
+
+  const { data: vehicles } = await db()
     .from("vehicles")
     .select("*")
-    .eq("approval_status", "approved")
-    .eq("is_active", true)
-    .order("created_at", { ascending: false });
+    .in("id", [...new Set(missingIds)]);
 
-  if (error?.message?.includes("is_active")) {
-    usedIsActiveFilter = false;
-    console.warn("[fetchApprovedMarketplaceVehicles] is_active column missing — run supabase/RUN_VEHICLES_SEARCH_COLUMNS.sql");
-    ({ data, error } = await db()
-      .from("vehicles")
-      .select("*")
-      .eq("approval_status", "approved")
-      .order("created_at", { ascending: false }));
+  for (const row of asRows(vehicles)) {
+    if (!isVehicleSearchActive(row) || !passesSelfDriveService(row)) continue;
+    byId.set(getString(row, "id"), row);
   }
+
+  return [...byId.values()];
+}
+
+/** Self-drive search: approved vehicles only — no owner gate, no city/date/type filters. */
+async function fetchSelfDriveSearchVehicles(): Promise<{ rows: Row[]; error: string | null }> {
+  const { data, error } = await db()
+    .from("vehicles")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(500);
 
   if (error) {
     if (isMissingTableError(error)) return { rows: [], error: null };
     return { rows: [], error: error.message };
   }
 
-  const rawRows = asRows(data);
+  let rows = asRows(data).filter(
+    (row) =>
+      isVehicleMarketplaceApproved(row) && isVehicleSearchActive(row) && passesSelfDriveService(row)
+  );
+
+  rows = await mergeApprovedSelfDriveListings(rows);
+
+  const debugRow = await loadSelfDriveDebugVehicleRow(rows);
+  if (debugRow) {
+    const included = rows.some((row) => String(row.id) === String(debugRow.id));
+    logSelfDriveSearchFetchChecks({
+      row: debugRow,
+      approvedInVehiclesTable: isVehicleMarketplaceApproved(debugRow),
+      activeOk: isVehicleSearchActive(debugRow),
+      selfDriveServiceOk: passesSelfDriveService(debugRow),
+      included,
+    });
+  }
+
+  console.log(`[fetchSelfDriveSearchVehicles] results: ${rows.length}`);
+  return { rows, error: null };
+}
+
+async function fetchApprovedMarketplaceVehicles(
+  service?: VehicleServiceKey
+): Promise<{ rows: Row[]; error: string | null }> {
+  const usedIsActiveFilter = true;
+  const { data, error } = await db()
+    .from("vehicles")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(500);
+
+  if (error) {
+    if (isMissingTableError(error)) return { rows: [], error: null };
+    return { rows: [], error: error.message };
+  }
+
+  // Match either approval_status or vehicle_approval_status (admin may set only one).
+  const rawRows = asRows(data).filter(
+    (row) => isVehicleSearchActive(row) && isVehicleMarketplaceApproved(row)
+  );
   const debugRow = await loadSelfDriveDebugVehicleRow(rawRows);
   const debugInApprovedBatch = debugRow
     ? rawRows.some((row) => String(row.id) === String(debugRow.id))
@@ -1057,13 +1141,13 @@ export async function searchSelfDriveVehicles(filters: {
   console.log("[searchSelfDriveVehicles] SQL equivalent:", SELF_DRIVE_SEARCH_SQL);
   console.log("[searchSelfDriveVehicles] filters:", JSON.stringify(filters));
 
-  const { rows, error } = await fetchApprovedMarketplaceVehicles("service_self_drive");
+  const { rows, error } = await fetchSelfDriveSearchVehicles();
   if (error) {
     console.error("[searchSelfDriveVehicles] query error:", error);
     return { data: [], error };
   }
 
-  console.log("[searchSelfDriveVehicles] approved vehicles from DB:", rows.length);
+  console.log("[searchSelfDriveVehicles] self-drive vehicles from DB:", rows.length);
 
   const ownerIds = rows.map((row) => getString(row, "owner_id"));
   const [ownerCityMap, ownerNameMap] = await Promise.all([
@@ -1086,7 +1170,11 @@ export async function searchSelfDriveVehicles(filters: {
     ? results.find((result) => String(result.id) === String(debugSourceRow.id)) ?? null
     : null;
 
-  if (cityFilter) {
+  // Post-filters (city / type / date) disabled — show all marketplace-approved self-drive vehicles.
+  // Re-enable behind env when stricter search is needed again.
+  const applySelfDrivePostFilters = process.env.SEARCH_SELF_DRIVE_STRICT_FILTERS === "1";
+
+  if (applySelfDrivePostFilters && cityFilter) {
     const before = results.length;
     results = results.filter((result) => {
       const match = matchesCity(result.pickup_city, cityFilter);
@@ -1100,7 +1188,7 @@ export async function searchSelfDriveVehicles(filters: {
     console.log(`[searchSelfDriveVehicles] city filter "${cityFilter}": ${before} → ${results.length}`);
   }
 
-  if (filters.vehicleType) {
+  if (applySelfDrivePostFilters && filters.vehicleType) {
     const before = results.length;
     results = results.filter((result) => {
       const match = matchesVehicleCategory(result.vehicle_type, filters.vehicleType);
@@ -1116,7 +1204,7 @@ export async function searchSelfDriveVehicles(filters: {
     );
   }
 
-  if (filters.date) {
+  if (applySelfDrivePostFilters && filters.date) {
     results = results.filter((r) => !r.journey_date || r.journey_date === filters.date);
   }
 
@@ -1248,10 +1336,13 @@ export async function getJourneyById(id: string): Promise<Record<string, unknown
     .from("vehicles")
     .select("*")
     .eq("id", id)
-    .eq("approval_status", "approved")
     .maybeSingle();
 
-  if (!vehicleData || !isServiceEnabled(vehicleData as Row, "service_return_journey")) {
+  if (
+    !vehicleData ||
+    !isVehicleMarketplaceApproved(vehicleData as Row) ||
+    !isServiceEnabled(vehicleData as Row, "service_return_journey")
+  ) {
     return null;
   }
 
@@ -1299,7 +1390,6 @@ export async function getSelfDriveListingById(id: string): Promise<SelfDriveResu
     .from("vehicles")
     .select("*")
     .eq("id", id)
-    .eq("approval_status", "approved")
     .maybeSingle();
 
   if (error) {
@@ -1309,22 +1399,32 @@ export async function getSelfDriveListingById(id: string): Promise<SelfDriveResu
   if (!data) return null;
 
   const row = data as Row;
-  if (!isServiceEnabled(row, "service_self_drive")) return null;
+  if (
+    !isVehicleMarketplaceApproved(row) ||
+    !isVehicleSearchActive(row) ||
+    !passesSelfDriveService(row)
+  ) {
+    return null;
+  }
 
   const ownerId = getString(row, "owner_id");
-  const eligibilityMap = await getOwnerMarketplaceEligibilityMap([ownerId]);
-  if (!isVehicleCustomerVisible(row, ownerId, eligibilityMap)) return null;
-
+  const { resolveCanonicalOwnerUserId } = await import("@/lib/services/owner-approval-sync");
+  const canonicalOwnerId = ownerId ? await resolveCanonicalOwnerUserId(ownerId) : "";
   const [ownerCityMap, ownerNameMap] = await Promise.all([
-    resolveOwnerCities([ownerId]),
-    resolveOwnerNames([ownerId]),
+    resolveOwnerCities([canonicalOwnerId || ownerId]),
+    resolveOwnerNames([canonicalOwnerId || ownerId]),
   ]);
 
-  return mapVehicleRowToSelfDriveResult(
+  const result = mapVehicleRowToSelfDriveResult(
     row,
-    ownerCityMap.get(ownerId) ?? "",
-    ownerNameMap.get(ownerId) ?? "Owner"
+    ownerCityMap.get(canonicalOwnerId || ownerId) ?? "",
+    ownerNameMap.get(canonicalOwnerId || ownerId) ?? "Owner"
   );
+
+  return {
+    ...result,
+    owner_id: canonicalOwnerId || ownerId || result.owner_id,
+  };
 }
 
 export async function getDriverListingById(id: string): Promise<DriverVehicleResult | null> {
@@ -1332,14 +1432,13 @@ export async function getDriverListingById(id: string): Promise<DriverVehicleRes
     .from("vehicles")
     .select("*")
     .eq("id", id)
-    .eq("approval_status", "approved")
     .maybeSingle();
 
   if (error) {
     console.error("[getDriverListingById]", error.message);
     return null;
   }
-  if (!data) return null;
+  if (!data || !isVehicleMarketplaceApproved(data as Row)) return null;
 
   const row = data as Row;
   if (!isServiceEnabled(row, "service_with_driver") && !isServiceEnabled(row, "service_local_rental")) {
@@ -1529,15 +1628,25 @@ async function getOwnerMarketplaceEligibilityMap(ownerIds: string[]) {
   const map = new Map<string, ReturnType<typeof ownerMarketplaceEligibilityFromRow>>();
   if (uniqueIds.length === 0) return map;
 
+  const { resolveCanonicalOwnerUserId } = await import("@/lib/services/owner-approval-sync");
+  const canonicalByOriginal = new Map<string, string>();
+  await Promise.all(
+    uniqueIds.map(async (id) => {
+      canonicalByOriginal.set(id, await resolveCanonicalOwnerUserId(id));
+    })
+  );
+
+  const canonicalIds = [...new Set([...canonicalByOriginal.values()])];
+
   const [profileResult, userResult] = await Promise.all([
     db()
       .from("owner_profiles")
       .select("user_id, owner_status, kyc_status, status")
-      .in("user_id", uniqueIds),
+      .in("user_id", canonicalIds),
     db()
       .from("users")
       .select("id, owner_status, kyc_status")
-      .in("id", uniqueIds),
+      .in("id", canonicalIds),
   ]);
 
   let profileRows = asRows(profileResult.data);
@@ -1547,7 +1656,7 @@ async function getOwnerMarketplaceEligibilityMap(ownerIds: string[]) {
 
   let userRows = asRows(userResult.data);
   if (userResult.error && isMissingColumnError(userResult.error, "owner_status", "kyc_status")) {
-    const fallback = await db().from("users").select("id, kyc_status").in("id", uniqueIds);
+    const fallback = await db().from("users").select("id, kyc_status").in("id", canonicalIds);
     userRows = asRows(fallback.data);
   }
 
@@ -1555,8 +1664,9 @@ async function getOwnerMarketplaceEligibilityMap(ownerIds: string[]) {
   const userMap = new Map(userRows.map((row) => [getString(row, "id"), row]));
 
   for (const id of uniqueIds) {
-    const profile = profileMap.get(id);
-    const user = userMap.get(id);
+    const canonicalId = canonicalByOriginal.get(id) ?? id;
+    const profile = profileMap.get(canonicalId);
+    const user = userMap.get(canonicalId);
     const ownerStatus = ownerStatusFromRow(profile, user);
     const kycStatus = resolveOwnerKycAdminStatus({
       profileKyc: getString(profile, "kyc_status") || undefined,
@@ -1566,7 +1676,7 @@ async function getOwnerMarketplaceEligibilityMap(ownerIds: string[]) {
       ownerStatus,
       kycStatus,
       ownerApproved: ownerStatus === "approved",
-      kycApproved: kycStatus === "approved",
+      kycApproved: isOwnerKycApproved(kycStatus),
     });
   }
 

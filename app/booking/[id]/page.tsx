@@ -19,6 +19,10 @@ import {
 } from "@/lib/booking/booking-return-path";
 import { parseSelfDriveBookingSearchParams } from "@/lib/booking/self-drive-booking-url";
 import { getRiderBookingProfile } from "@/lib/users/rider-profile";
+import {
+  fetchOwnerApprovalState,
+  resolveBookingOwnerContext,
+} from "@/lib/services/owner-approval-sync";
 
 export const dynamic = "force-dynamic";
 
@@ -81,6 +85,26 @@ export default async function BookingPage({ params, searchParams }: Props) {
     });
 
     const searchPrefill = parseSelfDriveBookingSearchParams(sp);
+
+    const ownerCtx = await resolveBookingOwnerContext({
+      vehicleId: listing.vehicle_id ?? id,
+      ownerIdHint: listing.owner_id,
+    });
+    const approval = ownerCtx.canonicalOwnerId
+      ? await fetchOwnerApprovalState(ownerCtx.canonicalOwnerId)
+      : null;
+
+    console.log("Vehicle ID:", listing.vehicle_id ?? id);
+    console.log("Owner ID:", ownerCtx.rawOwnerId || listing.owner_id || "—");
+    console.log("Canonical Owner ID:", ownerCtx.canonicalOwnerId || "—");
+    console.log("Owner Status:", approval?.ownerStatus ?? "—");
+    console.log("[booking page] owner approval sources", {
+      profile: approval?.profileOwnerStatus,
+      users: approval?.usersOwnerStatus,
+      vehicle_owners: approval?.vehicleOwnersStatus,
+      owners: approval?.ownersVerificationStatus,
+      kyc: approval?.kycStatus,
+    });
 
     return (
       <PageLayout>

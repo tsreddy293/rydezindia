@@ -20,12 +20,18 @@ const NAV_LINKS = [
   { href: "/contact", label: "Contact" },
 ];
 
-function getAccountLink(role: HeaderRole): { href: string; label: string } | null {
+function getAccountLink(
+  role: HeaderRole,
+  userId: string | null
+): { href: string; label: string } | null {
   if (role === "admin") return { href: ADMIN_HOME_PATH, label: "Admin Dashboard" };
   if (role === "owner") return { href: OWNER_DASHBOARD_PATH, label: "Owner Dashboard" };
-  if (role === "rider") return { href: "/dashboard", label: "My Account" };
+  if (userId) return { href: "/dashboard", label: "My Dashboard" };
   return null;
 }
+
+const NAV_LINK_CLASS =
+  "text-sm font-medium text-gray-700 transition-colors hover:text-primary";
 
 function useIsMobile(breakpoint = 1024) {
   const [isMobile, setIsMobile] = useState(false);
@@ -42,12 +48,14 @@ function useIsMobile(breakpoint = 1024) {
 export default function HeaderClient() {
   const [open, setOpen] = useState(false);
   const [role, setRole] = useState<HeaderRole>(null);
+  const [userId, setUserId] = useState<string | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [authModal, setAuthModal] = useState<"login" | "signup" | null>(null);
   const isMobile = useIsMobile();
   const mountedRef = useRef(false);
-  const accountLink = getAccountLink(role);
-  const showAccountActions = authChecked && accountLink !== null;
+  const accountLink = getAccountLink(role, userId);
+  const isAuthenticated = authChecked && userId !== null;
+  const showGuestActions = !isAuthenticated;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -57,42 +65,57 @@ export default function HeaderClient() {
       if (mountedRef.current) setRole(nextRole);
     }
 
+    function safeSetUserId(nextUserId: string | null) {
+      if (mountedRef.current) setUserId(nextUserId);
+    }
+
     function safeSetAuthChecked(checked: boolean) {
       if (mountedRef.current) setAuthChecked(checked);
     }
 
     async function loadRole() {
-      const { data, error } = await supabase.auth.getSession();
-      if (!mountedRef.current) return;
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (!mountedRef.current) return;
 
-      if (error || !data.session?.user) {
-        safeSetRole(null);
+        if (error || !data.session?.user) {
+          safeSetUserId(null);
+          safeSetRole(null);
+          safeSetAuthChecked(true);
+          return;
+        }
+
+        const user = data.session.user;
+        safeSetUserId(user.id);
+
+        const { data: profile } = await supabase
+          .from("users")
+          .select("role")
+          .eq("id", user.id)
+          .maybeSingle();
+
+        const dbRole = normalizeRole((profile as { role?: unknown } | null)?.role);
+        const metadataRole = normalizeRole(user.user_metadata?.role);
+
+        // Admin/owner links require DB role — never trust metadata alone.
+        let nextRole: HeaderRole = null;
+        if (dbRole === "admin" || dbRole === "owner") {
+          nextRole = dbRole;
+        } else if (dbRole === "rider") {
+          nextRole = "rider";
+        } else if (metadataRole === "rider") {
+          nextRole = "rider";
+        }
+
+        safeSetRole(nextRole);
+      } catch {
+        if (mountedRef.current) {
+          safeSetUserId(null);
+          safeSetRole(null);
+        }
+      } finally {
         safeSetAuthChecked(true);
-        return;
       }
-
-      const user = data.session.user;
-      const { data: profile } = await supabase
-        .from("users")
-        .select("role")
-        .eq("id", user.id)
-        .maybeSingle();
-
-      const dbRole = normalizeRole((profile as { role?: unknown } | null)?.role);
-      const metadataRole = normalizeRole(user.user_metadata?.role);
-
-      // Admin/owner links require DB role — never trust metadata alone.
-      let nextRole: HeaderRole = null;
-      if (dbRole === "admin" || dbRole === "owner") {
-        nextRole = dbRole;
-      } else if (dbRole === "rider") {
-        nextRole = "rider";
-      } else if (metadataRole === "rider") {
-        nextRole = "rider";
-      }
-
-      safeSetRole(nextRole);
-      safeSetAuthChecked(true);
     }
 
     loadRole();
@@ -130,18 +153,24 @@ export default function HeaderClient() {
 
           <nav className="hidden items-center gap-8 lg:flex">
             {NAV_LINKS.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                className="text-sm font-medium text-gray-700 transition-colors hover:text-primary"
-              >
+              <Link key={link.href} href={link.href} className={NAV_LINK_CLASS}>
                 {link.label}
               </Link>
             ))}
+            {showGuestActions ? (
+              <>
+                <button type="button" onClick={() => openAuth("login")} className={NAV_LINK_CLASS}>
+                  Login
+                </button>
+                <button type="button" onClick={() => openAuth("signup")} className={NAV_LINK_CLASS}>
+                  Sign Up
+                </button>
+              </>
+            ) : null}
           </nav>
 
           <div className="hidden items-center gap-3 lg:flex">
-            {showAccountActions && accountLink ? (
+            {isAuthenticated && accountLink ? (
               <>
                 <Button href={accountLink.href} variant="outline" size="sm">
                   {accountLink.label}
@@ -154,15 +183,6 @@ export default function HeaderClient() {
                     Logout
                   </button>
                 </form>
-              </>
-            ) : authChecked ? (
-              <>
-                <Button type="button" variant="ghost" size="sm" onClick={() => openAuth("login")}>
-                  Login
-                </Button>
-                <Button type="button" variant="primary" size="sm" onClick={() => openAuth("signup")}>
-                  Sign Up
-                </Button>
               </>
             ) : null}
           </div>
@@ -189,32 +209,39 @@ export default function HeaderClient() {
                   {link.label}
                 </Link>
               ))}
-              <div className="mt-4 flex flex-col gap-3">
-                {showAccountActions && accountLink ? (
-                  <>
-                    <Button href={accountLink.href} variant="outline" size="sm" onClick={() => setOpen(false)}>
-                      {accountLink.label}
-                    </Button>
-                    <form action={signOutUser}>
-                      <button
-                        type="submit"
-                        className="w-full rounded-xl px-4 py-2 text-left text-sm font-medium text-secondary hover:bg-gray-100"
-                      >
-                        Logout
-                      </button>
-                    </form>
-                  </>
-                ) : authChecked ? (
-                  <>
-                    <Button href="/login" variant="ghost" size="sm" onClick={() => setOpen(false)}>
-                      Login
-                    </Button>
-                    <Button href="/signup" variant="primary" size="sm" onClick={() => setOpen(false)}>
-                      Sign Up
-                    </Button>
-                  </>
-                ) : null}
-              </div>
+              {showGuestActions ? (
+                <>
+                  <Link
+                    href="/login"
+                    className="text-base font-medium text-gray-700"
+                    onClick={() => setOpen(false)}
+                  >
+                    Login
+                  </Link>
+                  <Link
+                    href="/signup"
+                    className="text-base font-medium text-gray-700"
+                    onClick={() => setOpen(false)}
+                  >
+                    Sign Up
+                  </Link>
+                </>
+              ) : null}
+              {isAuthenticated && accountLink ? (
+                <div className="mt-4 flex flex-col gap-3 border-t border-gray-100 pt-4">
+                  <Button href={accountLink.href} variant="outline" size="sm" onClick={() => setOpen(false)}>
+                    {accountLink.label}
+                  </Button>
+                  <form action={signOutUser}>
+                    <button
+                      type="submit"
+                      className="w-full rounded-xl px-4 py-2 text-left text-sm font-medium text-secondary hover:bg-gray-100"
+                    >
+                      Logout
+                    </button>
+                  </form>
+                </div>
+              ) : null}
             </nav>
           </div>
         )}

@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { usersWritePayload } from "@/lib/supabase/users-table";
 import { ownerKycApprovalError } from "@/lib/admin/owner-kyc";
 import { logApproval } from "@/lib/services/verification";
+import { syncOwnerApprovalToProfile } from "@/lib/services/owner-approval-sync";
 import { createNotification } from "@/lib/services/notifications";
 import { dispatchMessage } from "@/lib/services/messaging";
 import { requireRole } from "@/server/actions/auth";
@@ -116,54 +117,26 @@ export async function updateOwnerKycByUserId(
     }
   }
 
-  const kycStatus =
-    status === "approved" ? "verified" : status === "rejected" ? "rejected" : "pending";
   const ownerKycStatus =
     status === "approved" ? "approved" : status === "rejected" ? "rejected" : "pending";
 
+  await syncOwnerApprovalToProfile(userId, {
+    kyc_status: ownerKycStatus,
+    owner_status:
+      status === "approved" ? "approved" : status === "rejected" ? "rejected" : "pending",
+    ...(status === "approved"
+      ? { approved_at: new Date().toISOString(), approved_by: user.id }
+      : {}),
+  });
+
   const userPayload: Record<string, unknown> = usersWritePayload({
-    kyc_status: kycStatus,
     role: "owner",
   });
 
-  let { error: userError } = await db.from("users").update(userPayload).eq("id", userId);
-
-  if (userError?.message?.includes("kyc_status")) {
-    delete userPayload.kyc_status;
-    ({ error: userError } = await db.from("users").update({ role: "owner" }).eq("id", userId));
+  const { error: userError } = await db.from("users").update(userPayload).eq("id", userId);
+  if (userError && !userError.message.includes("does not exist")) {
+    console.warn("[updateOwnerKycByUserId] users role sync:", userError.message);
   }
-
-  if (userError && !userError.message.includes("kyc_status")) {
-    return { success: false, error: userError.message };
-  }
-
-  const { data: existing } = await db
-    .from("owner_kyc")
-    .select("id")
-    .eq("owner_id", userId)
-    .maybeSingle();
-
-  if (existing) {
-    await db
-      .from("owner_kyc")
-      .update({
-        status: ownerKycStatus,
-        reviewed_by: user.id,
-        reviewed_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq("owner_id", userId);
-  }
-
-  await db.from("owner_profiles").upsert(
-    {
-      user_id: userId,
-      kyc_status: ownerKycStatus,
-      owner_status: status === "approved" ? "approved" : status === "rejected" ? "rejected" : "pending",
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id" }
-  );
 
   await createNotification({
     recipientId: userId,

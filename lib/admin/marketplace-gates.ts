@@ -67,19 +67,23 @@ export function vehicleCanBeApprovedByAdmin(input: {
   return vehicleApprovalBlockedReason(input) === null;
 }
 
-/** Customer-facing listings require all four approvals. */
+/** Customer-facing listings: owner + KYC + vehicle approval (admin source of truth). */
 export function isVehicleCustomerListable(input: {
   ownerStatus: unknown;
   kycStatus: unknown;
   vehicleApprovalStatus: unknown;
-  documentsStatus: unknown;
+  documentsStatus?: unknown;
 }): boolean {
-  const ownerStatus = String(input.ownerStatus ?? "").toLowerCase();
-  const kycStatus = String(input.kycStatus ?? "").toLowerCase();
+  const ownerStatus = String(input.ownerStatus ?? "").toLowerCase().trim();
+  const vehicleApproved =
+    String(input.vehicleApprovalStatus ?? "").toLowerCase().trim() === "approved";
+
   if (ownerStatus !== "approved") return false;
-  if (kycStatus !== "approved") return false;
-  if (String(input.vehicleApprovalStatus ?? "").toLowerCase() !== "approved") return false;
-  if (normalizeDocumentsStatus(input.documentsStatus) !== "approved") return false;
+  if (!isOwnerKycApproved(input.kycStatus)) return false;
+  if (!vehicleApproved) return false;
+
+  // Vehicle admin approval is sufficient — do not require a separate documents_status
+  // flag that admin may never set when approving the vehicle.
   return true;
 }
 

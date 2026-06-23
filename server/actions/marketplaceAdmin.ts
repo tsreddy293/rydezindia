@@ -227,6 +227,7 @@ export async function updateKycStatus(id: string, status: "approved" | "rejected
     await db.from("owners").update({ kyc_verified: true }).eq("id", ownerId);
     await syncOwnerApprovalToProfile(ownerId, {
       kyc_status: "approved",
+      owner_status: "approved",
       approved_at: new Date().toISOString(),
       approved_by: user.id,
     });

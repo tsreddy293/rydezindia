@@ -453,20 +453,23 @@ export async function approveOwnerVehicle(vehicleId: string): Promise<ActionResu
     return { success: false, error: `Cannot approve: ${validation.errors.join(", ")}` };
   }
 
-  let { error } = await db
-    .from("vehicles")
-    .update({
-      approval_status: "approved",
-      is_active: true,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", vehicleId);
+  const approvedPayload: Record<string, unknown> = {
+    approval_status: "approved",
+    documents_status: "approved",
+    is_active: true,
+    updated_at: new Date().toISOString(),
+  };
+
+  let { error } = await db.from("vehicles").update(approvedPayload).eq("id", vehicleId);
+
+  if (error?.message?.includes("documents_status")) {
+    delete approvedPayload.documents_status;
+    ({ error } = await db.from("vehicles").update(approvedPayload).eq("id", vehicleId));
+  }
 
   if (error?.message?.includes("is_active")) {
-    ({ error } = await db
-      .from("vehicles")
-      .update({ approval_status: "approved", updated_at: new Date().toISOString() })
-      .eq("id", vehicleId));
+    delete approvedPayload.is_active;
+    ({ error } = await db.from("vehicles").update(approvedPayload).eq("id", vehicleId));
   }
 
   if (error) return { success: false, error: error.message };

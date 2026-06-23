@@ -52,7 +52,8 @@ export function matchesCity(resolvedCity: string, filterCity?: string): boolean 
   if (!filterCity?.trim()) return true;
   const city = resolvedCity.trim().toLowerCase();
   const filter = filterCity.trim().toLowerCase();
-  if (!city) return false;
+  // Listings without a city still appear (owner/vehicle city not set yet).
+  if (!city) return true;
   return city.includes(filter) || filter.includes(city);
 }
 
@@ -99,7 +100,8 @@ export function buildVehicleDisplayName(row: Record<string, unknown>): string {
 export const SELF_DRIVE_SEARCH_SQL = `
 SELECT v.*
 FROM public.vehicles v
-WHERE v.approval_status = 'approved'
-  AND v.is_active = true
+WHERE (v.approval_status = 'approved' OR v.vehicle_approval_status = 'approved')
+  AND (v.is_active IS DISTINCT FROM false)
+  AND (v.service_self_drive IS DISTINCT FROM false)
 ORDER BY v.created_at DESC
 `.trim();

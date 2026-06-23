@@ -3,9 +3,13 @@ import { getCustomerKyc } from "@/lib/services/customer-kyc";
 import { normalizeCustomerKycStatus } from "@/lib/admin/customer-kyc-fields";
 import { ownerProfileDocumentsToSet, getOwnerProfileKyc } from "@/lib/services/owner-profile-kyc";
 import {
+  ensureOwnerApprovalSyncedForBooking,
   fetchOwnerApprovalState,
   healOwnerApprovalDrift,
+  resolveBookingOwnerContext,
   resolveCanonicalOwnerUserId,
+  resolveOwnerProfileApprovalForBooking,
+  syncOwnerApprovalToProfile,
 } from "@/lib/services/owner-approval-sync";
 import { normalizeDocumentsStatus } from "@/lib/admin/marketplace-gates";
 
@@ -19,6 +23,8 @@ export type OwnerBookingGateDebug = {
   usersOwnerStatus: string | null;
   usersKycStatus: string | null;
   legacyOwnerKycStatus: string | null;
+  vehicleOwnersStatus: string | null;
+  ownersVerificationStatus: string | null;
   legacyOwnersKycVerified: boolean | null;
   vehicleApprovalStatus: string | null;
   vehicleDocumentsStatus: string | null;
@@ -64,7 +70,10 @@ export async function fetchOwnerBookingGateSnapshot(
     const vehicleRow = vehicleResult.data as Record<string, unknown>;
     vehicleApprovalStatus = vehicleApprovalFromRow(vehicleRow);
     vehicleDocumentsStatus = String(vehicleRow.documents_status ?? "pending").toLowerCase().trim();
-    vehicleApproved = vehicleApprovalStatus === "approved";
+    vehicleApproved =
+      vehicleApprovalStatus === "approved" ||
+      String(vehicleRow.approval_status ?? "").toLowerCase() === "approved" ||
+      String(vehicleRow.vehicle_approval_status ?? "").toLowerCase() === "approved";
     documentsApproved = normalizeDocumentsStatus(vehicleDocumentsStatus) === "approved";
   } else if (vehicleId && !vehicleResult.data) {
     vehicleApprovalStatus = "not_found";
@@ -83,6 +92,8 @@ export async function fetchOwnerBookingGateSnapshot(
     usersOwnerStatus: approval.usersOwnerStatus,
     usersKycStatus: approval.usersKycStatus,
     legacyOwnerKycStatus: approval.legacyKycStatus,
+    vehicleOwnersStatus: approval.vehicleOwnersStatus,
+    ownersVerificationStatus: approval.ownersVerificationStatus,
     legacyOwnersKycVerified: null,
     vehicleApprovalStatus,
     vehicleDocumentsStatus,
@@ -105,33 +116,67 @@ export async function assertOwnerCanReceiveBookings(
   ownerId: string,
   vehicleId?: string
 ): Promise<string | null> {
-  let snapshot = await fetchOwnerBookingGateSnapshot(ownerId, vehicleId);
+  const ctx = await resolveBookingOwnerContext({ vehicleId, ownerIdHint: ownerId });
+  const gateOwnerId = ctx.canonicalOwnerId || ctx.rawOwnerId || ownerId;
 
+  await ensureOwnerApprovalSyncedForBooking(gateOwnerId, ctx.vehicleId ?? vehicleId);
+
+  let snapshot = await fetchOwnerBookingGateSnapshot(gateOwnerId, ctx.vehicleId ?? vehicleId);
+
+  console.log("Vehicle ID:", ctx.vehicleId ?? vehicleId ?? "—");
+  console.log("Owner ID:", ctx.rawOwnerId || ownerId || "—");
+  console.log("Canonical Owner ID:", gateOwnerId);
+  console.log("Owner Status:", snapshot.resolvedOwnerStatus);
+  console.log("KYC Status:", snapshot.resolvedKycStatus);
+  console.log("Vehicle Status:", snapshot.vehicleApprovalStatus ?? "—");
   console.log("[assertOwnerCanReceiveBookings] snapshot", JSON.stringify(snapshot, null, 2));
 
   if (!snapshot.ownerApproved || !snapshot.kycApproved) {
-    const healed = await healOwnerApprovalDrift(ownerId);
+    const healed = await healOwnerApprovalDrift(gateOwnerId);
     if (healed) {
-      snapshot = await fetchOwnerBookingGateSnapshot(ownerId, vehicleId);
+      await ensureOwnerApprovalSyncedForBooking(gateOwnerId, ctx.vehicleId ?? vehicleId);
+      snapshot = await fetchOwnerBookingGateSnapshot(gateOwnerId, ctx.vehicleId ?? vehicleId);
+      console.log("Owner Status (post-heal):", snapshot.resolvedOwnerStatus);
       console.log("[assertOwnerCanReceiveBookings] post-heal snapshot", JSON.stringify(snapshot, null, 2));
+    }
+  }
+
+  if (!snapshot.ownerApproved || !snapshot.kycApproved) {
+    const profileApproval = await resolveOwnerProfileApprovalForBooking(ctx);
+    if (profileApproval) {
+      await syncOwnerApprovalToProfile(profileApproval.userId, {
+        owner_status: "approved",
+        kyc_status: "approved",
+        approved_at: new Date().toISOString(),
+      });
+      await ensureOwnerApprovalSyncedForBooking(profileApproval.userId, ctx.vehicleId ?? vehicleId);
+      snapshot = await fetchOwnerBookingGateSnapshot(profileApproval.userId, ctx.vehicleId ?? vehicleId);
+      console.log("[assertOwnerCanReceiveBookings] profile override", {
+        userId: profileApproval.userId,
+        ownerStatus: snapshot.resolvedOwnerStatus,
+        kycStatus: snapshot.resolvedKycStatus,
+      });
     }
   }
 
   if (!snapshot.ownerApproved) {
     console.warn("[assertOwnerCanReceiveBookings] BLOCKED owner_status", {
-      ownerId,
-      canonicalOwnerId: snapshot.canonicalOwnerId,
+      vehicleId: ctx.vehicleId ?? vehicleId,
+      ownerId: ctx.rawOwnerId || ownerId,
+      canonicalOwnerId: gateOwnerId,
       resolvedOwnerStatus: snapshot.resolvedOwnerStatus,
       ownerProfileOwnerStatus: snapshot.ownerProfileOwnerStatus,
       usersOwnerStatus: snapshot.usersOwnerStatus,
+      vehicleOwnersStatus: snapshot.vehicleOwnersStatus,
+      ownersVerificationStatus: snapshot.ownersVerificationStatus,
     });
     return `This owner is not approved yet (owner_status=${snapshot.resolvedOwnerStatus}). Contact support if admin already approved this owner.`;
   }
 
   if (!snapshot.kycApproved) {
     console.warn("[assertOwnerCanReceiveBookings] BLOCKED kyc_status", {
-      ownerId,
-      canonicalOwnerId: snapshot.canonicalOwnerId,
+      ownerId: ctx.rawOwnerId || ownerId,
+      canonicalOwnerId: gateOwnerId,
       resolvedKycStatus: snapshot.resolvedKycStatus,
       ownerProfileKycStatus: snapshot.ownerProfileKycStatus,
       usersKycStatus: snapshot.usersKycStatus,
@@ -140,19 +185,19 @@ export async function assertOwnerCanReceiveBookings(
     return `This owner is not verified yet. Bookings cannot be placed until KYC is approved (kyc_status=${snapshot.resolvedKycStatus}).`;
   }
 
-  if (vehicleId && !snapshot.vehicleApproved) {
+  if ((ctx.vehicleId ?? vehicleId) && !snapshot.vehicleApproved) {
     console.warn("[assertOwnerCanReceiveBookings] BLOCKED vehicle_status", {
-      ownerId,
-      vehicleId,
+      ownerId: ctx.rawOwnerId || ownerId,
+      vehicleId: ctx.vehicleId ?? vehicleId,
       vehicleApprovalStatus: snapshot.vehicleApprovalStatus,
     });
     return `This vehicle is not approved for booking (vehicle_status=${snapshot.vehicleApprovalStatus ?? "unknown"}).`;
   }
 
   console.log("[assertOwnerCanReceiveBookings] ALLOWED", {
-    ownerId,
-    canonicalOwnerId: snapshot.canonicalOwnerId,
-    vehicleId: vehicleId ?? null,
+    vehicleId: ctx.vehicleId ?? vehicleId,
+    ownerId: ctx.rawOwnerId || ownerId,
+    canonicalOwnerId: gateOwnerId,
   });
   return null;
 }

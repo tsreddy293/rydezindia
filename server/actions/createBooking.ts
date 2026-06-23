@@ -7,6 +7,7 @@ import { getSupabaseConfigError } from "@/lib/supabase/env";
 import { generateBookingReference } from "@/lib/services/booking-id";
 import { createNotification } from "@/lib/services/notifications";
 import { assertOwnerCanReceiveBookings, assertCustomerCanBookSelfDrive } from "@/lib/services/verification";
+import { resolveBookingOwnerContext } from "@/lib/services/owner-approval-sync";
 import { assertRecentBookingOtp } from "@/lib/services/otp";
 import { getOptionalRiderUser } from "@/server/actions/auth";
 import { markSelfDriveInterest } from "@/lib/services/customer-profile";
@@ -223,19 +224,44 @@ export async function createUnifiedBooking(
   }
 
   let ownerId = input.owner_id;
-  if (!ownerId && input.vehicle_id) {
+  if (input.vehicle_id) {
     const { data: vehicleRow } = await db
       .from("vehicles")
-      .select("owner_id")
+      .select("id, owner_id, approval_status, vehicle_approval_status")
       .eq("id", input.vehicle_id)
       .maybeSingle();
-    ownerId = (vehicleRow as { owner_id?: string } | null)?.owner_id ?? undefined;
+
+    const vehicleOwnerId = (vehicleRow as { owner_id?: string } | null)?.owner_id;
+    if (vehicleOwnerId) {
+      ownerId = String(vehicleOwnerId);
+    }
+
+    console.log("[createUnifiedBooking] vehicle owner context", {
+      vehicleId: input.vehicle_id,
+      clientOwnerId: input.owner_id ?? null,
+      vehicleOwnerId: vehicleOwnerId ?? null,
+      vehicleApproval:
+        (vehicleRow as { approval_status?: string; vehicle_approval_status?: string } | null)
+          ?.approval_status ??
+        (vehicleRow as { vehicle_approval_status?: string } | null)?.vehicle_approval_status ??
+        null,
+    });
   }
 
-  if (ownerId) {
-    const ownerKycError = await assertOwnerCanReceiveBookings(ownerId, input.vehicle_id);
+  if (ownerId || input.vehicle_id) {
+    const ownerKycError = await assertOwnerCanReceiveBookings(
+      ownerId ?? "",
+      input.vehicle_id
+    );
     if (ownerKycError) return { success: false, error: ownerKycError };
   }
+
+  const bookingOwnerCtx = await resolveBookingOwnerContext({
+    vehicleId: input.vehicle_id,
+    ownerIdHint: ownerId,
+  });
+  const bookingOwnerId =
+    bookingOwnerCtx.canonicalOwnerId || bookingOwnerCtx.rawOwnerId || ownerId || null;
 
   const bookingReference = await generateBookingReference();
 
@@ -290,7 +316,7 @@ export async function createUnifiedBooking(
   const bookingInsert: Record<string, unknown> = {
     booking_type: input.booking_type,
     user_id: userId,
-    owner_id: ownerId ?? input.owner_id ?? null,
+    owner_id: bookingOwnerId ?? input.owner_id ?? null,
     vehicle_id: input.vehicle_id,
     reference_id: input.reference_id,
     amount: finalAmount,
@@ -348,7 +374,7 @@ export async function createUnifiedBooking(
   revalidatePath("/user/dashboard");
   revalidatePath(input.booking_type === "self_drive" ? "/search-self-drive" : "/search-driver");
   await createNotification({
-    recipientId: input.owner_id,
+    recipientId: bookingOwnerId ?? input.owner_id,
     recipientRole: "owner",
     type: "new_booking",
     title: "New booking request",
