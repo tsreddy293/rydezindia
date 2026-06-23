@@ -1408,22 +1408,20 @@ export async function getSelfDriveListingById(id: string): Promise<SelfDriveResu
   }
 
   const ownerId = getString(row, "owner_id");
-  const { resolveCanonicalOwnerUserId } = await import("@/lib/services/owner-approval-sync");
-  const canonicalOwnerId = ownerId ? await resolveCanonicalOwnerUserId(ownerId) : "";
   const [ownerCityMap, ownerNameMap] = await Promise.all([
-    resolveOwnerCities([canonicalOwnerId || ownerId]),
-    resolveOwnerNames([canonicalOwnerId || ownerId]),
+    resolveOwnerCities([ownerId]),
+    resolveOwnerNames([ownerId]),
   ]);
 
   const result = mapVehicleRowToSelfDriveResult(
     row,
-    ownerCityMap.get(canonicalOwnerId || ownerId) ?? "",
-    ownerNameMap.get(canonicalOwnerId || ownerId) ?? "Owner"
+    ownerCityMap.get(ownerId) ?? "",
+    ownerNameMap.get(ownerId) ?? "Owner"
   );
 
   return {
     ...result,
-    owner_id: canonicalOwnerId || ownerId || result.owner_id,
+    owner_id: ownerId || result.owner_id,
   };
 }
 
@@ -1733,10 +1731,11 @@ async function getVehicleDashboardCounts(): Promise<{
 }
 
 export async function assertOwnerApprovedForVehicle(
-  ownerId: string
+  ownerId: string,
+  vehicleId?: string
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const { fetchOwnerApprovalState } = await import("@/lib/services/owner-approval-sync");
-  const state = await fetchOwnerApprovalState(ownerId);
+  const { fetchBookingOwnerProfileState } = await import("@/lib/services/owner-approval-sync");
+  const state = await fetchBookingOwnerProfileState(vehicleId, ownerId);
   const blocked = vehicleApprovalBlockedReason({
     ownerStatus: state.ownerStatus,
     kycStatus: state.kycStatus,

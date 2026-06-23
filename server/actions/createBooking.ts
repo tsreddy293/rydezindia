@@ -227,7 +227,7 @@ export async function createUnifiedBooking(
   if (input.vehicle_id) {
     const { data: vehicleRow } = await db
       .from("vehicles")
-      .select("id, owner_id, approval_status, vehicle_approval_status")
+      .select("id, owner_id, approval_status")
       .eq("id", input.vehicle_id)
       .maybeSingle();
 
@@ -240,11 +240,7 @@ export async function createUnifiedBooking(
       vehicleId: input.vehicle_id,
       clientOwnerId: input.owner_id ?? null,
       vehicleOwnerId: vehicleOwnerId ?? null,
-      vehicleApproval:
-        (vehicleRow as { approval_status?: string; vehicle_approval_status?: string } | null)
-          ?.approval_status ??
-        (vehicleRow as { vehicle_approval_status?: string } | null)?.vehicle_approval_status ??
-        null,
+      approvalStatus: (vehicleRow as { approval_status?: string } | null)?.approval_status ?? null,
     });
   }
 

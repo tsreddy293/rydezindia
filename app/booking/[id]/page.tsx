@@ -20,7 +20,7 @@ import {
 import { parseSelfDriveBookingSearchParams } from "@/lib/booking/self-drive-booking-url";
 import { getRiderBookingProfile } from "@/lib/users/rider-profile";
 import {
-  fetchOwnerApprovalState,
+  fetchBookingOwnerProfileState,
   resolveBookingOwnerContext,
 } from "@/lib/services/owner-approval-sync";
 
@@ -90,20 +90,19 @@ export default async function BookingPage({ params, searchParams }: Props) {
       vehicleId: listing.vehicle_id ?? id,
       ownerIdHint: listing.owner_id,
     });
-    const approval = ownerCtx.canonicalOwnerId
-      ? await fetchOwnerApprovalState(ownerCtx.canonicalOwnerId)
-      : null;
+    const approval = await fetchBookingOwnerProfileState(
+      listing.vehicle_id ?? id,
+      ownerCtx.rawOwnerId || listing.owner_id
+    );
 
     console.log("Vehicle ID:", listing.vehicle_id ?? id);
-    console.log("Owner ID:", ownerCtx.rawOwnerId || listing.owner_id || "—");
-    console.log("Canonical Owner ID:", ownerCtx.canonicalOwnerId || "—");
-    console.log("Owner Status:", approval?.ownerStatus ?? "—");
-    console.log("[booking page] owner approval sources", {
-      profile: approval?.profileOwnerStatus,
-      users: approval?.usersOwnerStatus,
-      vehicle_owners: approval?.vehicleOwnersStatus,
-      owners: approval?.ownersVerificationStatus,
-      kyc: approval?.kycStatus,
+    console.log("Owner ID:", approval.ownerId || ownerCtx.rawOwnerId || listing.owner_id || "—");
+    console.log("Owner Status:", approval.ownerStatus);
+    console.log("KYC Status:", approval.kycStatus);
+    console.log("[booking page] owner_profiles", {
+      profileFound: approval.profileFound,
+      owner_status: approval.ownerStatus,
+      kyc_status: approval.kycStatus,
     });
 
     return (

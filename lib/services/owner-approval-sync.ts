@@ -3,7 +3,6 @@ import { isMissingColumnError } from "@/lib/supabase/errors";
 import { ownerStatusFromRow } from "@/lib/admin/owner-profile-status";
 import { resolveOwnerKycAdminStatus } from "@/lib/admin/owner-kyc-status";
 import { normalizeProfileStatus } from "@/lib/admin/owner-profile-fields";
-import { getOwnerProfileKyc } from "@/lib/services/owner-profile-kyc";
 import type { OwnerStatus } from "@/lib/admin/owner-status";
 
 export type OwnerApprovalSources = {
@@ -52,17 +51,6 @@ export async function resolveCanonicalOwnerUserId(ownerId: string): Promise<stri
   ]);
 
   if (profileResult.data) return id;
-
-  const { data: legacyOwner } = await db
-    .from("vehicle_owners")
-    .select("owner_id")
-    .eq("id", id)
-    .maybeSingle();
-
-  const linkedId = asRecord(legacyOwner)?.owner_id;
-  if (typeof linkedId === "string" && linkedId.trim()) {
-    return linkedId.trim();
-  }
 
   // Auth user without owner_profiles row — still the canonical id for owners.
   const userRole = String(asRecord(userResult.data)?.role ?? "").toLowerCase();
@@ -131,81 +119,74 @@ export async function resolveBookingOwnerContext(input: {
     return { vehicleId, rawOwnerId: "", canonicalOwnerId: "" };
   }
 
-  const canonicalOwnerId = await resolveCanonicalOwnerUserId(rawOwnerId);
-  return { vehicleId, rawOwnerId, canonicalOwnerId };
+  // Booking uses vehicles.owner_id as owner_profiles.user_id directly.
+  return { vehicleId, rawOwnerId, canonicalOwnerId: rawOwnerId };
 }
 
-/** Same read path as owner dashboard — try every plausible owner id for this booking. */
-export async function resolveOwnerProfileApprovalForBooking(
-  ctx: BookingOwnerContext
-): Promise<{
-  userId: string;
+export type BookingOwnerProfileState = {
+  vehicleId: string | undefined;
+  ownerId: string;
+  profileFound: boolean;
   ownerStatus: OwnerStatus;
   kycStatus: OwnerStatus;
   ownerApproved: boolean;
   kycApproved: boolean;
-} | null> {
+};
+
+/** Booking gate: vehicles.owner_id → owner_profiles.user_id (no vehicle_owners). */
+export async function fetchBookingOwnerProfileState(
+  vehicleId?: string,
+  ownerIdHint?: string
+): Promise<BookingOwnerProfileState> {
   const db = createAdminClient();
-  const candidateIds = new Set<string>();
+  const vid = vehicleId?.trim() || undefined;
+  let ownerId = ownerIdHint?.trim() ?? "";
 
-  if (ctx.canonicalOwnerId) candidateIds.add(ctx.canonicalOwnerId);
-  if (ctx.rawOwnerId) candidateIds.add(ctx.rawOwnerId);
-
-  if (ctx.vehicleId) {
+  if (vid) {
     const { data: vehicle } = await db
       .from("vehicles")
       .select("owner_id")
-      .eq("id", ctx.vehicleId)
+      .eq("id", vid)
       .maybeSingle();
-    const vehicleOwnerId = String((vehicle as { owner_id?: string } | null)?.owner_id ?? "").trim();
-    if (vehicleOwnerId) {
-      candidateIds.add(vehicleOwnerId);
-      candidateIds.add(await resolveCanonicalOwnerUserId(vehicleOwnerId));
-    }
+    const dbOwnerId = String((vehicle as { owner_id?: string } | null)?.owner_id ?? "").trim();
+    if (dbOwnerId) ownerId = dbOwnerId;
   }
 
-  for (const userId of candidateIds) {
-    const profile = await getOwnerProfileKyc(userId);
-    if (!profile) continue;
+  const pending: BookingOwnerProfileState = {
+    vehicleId: vid,
+    ownerId: "",
+    profileFound: false,
+    ownerStatus: "pending",
+    kycStatus: "pending",
+    ownerApproved: false,
+    kycApproved: false,
+  };
 
-    const ownerStatus = normalizeProfileStatus(profile.owner_status, "pending");
-    const kycStatus = normalizeProfileStatus(profile.kyc_status, "pending");
-    const ownerApproved = ownerStatus === "approved";
-    const kycApproved = kycStatus === "approved";
+  if (!ownerId) return pending;
 
-    if (ownerApproved && kycApproved) {
-      return { userId, ownerStatus, kycStatus, ownerApproved, kycApproved };
-    }
-  }
-
-  return null;
-}
-
-async function syncVehicleOwnerIdsToCanonical(userId: string): Promise<void> {
-  const db = createAdminClient();
-  const { data: legacyRows, error } = await db
-    .from("vehicle_owners")
-    .select("id")
-    .eq("owner_id", userId);
+  const { data: profile, error } = await db
+    .from("owner_profiles")
+    .select("user_id, owner_status, kyc_status")
+    .eq("user_id", ownerId)
+    .maybeSingle();
 
   if (error && !isMissingTableError(error)) {
-    console.warn("[syncVehicleOwnerIdsToCanonical] vehicle_owners lookup:", error.message);
-    return;
+    console.warn("[fetchBookingOwnerProfileState]", error.message);
   }
 
-  const legacyIds = (legacyRows ?? [])
-    .map((row) => String((row as { id?: string }).id ?? ""))
-    .filter(Boolean);
+  const row = asRecord(profile);
+  const ownerStatus = normalizeProfileStatus(row?.owner_status as string | undefined, "pending");
+  const kycStatus = normalizeProfileStatus(row?.kyc_status as string | undefined, "pending");
 
-  for (const legacyId of legacyIds) {
-    const { error: updateError } = await db
-      .from("vehicles")
-      .update({ owner_id: userId, updated_at: new Date().toISOString() })
-      .eq("owner_id", legacyId);
-    if (updateError && !isMissingTableError(updateError)) {
-      console.warn("[syncVehicleOwnerIdsToCanonical] vehicles update:", updateError.message);
-    }
-  }
+  return {
+    vehicleId: vid,
+    ownerId,
+    profileFound: Boolean(row),
+    ownerStatus,
+    kycStatus,
+    ownerApproved: ownerStatus === "approved",
+    kycApproved: kycStatus === "approved",
+  };
 }
 
 /** Align all stores to owner_profiles when profile is already approved (admin source of truth). */
@@ -241,8 +222,6 @@ export async function ensureOwnerApprovalSyncedForBooking(
     });
   }
 
-  await syncVehicleOwnerIdsToCanonical(canonicalOwnerId);
-
   if (vehicleId) {
     const { data: vehicle } = await db
       .from("vehicles")
@@ -276,19 +255,12 @@ async function selectUserApprovalRow(userId: string) {
 async function loadLegacyOwnerStatusRows(ownerId: string, canonicalUserId: string) {
   const db = createAdminClient();
 
-  const [vehicleOwnersByAuth, vehicleOwnersByLegacyId, ownersById, ownersByUser] = await Promise.all([
-    db.from("vehicle_owners").select("status").eq("owner_id", canonicalUserId).maybeSingle(),
-    db.from("vehicle_owners").select("status").eq("id", ownerId).maybeSingle(),
+  const [ownersById, ownersByUser] = await Promise.all([
     db.from("owners").select("verification_status").eq("id", ownerId).maybeSingle(),
     canonicalUserId !== ownerId
       ? db.from("owners").select("verification_status").eq("id", canonicalUserId).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
   ]);
-
-  const vehicleOwnersStatus =
-    asRecord(vehicleOwnersByAuth.data)?.status ??
-    asRecord(vehicleOwnersByLegacyId.data)?.status ??
-    null;
 
   const ownersVerificationStatus =
     asRecord(ownersById.data)?.verification_status ??
@@ -296,7 +268,7 @@ async function loadLegacyOwnerStatusRows(ownerId: string, canonicalUserId: strin
     null;
 
   return {
-    vehicleOwnersStatus: vehicleOwnersStatus ? String(vehicleOwnersStatus) : null,
+    vehicleOwnersStatus: null as string | null,
     ownersVerificationStatus: ownersVerificationStatus ? String(ownersVerificationStatus) : null,
   };
 }
@@ -360,16 +332,6 @@ async function syncLegacyOwnerTables(
   const now = new Date().toISOString();
 
   if (patch.owner_status) {
-    for (const column of ["owner_id", "id"] as const) {
-      const { error } = await db
-        .from("vehicle_owners")
-        .update({ status: patch.owner_status, updated_at: now })
-        .eq(column, userId);
-      if (error && !isMissingTableError(error)) {
-        console.warn(`[syncLegacyOwnerTables] vehicle_owners.${column}:`, error.message);
-      }
-    }
-
     const verificationStatus =
       patch.owner_status === "approved"
         ? "approved"
@@ -469,7 +431,6 @@ export async function syncOwnerApprovalToProfile(
   }
 
   await syncLegacyOwnerTables(userId, patch);
-  await syncVehicleOwnerIdsToCanonical(userId);
 
   return { ok: true };
 }
