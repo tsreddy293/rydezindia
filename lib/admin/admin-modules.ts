@@ -5,6 +5,8 @@ export const ADMIN_MODULES = [
   { href: "/admin/customer-management", label: "Customer Management" },
   { href: "/admin/vehicles", label: "Vehicle Management" },
   { href: "/admin/bookings", label: "Bookings" },
+  { href: "/admin/refunds", label: "Refunds" },
+  { href: "/admin/protection", label: "Protection Plans" },
   { href: "/admin/payments", label: "Payments" },
   { href: "/admin/reports", label: "Reports" },
   { href: "/admin/notifications", label: "Notifications" },

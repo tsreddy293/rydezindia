@@ -45,6 +45,7 @@ import type {
   SearchResult,
   SelfDriveResult,
   UserBooking,
+  UserBookingExtended,
   UserRole,
   OwnerStatus,
   VehicleDetail,
@@ -1500,7 +1501,7 @@ export async function getVehicleListingById(id: string): Promise<VehicleDetail |
 export async function getBookingConfirmationById(id: string): Promise<BookingConfirmation | null> {
   const { data, error } = await db()
     .from("bookings")
-    .select("id, booking_reference, booking_type, passenger_name, mobile, amount, booking_status, payment_status, pickup_location, drop_location, pickup_date, pickup_time, trip_type, vehicle_id, owner_id, created_at")
+    .select("id, booking_reference, booking_type, passenger_name, mobile, amount, booking_status, payment_status, pickup_location, drop_location, pickup_date, pickup_time, trip_type, vehicle_id, owner_id, created_at, protection_selected, flexible_cancellation, flexible_cancellation_fee, protection_fee, protection_plan_name, protection_purchase_date, protection_status, trip_fare_amount, security_deposit_amount")
     .eq("id", id)
     .single();
 
@@ -1527,6 +1528,15 @@ export async function getBookingConfirmationById(id: string): Promise<BookingCon
     vehicle_id: getString(row, "vehicle_id") || undefined,
     owner_id: getString(row, "owner_id") || undefined,
     created_at: getString(row, "created_at"),
+    protection_selected: row.protection_selected === true || row.flexible_cancellation === true,
+    flexible_cancellation: row.flexible_cancellation === true,
+    flexible_cancellation_fee: getNumber(row, "flexible_cancellation_fee") || undefined,
+    protection_fee: getNumber(row, "protection_fee") || getNumber(row, "flexible_cancellation_fee") || undefined,
+    protection_plan_name: getString(row, "protection_plan_name") || undefined,
+    protection_purchase_date: getString(row, "protection_purchase_date") || undefined,
+    protection_status: getString(row, "protection_status") || undefined,
+    trip_fare_amount: getNumber(row, "trip_fare_amount") || undefined,
+    security_deposit_amount: getNumber(row, "security_deposit_amount") || undefined,
   };
 }
 
@@ -2503,7 +2513,7 @@ export async function getOwnerBookings(ownerId: string): Promise<UserBooking[]> 
 export async function getUserBookings(userId: string): Promise<UserBooking[]> {
   const rows = await selectRows(
     "bookings",
-    "id, user_id, booking_reference, booking_type, passenger_name, amount, booking_status, payment_status, pickup_location, drop_location, pickup_date, created_at",
+    "id, user_id, booking_reference, booking_type, passenger_name, amount, booking_status, payment_status, pickup_location, drop_location, pickup_date, pickup_time, created_at",
     100
   );
   return rows
@@ -2519,7 +2529,41 @@ export async function getUserBookings(userId: string): Promise<UserBooking[]> {
       pickup_location: getString(row, "pickup_location") || undefined,
       drop_location: getString(row, "drop_location") || undefined,
       pickup_date: getString(row, "pickup_date") || undefined,
+      pickup_time: getString(row, "pickup_time") || undefined,
       created_at: getString(row, "created_at"),
+    }));
+}
+
+export async function getUserBookingsExtended(userId: string): Promise<UserBookingExtended[]> {
+  const rows = await selectRows(
+    "bookings",
+    "id, user_id, booking_reference, booking_type, passenger_name, amount, booking_status, payment_status, pickup_location, drop_location, pickup_date, pickup_time, created_at, cancellation_status, cancelled_at, refund_amount, refund_status, refund_processed_at, cancellation_reason, flexible_cancellation, protection_selected, flexible_cancellation_fee",
+    100
+  );
+  return rows
+    .filter((r) => getString(r, "user_id") === userId)
+    .map((row) => ({
+      id: getString(row, "id"),
+      booking_reference: getString(row, "booking_reference") || undefined,
+      booking_type: getString(row, "booking_type", "booking"),
+      passenger_name: getString(row, "passenger_name", "Passenger"),
+      amount: getNumber(row, "amount"),
+      booking_status: getString(row, "booking_status", "pending"),
+      payment_status: getString(row, "payment_status", "pending"),
+      pickup_location: getString(row, "pickup_location") || undefined,
+      drop_location: getString(row, "drop_location") || undefined,
+      pickup_date: getString(row, "pickup_date") || undefined,
+      pickup_time: getString(row, "pickup_time") || undefined,
+      created_at: getString(row, "created_at"),
+      cancellation_status: getString(row, "cancellation_status") || undefined,
+      cancelled_at: getString(row, "cancelled_at") || undefined,
+      refund_amount: getNumber(row, "refund_amount") || undefined,
+      refund_status: getString(row, "refund_status") || undefined,
+      refund_processed_at: getString(row, "refund_processed_at") || undefined,
+      cancellation_reason: getString(row, "cancellation_reason") || undefined,
+      flexible_cancellation: row.flexible_cancellation === true,
+      protection_selected: row.protection_selected === true || row.flexible_cancellation === true,
+      flexible_cancellation_fee: getNumber(row, "flexible_cancellation_fee") || undefined,
     }));
 }
 

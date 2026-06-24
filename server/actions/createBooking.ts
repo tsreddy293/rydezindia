@@ -14,6 +14,7 @@ import { markSelfDriveInterest } from "@/lib/services/customer-profile";
 import { bookReturnJourneySeats, initializeReturnJourneySeats } from "@/lib/services/return-journey-seats";
 import { dispatchBookingEvent } from "@/lib/services/messaging";
 import { findOrCreateGuestUserByMobile } from "@/lib/users/guest-user";
+import { getProtectionFeeForVehicle, getProtectionPlanName } from "@/lib/services/flexible-cancellation-protection";
 import type { ActionResult, CreateBookingInput, CreateMarketplaceBookingInput } from "@/types/database";
 
 const MOBILE_REGEX = /^[6-9]\d{9}$/;
@@ -97,6 +98,8 @@ export async function createBooking(
     base_fare: amount,
     platform_fee: Math.round(amount * 0.05),
     discount_amount: input.discount_amount ?? 0,
+    trip_fare_amount: amount,
+    cancellation_status: "active",
   };
 
   const { data: booking, error: bookingError } = await db
@@ -194,6 +197,12 @@ export async function createUnifiedBooking(
     coupon_code?: string;
     wallet_amount_used?: number;
     rural_pickup_point_id?: string;
+    flexible_cancellation?: boolean;
+    protection_selected?: boolean;
+    protection_fee?: number;
+    vehicle_type?: string;
+    trip_fare_amount?: number;
+    security_deposit_amount?: number;
   }
 ): Promise<ActionResult<{ id: string; bookingReference: string }>> {
   const configError = getSupabaseConfigError();
@@ -280,6 +289,11 @@ export async function createUnifiedBooking(
     if (kycError) return { success: false, error: kycError };
   }
 
+  const protectionSelected = Boolean(input.flexible_cancellation || input.protection_selected);
+  const protectionFee = protectionSelected
+    ? input.protection_fee ?? getProtectionFeeForVehicle(input.vehicle_type)
+    : 0;
+  const tripFareBase = input.trip_fare_amount ?? input.amount;
   let finalAmount = input.amount;
   let couponDiscount = 0;
   let couponId: string | null = null;
@@ -309,6 +323,13 @@ export async function createUnifiedBooking(
     }
   }
 
+  finalAmount += protectionFee;
+
+  const now = new Date().toISOString();
+  const protectionPlanName = protectionSelected
+    ? getProtectionPlanName(input.vehicle_type)
+    : null;
+
   const bookingInsert: Record<string, unknown> = {
     booking_type: input.booking_type,
     user_id: userId,
@@ -334,6 +355,16 @@ export async function createUnifiedBooking(
     coupon_id: couponId,
     wallet_amount_used: walletUsed,
     rural_pickup_point_id: input.rural_pickup_point_id ?? null,
+    trip_fare_amount: tripFareBase,
+    security_deposit_amount: input.security_deposit_amount ?? 0,
+    flexible_cancellation: protectionSelected,
+    flexible_cancellation_fee: protectionFee,
+    protection_selected: protectionSelected,
+    protection_fee: protectionFee,
+    protection_plan_name: protectionPlanName,
+    protection_purchase_date: protectionSelected ? now : null,
+    protection_status: protectionSelected ? "active" : null,
+    cancellation_status: "active",
   };
 
   const { data: booking, error } = await db

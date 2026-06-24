@@ -261,56 +261,30 @@ export async function updateKycStatus(id: string, status: "approved" | "rejected
   return { success: true };
 }
 
+import { cancelBookingWithRefund } from "@/lib/services/booking-cancellation";
+
 export async function cancelBooking(input: {
   bookingId: string;
   reason: string;
   cancelledBy: UserRole;
 }) {
   await requireRole(input.cancelledBy === "admin" ? "admin" : input.cancelledBy);
-  const db = createAdminClient();
-  const { data: booking } = await db
-    .from("bookings")
-    .select("id, ride_id, seats_booked, booking_type, user_id, owner_id")
-    .eq("id", input.bookingId)
-    .maybeSingle();
 
-  const { error } = await db
-    .from("bookings")
-    .update({
-      booking_status: "cancelled",
-      cancel_reason: input.reason,
-      cancelled_by: input.cancelledBy,
-      cancelled_at: new Date().toISOString(),
-    })
-    .eq("id", input.bookingId);
+  const cancelledBy =
+    input.cancelledBy === "admin" ? "admin" : input.cancelledBy === "owner" ? "owner" : "user";
 
-  if (error) return { success: false, error: error.message };
-
-  const row = booking as { ride_id?: string; seats_booked?: number; user_id?: string; owner_id?: string } | null;
-  if (row?.ride_id && row.seats_booked) {
-    const { data: journey } = await db
-      .from("return_journeys")
-      .select("available_seats")
-      .eq("id", row.ride_id)
-      .maybeSingle();
-    const available = Number((journey as { available_seats?: number } | null)?.available_seats ?? 0);
-    await db
-      .from("return_journeys")
-      .update({ available_seats: available + Number(row.seats_booked), status: "available" })
-      .eq("id", row.ride_id);
-  }
-
-  await createNotification({
-    recipientId: row?.user_id,
-    recipientRole: "rider",
-    type: "booking_cancelled",
-    title: "Booking cancelled",
-    message: input.reason || "A booking has been cancelled.",
-    metadata: { bookingId: input.bookingId, cancelledBy: input.cancelledBy },
+  const result = await cancelBookingWithRefund({
+    bookingId: input.bookingId,
+    reason: input.reason,
+    cancelledBy,
   });
 
+  if (!result.success) return { success: false, error: result.error };
+
   revalidatePath("/admin");
+  revalidatePath("/admin/refunds");
   revalidatePath("/owner/dashboard");
-  revalidatePath("/booking/confirmation/[id]");
+  revalidatePath("/user/bookings");
+  revalidatePath("/dashboard/bookings");
   return { success: true };
 }

@@ -6,6 +6,7 @@ import FormField from "@/components/forms/FormField";
 import Button from "@/components/ui/Button";
 import SeatSelector from "@/components/booking/SeatSelector";
 import BookingOtpVerification from "@/components/booking/BookingOtpVerification";
+import CancellationPolicyCard from "@/components/booking/CancellationPolicyCard";
 import { createBooking } from "@/server/actions/createBooking";
 import { formatDate, formatINR } from "@/lib/utils";
 
@@ -85,7 +86,9 @@ export default function BookingForm({ journey, seats = [] }: Props) {
   }
 
   return (
-    <div className="grid gap-8 lg:grid-cols-5">
+    <div className="space-y-6">
+      <CancellationPolicyCard bookingType="return_journey" />
+      <div className="grid gap-8 lg:grid-cols-5">
       <div className="lg:col-span-2 rounded-2xl bg-secondary text-white p-6 space-y-4 h-fit">
         <h2 className="text-xl font-bold">{journey.vehicle?.vehicle_name ?? "Vehicle"}</h2>
         <p className="text-white/70 text-sm">{journey.vehicle?.vehicle_type}</p>
@@ -150,6 +153,7 @@ export default function BookingForm({ journey, seats = [] }: Props) {
           {loading ? <><Loader2 className="h-5 w-5 animate-spin" /> Booking...</> : "Confirm Booking"}
         </Button>
       </form>
+      </div>
     </div>
   );
 }

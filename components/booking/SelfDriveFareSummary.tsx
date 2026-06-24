@@ -17,6 +17,8 @@ interface SelfDriveFareSummaryProps {
   variant?: "dark" | "light";
   paymentType?: "advance" | "full";
   showLineItems?: boolean;
+  protectionSelected?: boolean;
+  protectionFee?: number;
 }
 
 function DepositInfoTooltip({ variant }: { variant: "dark" | "light" }) {
@@ -63,6 +65,8 @@ export default function SelfDriveFareSummary({
   variant = "dark",
   paymentType = "full",
   showLineItems = true,
+  protectionSelected = false,
+  protectionFee = 0,
 }: SelfDriveFareSummaryProps) {
   const isDark = variant === "dark";
   const { deposit } = pricing;
@@ -72,7 +76,10 @@ export default function SelfDriveFareSummary({
   const rowClass = "flex items-start justify-between gap-3";
 
   const tripFare = pricing.payableAmount;
-  const totalPayableNow = calculateSelfDriveCheckoutAmount(pricing, paymentType);
+  const protection = protectionSelected ? protectionFee : 0;
+  const checkoutBase = calculateSelfDriveCheckoutAmount(pricing, paymentType);
+  const totalPayableNow = checkoutBase + protection;
+  const displayGrandTotal = tripFare + pricing.deposit.amount + protection;
   const depositDisplayAmount = deposit.collectedAtPickup
     ? deposit.displayLabel
     : formatINR(deposit.amount);
@@ -165,6 +172,20 @@ export default function SelfDriveFareSummary({
             Refundable deposit is included in your online payment and returned after vehicle inspection.
           </p>
         )}
+
+        {protectionSelected && protection > 0 ? (
+          <div className={`${rowClass} border-t pt-2.5 ${dividerClass}`}>
+            <div className="flex min-w-0 items-center gap-1.5">
+              <ShieldCheck className={`h-4 w-4 shrink-0 ${isDark ? "text-emerald-400" : "text-emerald-600"}`} />
+              <span className={`text-xs font-semibold sm:text-sm ${labelClass}`}>
+                Flexible Protection
+              </span>
+            </div>
+            <span className={`shrink-0 font-bold tabular-nums ${isDark ? "text-emerald-300" : "text-emerald-700"}`}>
+              {formatINR(protection)}
+            </span>
+          </div>
+        ) : null}
       </div>
 
       <div
@@ -180,16 +201,22 @@ export default function SelfDriveFareSummary({
           </p>
           <p className={`mt-0.5 text-[10px] sm:text-[11px] ${mutedClass}`}>
             {paymentType === "advance"
-              ? "30% trip advance"
+              ? protectionSelected
+                ? "30% trip advance + protection"
+                : "30% trip advance"
               : deposit.collectedAtPickup
-                ? "Trip fare · deposit at pickup"
-                : "Trip fare + refundable deposit"}
+                ? protectionSelected
+                  ? "Trip fare + protection · deposit at pickup"
+                  : "Trip fare · deposit at pickup"
+                : protectionSelected
+                  ? "Trip fare + deposit + protection"
+                  : "Trip fare + refundable deposit"}
           </p>
         </div>
         <span
           className={`shrink-0 text-lg font-bold tabular-nums sm:text-xl ${isDark ? "text-accent" : "text-primary"}`}
         >
-          {formatINR(totalPayableNow)}
+          {formatINR(paymentType === "full" ? displayGrandTotal : totalPayableNow)}
         </span>
       </div>
     </div>

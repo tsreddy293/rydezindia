@@ -19,7 +19,10 @@ import { formatINR } from "@/lib/utils";
 import BookingOtpVerification from "@/components/booking/BookingOtpVerification";
 import KycVerifiedNotice from "@/components/booking/KycVerifiedNotice";
 import SelfDriveFareSummary from "@/components/booking/SelfDriveFareSummary";
+import CancellationPolicyCard from "@/components/booking/CancellationPolicyCard";
+import FlexibleCancellationAddon from "@/components/booking/FlexibleCancellationAddon";
 import { loadBookingSearchDraft } from "@/lib/booking/booking-draft";
+import { getProtectionFeeForVehicle } from "@/lib/services/flexible-cancellation-protection";
 import type { RiderBookingProfile } from "@/lib/users/rider-profile";
 import type { DriverVehicleResult, SelfDriveResult } from "@/types/database";
 
@@ -71,6 +74,7 @@ export default function UnifiedBookingForm(props: Props) {
   const [returnTime, setReturnTime] = useState("");
   const [mobileOtpVerified, setMobileOtpVerified] = useState(kycApproved);
   const [couponCode, setCouponCode] = useState("");
+  const [flexibleCancellation, setFlexibleCancellation] = useState(false);
 
   const accountLocked = Boolean(customerPrefill?.email || customerPrefill?.mobile);
 
@@ -126,10 +130,14 @@ export default function UnifiedBookingForm(props: Props) {
   );
 
   const totalFare = isSelfDrive ? selfDrivePricing!.payableAmount : driverPricing!.finalFare;
+  const protectionFee = isSelfDrive ? getProtectionFeeForVehicle(listing.vehicle_type) : 0;
   const payAmount =
     isSelfDrive && selfDrivePricing
-      ? calculateSelfDriveCheckoutAmount(selfDrivePricing, paymentType)
+      ? calculateSelfDriveCheckoutAmount(selfDrivePricing, paymentType) +
+        (flexibleCancellation ? protectionFee : 0)
       : getAdvancePaymentAmount(totalFare, paymentType);
+
+  const policyBookingType = isSelfDrive ? "self_drive" : "with_driver";
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -158,6 +166,12 @@ export default function UnifiedBookingForm(props: Props) {
       base_fare: isSelfDrive ? selfDrivePricing!.vehicleRentTotal : driverPricing!.baseFare,
       platform_fee: isSelfDrive ? selfDrivePricing!.platformFee : driverPricing!.platformFee,
       discount_amount: isSelfDrive ? 0 : driverPricing!.discountAmount,
+      trip_fare_amount: totalFare,
+      security_deposit_amount: isSelfDrive ? selfDrivePricing!.deposit.amount : 0,
+      flexible_cancellation: isSelfDrive ? flexibleCancellation : false,
+      protection_selected: isSelfDrive ? flexibleCancellation : false,
+      protection_fee: isSelfDrive && flexibleCancellation ? protectionFee : 0,
+      vehicle_type: listing.vehicle_type,
       coupon_code: couponCode.trim() || undefined,
       wallet_amount_used: Number(new FormData(e.currentTarget).get("wallet_amount") ?? 0) || undefined,
     });
@@ -195,7 +209,9 @@ export default function UnifiedBookingForm(props: Props) {
 
   if (step === "payment") {
     return (
-      <div className="grid gap-8 lg:grid-cols-2">
+      <div className="space-y-6">
+        <CancellationPolicyCard bookingType={policyBookingType} tripType={tripType} compact />
+        <div className="grid gap-8 lg:grid-cols-2">
         <div className="rounded-2xl bg-secondary text-white p-6 space-y-4">
           <h2 className="text-xl font-bold">Payment Options</h2>
           {isSelfDrive && selfDrivePricing ? (
@@ -204,6 +220,8 @@ export default function UnifiedBookingForm(props: Props) {
                 pricing={selfDrivePricing}
                 paymentType={paymentType}
                 showLineItems={false}
+                protectionSelected={flexibleCancellation}
+                protectionFee={protectionFee}
               />
               <div className="space-y-3 border-t border-white/15 pt-4">
                 <label className="flex items-center gap-3 rounded-xl bg-white/10 p-4 cursor-pointer">
@@ -290,12 +308,15 @@ export default function UnifiedBookingForm(props: Props) {
         >
           Skip payment for now
         </Button>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="grid gap-8 lg:grid-cols-5">
+    <div className="space-y-6">
+      <CancellationPolicyCard bookingType={policyBookingType} tripType={tripType} />
+      <div className="grid gap-8 lg:grid-cols-5">
       <div className="lg:col-span-2 rounded-2xl bg-secondary text-white p-6 space-y-4 h-fit">
         <h2 className="text-xl font-bold">{listing.vehicle_name}</h2>
         <p className="text-white/70 text-sm">{listing.vehicle_type}</p>
@@ -313,7 +334,12 @@ export default function UnifiedBookingForm(props: Props) {
           {isSelfDrive && selfDrivePricing ? (
             <>
               <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-white/60">Booking Summary</p>
-              <SelfDriveFareSummary pricing={selfDrivePricing} paymentType="full" />
+              <SelfDriveFareSummary
+                pricing={selfDrivePricing}
+                paymentType="full"
+                protectionSelected={flexibleCancellation}
+                protectionFee={protectionFee}
+              />
             </>
           ) : driverPricing ? (
             <div className="space-y-1 text-sm">
@@ -461,6 +487,13 @@ export default function UnifiedBookingForm(props: Props) {
           </div>
           <FormField label="Use Wallet (₹)" name="wallet_amount" type="number" placeholder="0" />
         </div>
+        {isSelfDrive && (
+          <FlexibleCancellationAddon
+            vehicleType={listing.vehicle_type}
+            checked={flexibleCancellation}
+            onChange={setFlexibleCancellation}
+          />
+        )}
         <Button type="submit" variant="primary" size="lg" className="w-full" disabled={loading || (!kycApproved && !mobileOtpVerified)}>
           {loading ? (
             <>
@@ -471,6 +504,7 @@ export default function UnifiedBookingForm(props: Props) {
           )}
         </Button>
       </form>
+      </div>
     </div>
   );
 }

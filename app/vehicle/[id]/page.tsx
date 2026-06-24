@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { Calendar, IndianRupee, MapPin, Shield, Users } from "lucide-react";
 import PageLayout from "@/components/layout/PageLayout";
 import Button from "@/components/ui/Button";
+import CancellationPolicyCard from "@/components/booking/CancellationPolicyCard";
 import { getVehicleListingById } from "@/lib/supabase/queries";
 import { formatDate, formatINR } from "@/lib/utils";
 
@@ -26,6 +27,8 @@ export default async function VehicleDetailPage({ params }: Props) {
       : vehicle.drop_city
         ? `${vehicle.pickup_city} → ${vehicle.drop_city}`
         : vehicle.pickup_city;
+
+  const policyType = isReturn ? "return_journey" : isSelfDrive ? "self_drive" : "with_driver";
 
   return (
     <PageLayout>
@@ -80,6 +83,10 @@ export default async function VehicleDetailPage({ params }: Props) {
             <p className="mt-2 text-sm text-gray-500">
               Booking requests are confirmed after owner availability and passenger details are verified.
             </p>
+          </div>
+
+          <div className="mt-6">
+            <CancellationPolicyCard bookingType={policyType} />
           </div>
         </div>
       </div>

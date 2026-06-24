@@ -136,6 +136,15 @@ export interface BookingConfirmation {
   vehicle_id?: string;
   owner_id?: string;
   created_at: string;
+  protection_selected?: boolean;
+  flexible_cancellation?: boolean;
+  flexible_cancellation_fee?: number;
+  protection_fee?: number;
+  protection_plan_name?: string;
+  protection_purchase_date?: string;
+  protection_status?: string;
+  trip_fare_amount?: number;
+  security_deposit_amount?: number;
 }
 
 export type VehicleDetail =
@@ -528,7 +537,20 @@ export interface UserBooking {
   pickup_location?: string;
   drop_location?: string;
   pickup_date?: string;
+  pickup_time?: string;
   created_at: string;
+}
+
+export interface UserBookingExtended extends UserBooking {
+  cancellation_status?: string | null;
+  cancelled_at?: string | null;
+  refund_amount?: number | null;
+  refund_status?: string | null;
+  refund_processed_at?: string | null;
+  cancellation_reason?: string | null;
+  flexible_cancellation?: boolean | null;
+  protection_selected?: boolean | null;
+  flexible_cancellation_fee?: number | null;
 }
 
 export interface ActionResult<T = unknown> {

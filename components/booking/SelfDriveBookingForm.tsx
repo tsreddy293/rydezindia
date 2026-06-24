@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useId } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, Loader2, MapPin, Shield, User } from "lucide-react";
 import Button from "@/components/ui/Button";
@@ -8,6 +8,8 @@ import FormField from "@/components/forms/FormField";
 import RazorpayCheckout from "@/components/payments/RazorpayCheckout";
 import KycVerifiedNotice from "@/components/booking/KycVerifiedNotice";
 import SelfDriveFareSummary from "@/components/booking/SelfDriveFareSummary";
+import CancellationPolicyAccordion from "@/components/booking/CancellationPolicyAccordion";
+import FlexibleCancellationAddon from "@/components/booking/FlexibleCancellationAddon";
 import { createUnifiedBooking } from "@/server/actions/createBooking";
 import {
   calculateSelfDriveCheckoutAmount,
@@ -15,6 +17,7 @@ import {
   resolveSelfDriveDailyRent,
   resolveSelfDriveDepositInfo,
 } from "@/lib/pricing/self-drive-pricing";
+import { getProtectionFeeForVehicle } from "@/lib/services/flexible-cancellation-protection";
 import { formatINR } from "@/lib/utils";
 import { loadBookingSearchDraft, saveBookingSearchDraft } from "@/lib/booking/booking-draft";
 import type { RiderBookingProfile } from "@/lib/users/rider-profile";
@@ -43,6 +46,7 @@ function buildReturnScheduleNote(returnDate: string, returnTime: string): string
 
 export default function SelfDriveBookingForm({ listing, customer, searchPrefill }: Props) {
   const router = useRouter();
+  const policyCheckboxId = useId();
   const [step, setStep] = useState<"form" | "payment" | "done">("form");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -58,6 +62,8 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
   const [returnTime, setReturnTime] = useState("");
   const [travelPlan, setTravelPlan] = useState("");
   const [couponCode, setCouponCode] = useState("");
+  const [flexibleCancellation, setFlexibleCancellation] = useState(false);
+  const [policyAgreed, setPolicyAgreed] = useState(false);
 
   const pricing = useMemo(
     () =>
@@ -70,7 +76,10 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
   );
 
   const totalFare = pricing.payableAmount;
-  const payAmount = calculateSelfDriveCheckoutAmount(pricing, paymentType);
+  const protectionFee = getProtectionFeeForVehicle(listing.vehicle_type);
+  const payAmount =
+    calculateSelfDriveCheckoutAmount(pricing, paymentType) +
+    (flexibleCancellation ? protectionFee : 0);
 
   useEffect(() => {
     const draft = loadBookingSearchDraft();
@@ -133,6 +142,10 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
       setError("Return date must be on or after pickup date.");
       return;
     }
+    if (!policyAgreed) {
+      setError("Please read and agree to the Cancellation Policy before continuing.");
+      return;
+    }
 
     setLoading(true);
     setError("");
@@ -156,6 +169,12 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
       special_instructions: instructions || undefined,
       base_fare: pricing.vehicleRentTotal,
       platform_fee: pricing.platformFee,
+      trip_fare_amount: totalFare,
+      security_deposit_amount: pricing.deposit.amount,
+      flexible_cancellation: flexibleCancellation,
+      protection_selected: flexibleCancellation,
+      protection_fee: flexibleCancellation ? protectionFee : 0,
+      vehicle_type: listing.vehicle_type,
       coupon_code: couponCode.trim() || undefined,
       wallet_amount_used: Number(new FormData(e.currentTarget).get("wallet_amount") ?? 0) || undefined,
     });
@@ -196,7 +215,13 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
       <div className="grid gap-8 lg:grid-cols-2">
         <div className="rounded-2xl bg-secondary text-white p-6 space-y-4">
           <h2 className="text-xl font-bold">Payment Options</h2>
-          <SelfDriveFareSummary pricing={pricing} paymentType={paymentType} showLineItems={false} />
+          <SelfDriveFareSummary
+            pricing={pricing}
+            paymentType={paymentType}
+            showLineItems={false}
+            protectionSelected={flexibleCancellation}
+            protectionFee={protectionFee}
+          />
           <div className="space-y-3 border-t border-white/15 pt-4">
             <label className="flex items-center gap-3 rounded-xl bg-white/10 p-4 cursor-pointer">
               <input
@@ -283,7 +308,12 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
         </div>
         <div className="border-t border-white/20 pt-4">
           <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-white/60">Booking Summary</p>
-          <SelfDriveFareSummary pricing={pricing} paymentType="full" />
+          <SelfDriveFareSummary
+            pricing={pricing}
+            paymentType="full"
+            protectionSelected={flexibleCancellation}
+            protectionFee={protectionFee}
+          />
         </div>
       </div>
 
@@ -374,7 +404,32 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
           <FormField label="Use Wallet (₹)" name="wallet_amount" type="number" placeholder="0" />
         </div>
 
-        <Button type="submit" variant="primary" size="lg" className="w-full" disabled={loading}>
+        <FlexibleCancellationAddon
+          vehicleType={listing.vehicle_type}
+          checked={flexibleCancellation}
+          onChange={setFlexibleCancellation}
+        />
+
+        <p className="text-xs leading-relaxed text-gray-500 sm:text-sm">
+          By proceeding to payment, you agree to Rydez India Cancellation &amp; Refund Policy.
+        </p>
+        <label
+          htmlFor={policyCheckboxId}
+          className="flex cursor-pointer items-start gap-3 rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-3"
+        >
+          <input
+            id={policyCheckboxId}
+            type="checkbox"
+            checked={policyAgreed}
+            onChange={(e) => setPolicyAgreed(e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-primary focus:ring-primary"
+          />
+          <span className="text-sm text-gray-700">
+            I have read and agree to the Cancellation Policy.
+          </span>
+        </label>
+
+        <Button type="submit" variant="primary" size="lg" className="w-full" disabled={loading || !policyAgreed}>
           {loading ? (
             <>
               <Loader2 className="h-5 w-5 animate-spin" /> Creating booking...
@@ -383,6 +438,8 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
             "Continue to Payment"
           )}
         </Button>
+
+        <CancellationPolicyAccordion bookingType="self_drive" />
       </form>
     </div>
   );
