@@ -27,13 +27,30 @@ const DEFAULT_DAILY_FARE: Record<string, number> = {
   Van: 2999,
 };
 
-const DEFAULT_SECURITY_DEPOSIT: Record<string, number> = {
-  Hatchback: 5000,
-  Sedan: 8000,
-  SUV: 10000,
-  Luxury: 20000,
-  Van: 12000,
+/** Tier-2 market refundable deposit ranges (shown when owner has not set an explicit amount). */
+export const TIER2_SECURITY_DEPOSIT_RANGES: Record<string, { min: number; max: number }> = {
+  Hatchback: { min: 2000, max: 3000 },
+  Sedan: { min: 3000, max: 5000 },
+  SUV: { min: 5000, max: 7500 },
+  Luxury: { min: 5000, max: 7500 },
+  Van: { min: 5000, max: 7500 },
 };
+
+export function getTier2DepositRange(category: string): { min: number; max: number } {
+  return TIER2_SECURITY_DEPOSIT_RANGES[normalizeVehicleCategory(category)] ?? TIER2_SECURITY_DEPOSIT_RANGES.Sedan;
+}
+
+export function formatDepositRange(range: { min: number; max: number }): string {
+  const fmt = (n: number) => n.toLocaleString("en-IN");
+  return range.min === range.max ? `₹${fmt(range.min)}` : `₹${fmt(range.min)} – ₹${fmt(range.max)}`;
+}
+
+export function resolveSecurityDeposit(row: Record<string, unknown>, category: string): number {
+  const stored = readNumber(row, "security_deposit");
+  if (stored > 0) return stored;
+  const range = getTier2DepositRange(category);
+  return Math.round((range.min + range.max) / 2);
+}
 
 export function normalizeVehicleCategory(category: string): string {
   const trimmed = category.trim();
@@ -77,12 +94,6 @@ export function resolveDailyFare(row: Record<string, unknown>, category: string)
   const stored = readNumber(row, "daily_fare", "daily_rent", "price");
   if (stored > 0) return stored;
   return DEFAULT_DAILY_FARE[normalizeVehicleCategory(category)] ?? 1799;
-}
-
-export function resolveSecurityDeposit(row: Record<string, unknown>, category: string): number {
-  const stored = readNumber(row, "security_deposit");
-  if (stored > 0) return stored;
-  return DEFAULT_SECURITY_DEPOSIT[normalizeVehicleCategory(category)] ?? 8000;
 }
 
 export function resolveVehicleCity(

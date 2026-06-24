@@ -8,8 +8,10 @@ import { createMarketplaceBooking } from "@/server/actions/createBooking";
 import {
   calculateSelfDrivePricing,
   resolveSelfDriveDailyRent,
+  resolveSelfDriveDepositInfo,
 } from "@/lib/pricing/self-drive-pricing";
 import { formatINR } from "@/lib/utils";
+import SelfDriveFareSummary from "@/components/booking/SelfDriveFareSummary";
 import type { DriverVehicleResult, SelfDriveResult } from "@/types/database";
 
 type Props =
@@ -25,7 +27,7 @@ export default function MarketplaceBookingForm({ type, listing }: Props) {
   const selfDrivePricing = isSelfDrive
     ? calculateSelfDrivePricing(
         resolveSelfDriveDailyRent(listing as SelfDriveResult),
-        (listing as SelfDriveResult).security_deposit ?? 0
+        resolveSelfDriveDepositInfo(listing as SelfDriveResult)
       )
     : null;
   const amount = isSelfDrive
@@ -84,31 +86,11 @@ export default function MarketplaceBookingForm({ type, listing }: Props) {
             Owner: {listing.owner_name}
           </div>
         </div>
-        <div className="border-t border-white/20 pt-4 space-y-1 text-sm">
+        <div className="border-t border-white/20 pt-4">
           {isSelfDrive && selfDrivePricing ? (
             <>
-              <div className="flex justify-between">
-                <span>Daily Rent</span>
-                <span>{formatINR(selfDrivePricing.dailyRent)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Platform Fee</span>
-                <span>{formatINR(selfDrivePricing.platformFee)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>GST</span>
-                <span>{formatINR(selfDrivePricing.gst)}</span>
-              </div>
-              <div className="flex justify-between font-bold text-accent text-lg pt-2">
-                <span>Payable Amount</span>
-                <span>{formatINR(selfDrivePricing.payableAmount)}</span>
-              </div>
-              {selfDrivePricing.securityDeposit > 0 && (
-                <div className="flex justify-between text-white/70 pt-2 border-t border-white/10 mt-2">
-                  <span>Security Deposit (refundable)</span>
-                  <span>{formatINR(selfDrivePricing.securityDeposit)}</span>
-                </div>
-              )}
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-white/60">Booking Summary</p>
+              <SelfDriveFareSummary pricing={selfDrivePricing} paymentType="full" />
             </>
           ) : (
             <>

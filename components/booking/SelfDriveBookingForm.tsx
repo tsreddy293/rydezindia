@@ -7,9 +7,14 @@ import Button from "@/components/ui/Button";
 import FormField from "@/components/forms/FormField";
 import RazorpayCheckout from "@/components/payments/RazorpayCheckout";
 import KycVerifiedNotice from "@/components/booking/KycVerifiedNotice";
+import SelfDriveFareSummary from "@/components/booking/SelfDriveFareSummary";
 import { createUnifiedBooking } from "@/server/actions/createBooking";
-import { calculateSelfDrivePricing, resolveSelfDriveDailyRent } from "@/lib/pricing/self-drive-pricing";
-import { getAdvancePaymentAmount } from "@/lib/pricing/ai-pricing-engine";
+import {
+  calculateSelfDriveCheckoutAmount,
+  calculateSelfDrivePricingForSchedule,
+  resolveSelfDriveDailyRent,
+  resolveSelfDriveDepositInfo,
+} from "@/lib/pricing/self-drive-pricing";
 import { formatINR } from "@/lib/utils";
 import { loadBookingSearchDraft, saveBookingSearchDraft } from "@/lib/booking/booking-draft";
 import type { RiderBookingProfile } from "@/lib/users/rider-profile";
@@ -56,15 +61,16 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
 
   const pricing = useMemo(
     () =>
-      calculateSelfDrivePricing(
+      calculateSelfDrivePricingForSchedule(
         resolveSelfDriveDailyRent(listing),
-        listing.security_deposit ?? 0
+        resolveSelfDriveDepositInfo(listing),
+        { pickupDate, pickupTime, returnDate, returnTime }
       ),
-    [listing]
+    [listing, pickupDate, pickupTime, returnDate, returnTime]
   );
 
   const totalFare = pricing.payableAmount;
-  const payAmount = getAdvancePaymentAmount(totalFare, paymentType);
+  const payAmount = calculateSelfDriveCheckoutAmount(pricing, paymentType);
 
   useEffect(() => {
     const draft = loadBookingSearchDraft();
@@ -97,6 +103,18 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
     setDraftLoaded(true);
   }, [listing, searchPrefill]);
 
+  useEffect(() => {
+    if (!draftLoaded) return;
+    saveBookingSearchDraft({
+      pickupLocation: pickupCity,
+      pickupDate,
+      pickupTime,
+      returnDate,
+      returnTime,
+      serviceType: "self_drive",
+    });
+  }, [draftLoaded, pickupCity, pickupDate, pickupTime, returnDate, returnTime]);
+
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!customer.name.trim() || !customer.mobile.trim()) {
@@ -109,6 +127,10 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
     }
     if (!pickupDate) {
       setError("Pickup date is required.");
+      return;
+    }
+    if (returnDate && returnDate < pickupDate) {
+      setError("Return date must be on or after pickup date.");
       return;
     }
 
@@ -132,7 +154,7 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
       trip_type: "Self Drive",
       driver_required: false,
       special_instructions: instructions || undefined,
-      base_fare: pricing.dailyRent,
+      base_fare: pricing.vehicleRentTotal,
       platform_fee: pricing.platformFee,
       coupon_code: couponCode.trim() || undefined,
       wallet_amount_used: Number(new FormData(e.currentTarget).get("wallet_amount") ?? 0) || undefined,
@@ -172,9 +194,10 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
   if (step === "payment") {
     return (
       <div className="grid gap-8 lg:grid-cols-2">
-        <div className="rounded-2xl bg-secondary text-white p-6">
-          <h2 className="text-xl font-bold mb-4">Payment Options</h2>
-          <div className="space-y-3">
+        <div className="rounded-2xl bg-secondary text-white p-6 space-y-4">
+          <h2 className="text-xl font-bold">Payment Options</h2>
+          <SelfDriveFareSummary pricing={pricing} paymentType={paymentType} showLineItems={false} />
+          <div className="space-y-3 border-t border-white/15 pt-4">
             <label className="flex items-center gap-3 rounded-xl bg-white/10 p-4 cursor-pointer">
               <input
                 type="radio"
@@ -183,8 +206,11 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
                 onChange={() => setPaymentType("advance")}
               />
               <div>
-                <p className="font-medium">Advance Payment (30%)</p>
-                <p className="text-sm text-white/70">{formatINR(getAdvancePaymentAmount(totalFare, "advance"))}</p>
+                <p className="font-medium">Advance Payment (30% trip fare)</p>
+                <p className="text-sm text-white/70">
+                  {formatINR(calculateSelfDriveCheckoutAmount(pricing, "advance"))}
+                  {pricing.deposit.collectedAtPickup ? " · deposit at pickup" : " incl. deposit"}
+                </p>
               </div>
             </label>
             <label className="flex items-center gap-3 rounded-xl bg-white/10 p-4 cursor-pointer">
@@ -196,11 +222,13 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
               />
               <div>
                 <p className="font-medium">Full Payment</p>
-                <p className="text-sm text-white/70">{formatINR(totalFare)}</p>
+                <p className="text-sm text-white/70">
+                  {formatINR(calculateSelfDriveCheckoutAmount(pricing, "full"))}
+                  {pricing.deposit.collectedAtPickup ? " · deposit at pickup" : " incl. deposit"}
+                </p>
               </div>
             </label>
           </div>
-          <p className="mt-4 text-sm text-white/60">Total fare: {formatINR(totalFare)}</p>
         </div>
         <RazorpayCheckout
           bookingId={bookingId}
@@ -253,29 +281,9 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
             Owner: {listing.owner_name}
           </div>
         </div>
-        <div className="border-t border-white/20 pt-4 space-y-1 text-sm">
-          <div className="flex justify-between">
-            <span>Daily Rent</span>
-            <span>{formatINR(pricing.dailyRent)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Platform Fee</span>
-            <span>{formatINR(pricing.platformFee)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>GST</span>
-            <span>{formatINR(pricing.gst)}</span>
-          </div>
-          <div className="flex justify-between font-bold text-accent text-lg pt-2">
-            <span>Payable Amount</span>
-            <span>{formatINR(pricing.payableAmount)}</span>
-          </div>
-          {pricing.securityDeposit > 0 && (
-            <div className="flex justify-between text-white/70 pt-2 border-t border-white/10 mt-2">
-              <span>Security Deposit (refundable)</span>
-              <span>{formatINR(pricing.securityDeposit)}</span>
-            </div>
-          )}
+        <div className="border-t border-white/20 pt-4">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-white/60">Booking Summary</p>
+          <SelfDriveFareSummary pricing={pricing} paymentType="full" />
         </div>
       </div>
 

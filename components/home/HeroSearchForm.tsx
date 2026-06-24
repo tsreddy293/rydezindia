@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Plus, Search, Sparkles, X } from "lucide-react";
 import Button from "@/components/ui/Button";
+import ServiceTypeCards, { type ServiceTypeKey } from "@/components/home/ServiceTypeCards";
 import PlaceAutocompleteInput from "@/components/maps/PlaceAutocompleteInput";
 import RouteInsightsPanel from "@/components/maps/RouteInsightsPanel";
 import { LOCAL_RENTAL_PACKAGES } from "@/lib/maps/constants";
@@ -12,23 +13,10 @@ import { appendPlaceToParams } from "@/lib/maps/url-params";
 import { saveBookingSearchDraft } from "@/lib/booking/booking-draft";
 import type { PlaceLocation } from "@/lib/maps/types";
 
-type ServiceType = "self_drive" | "with_driver" | "return_journey" | "local_rental";
+type ServiceType = ServiceTypeKey;
 type SelfDriveDuration = "1_day" | "2_days" | "3_days" | "weekly" | "monthly";
 type DriverTripType = "one_way" | "round_trip" | "multi_city";
 type LocalRentalPackageKey = (typeof LOCAL_RENTAL_PACKAGES)[number]["key"];
-
-const SERVICE_TYPES: {
-  key: ServiceType;
-  emoji: string;
-  label: string;
-  shortLabel: string;
-  description: string;
-}[] = [
-  { key: "self_drive", emoji: "🚗", label: "Self Drive", shortLabel: "Self Drive", description: "Rent and drive yourself" },
-  { key: "with_driver", emoji: "🚕", label: "Vehicle With Driver", shortLabel: "With Driver", description: "Chauffeur-driven trips" },
-  { key: "return_journey", emoji: "🔄", label: "Return Journey Deals", shortLabel: "Return Deals", description: "Discounted return routes" },
-  { key: "local_rental", emoji: "🛣️", label: "Local Rental", shortLabel: "Local", description: "Hourly packages with driver" },
-];
 
 const SELF_DRIVE_DURATIONS: { key: SelfDriveDuration; label: string }[] = [
   { key: "1_day", label: "1 Day" },
@@ -166,7 +154,6 @@ export default function HeroSearchForm() {
     }
   };
 
-  const activeService = SERVICE_TYPES.find((service) => service.key === serviceType)!;
   const routeMode =
     serviceType === "local_rental"
       ? "local_rental"
@@ -197,39 +184,10 @@ export default function HeroSearchForm() {
       onSubmit={handleSearch}
       className="hero-glass scroll-mt-24 mt-3 rounded-2xl p-3 sm:p-3.5 md:mt-4 md:p-4"
     >
-      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-accent sm:text-[11px] md:text-xs">
+      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-accent sm:text-[11px] md:mb-2.5 md:text-xs">
         Choose Service Type
       </p>
-      <div
-        role="tablist"
-        aria-label="Choose service type"
-        className="flex gap-0.5 overflow-x-auto rounded-xl border border-white/15 bg-black/25 p-0.5 sm:gap-1 sm:p-1"
-      >
-        {SERVICE_TYPES.map((service) => {
-          const selected = serviceType === service.key;
-          return (
-            <button
-              key={service.key}
-              type="button"
-              role="tab"
-              aria-selected={selected}
-              onClick={() => setServiceType(service.key)}
-              className={`flex min-w-[72px] flex-1 items-center justify-center gap-1 rounded-lg px-1.5 py-1.5 text-[9px] font-semibold transition-all duration-200 sm:min-w-0 sm:gap-1.5 sm:px-2 sm:py-2 sm:text-[10px] md:py-2 md:text-[11px] lg:text-xs ${
-                selected
-                  ? "bg-gradient-to-r from-primary to-blue-500 text-white shadow-md shadow-primary/30"
-                  : "text-white/70 hover:bg-white/10 hover:text-white"
-              }`}
-            >
-              <span className="shrink-0 text-xs leading-none sm:text-sm md:text-base">{service.emoji}</span>
-              <span className="truncate">
-                <span className="sm:hidden">{service.shortLabel}</span>
-                <span className="hidden sm:inline">{service.label}</span>
-              </span>
-            </button>
-          );
-        })}
-      </div>
-      <p className="mt-1 hidden text-[10px] text-white/55 sm:block md:text-[11px]">{activeService.description}</p>
+      <ServiceTypeCards value={serviceType} onChange={setServiceType} />
 
       {serviceType === "with_driver" && (
         <div className="mt-2 md:mt-2.5">

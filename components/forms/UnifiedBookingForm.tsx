@@ -9,13 +9,16 @@ import RazorpayCheckout from "@/components/payments/RazorpayCheckout";
 import { createUnifiedBooking } from "@/server/actions/createBooking";
 import { calculateAiPricing, getAdvancePaymentAmount } from "@/lib/pricing/ai-pricing-engine";
 import {
-  calculateSelfDrivePricing,
+  calculateSelfDriveCheckoutAmount,
+  calculateSelfDrivePricingForSchedule,
   resolveSelfDriveDailyRent,
+  resolveSelfDriveDepositInfo,
 } from "@/lib/pricing/self-drive-pricing";
 import { mapDriverTripTypeLabel } from "@/lib/pricing/trip-pricing";
 import { formatINR } from "@/lib/utils";
 import BookingOtpVerification from "@/components/booking/BookingOtpVerification";
 import KycVerifiedNotice from "@/components/booking/KycVerifiedNotice";
+import SelfDriveFareSummary from "@/components/booking/SelfDriveFareSummary";
 import { loadBookingSearchDraft } from "@/lib/booking/booking-draft";
 import type { RiderBookingProfile } from "@/lib/users/rider-profile";
 import type { DriverVehicleResult, SelfDriveResult } from "@/types/database";
@@ -98,12 +101,13 @@ export default function UnifiedBookingForm(props: Props) {
   const selfDrivePricing = useMemo(
     () =>
       isSelfDrive
-        ? calculateSelfDrivePricing(
+        ? calculateSelfDrivePricingForSchedule(
             resolveSelfDriveDailyRent(selfDriveListing!),
-            selfDriveListing!.security_deposit ?? 0
+            resolveSelfDriveDepositInfo(selfDriveListing!),
+            { pickupDate, pickupTime, returnDate, returnTime }
           )
         : null,
-    [isSelfDrive, selfDriveListing]
+    [isSelfDrive, selfDriveListing, pickupDate, pickupTime, returnDate, returnTime]
   );
 
   const driverPricing = useMemo(
@@ -122,7 +126,10 @@ export default function UnifiedBookingForm(props: Props) {
   );
 
   const totalFare = isSelfDrive ? selfDrivePricing!.payableAmount : driverPricing!.finalFare;
-  const payAmount = getAdvancePaymentAmount(totalFare, paymentType);
+  const payAmount =
+    isSelfDrive && selfDrivePricing
+      ? calculateSelfDriveCheckoutAmount(selfDrivePricing, paymentType)
+      : getAdvancePaymentAmount(totalFare, paymentType);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -148,7 +155,7 @@ export default function UnifiedBookingForm(props: Props) {
       trip_type: tripType ?? "One Way",
       driver_required: !isSelfDrive,
       special_instructions: String(new FormData(e.currentTarget).get("special_instructions") ?? ""),
-      base_fare: isSelfDrive ? selfDrivePricing!.dailyRent : driverPricing!.baseFare,
+      base_fare: isSelfDrive ? selfDrivePricing!.vehicleRentTotal : driverPricing!.baseFare,
       platform_fee: isSelfDrive ? selfDrivePricing!.platformFee : driverPricing!.platformFee,
       discount_amount: isSelfDrive ? 0 : driverPricing!.discountAmount,
       coupon_code: couponCode.trim() || undefined,
@@ -189,35 +196,79 @@ export default function UnifiedBookingForm(props: Props) {
   if (step === "payment") {
     return (
       <div className="grid gap-8 lg:grid-cols-2">
-        <div className="rounded-2xl bg-secondary text-white p-6">
-          <h2 className="text-xl font-bold mb-4">Payment Options</h2>
-          <div className="space-y-3">
-            <label className="flex items-center gap-3 rounded-xl bg-white/10 p-4 cursor-pointer">
-              <input
-                type="radio"
-                name="pay_type"
-                checked={paymentType === "advance"}
-                onChange={() => setPaymentType("advance")}
+        <div className="rounded-2xl bg-secondary text-white p-6 space-y-4">
+          <h2 className="text-xl font-bold">Payment Options</h2>
+          {isSelfDrive && selfDrivePricing ? (
+            <>
+              <SelfDriveFareSummary
+                pricing={selfDrivePricing}
+                paymentType={paymentType}
+                showLineItems={false}
               />
-              <div>
-                <p className="font-medium">Advance Payment (30%)</p>
-                <p className="text-sm text-white/70">{formatINR(getAdvancePaymentAmount(totalFare, "advance"))}</p>
+              <div className="space-y-3 border-t border-white/15 pt-4">
+                <label className="flex items-center gap-3 rounded-xl bg-white/10 p-4 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="pay_type"
+                    checked={paymentType === "advance"}
+                    onChange={() => setPaymentType("advance")}
+                  />
+                  <div>
+                    <p className="font-medium">Advance Payment (30% trip fare)</p>
+                    <p className="text-sm text-white/70">
+                      {formatINR(calculateSelfDriveCheckoutAmount(selfDrivePricing, "advance"))}
+                      {selfDrivePricing.deposit.collectedAtPickup ? " · deposit at pickup" : " incl. deposit"}
+                    </p>
+                  </div>
+                </label>
+                <label className="flex items-center gap-3 rounded-xl bg-white/10 p-4 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="pay_type"
+                    checked={paymentType === "full"}
+                    onChange={() => setPaymentType("full")}
+                  />
+                  <div>
+                    <p className="font-medium">Full Payment</p>
+                    <p className="text-sm text-white/70">
+                      {formatINR(calculateSelfDriveCheckoutAmount(selfDrivePricing, "full"))}
+                      {selfDrivePricing.deposit.collectedAtPickup ? " · deposit at pickup" : " incl. deposit"}
+                    </p>
+                  </div>
+                </label>
               </div>
-            </label>
-            <label className="flex items-center gap-3 rounded-xl bg-white/10 p-4 cursor-pointer">
-              <input
-                type="radio"
-                name="pay_type"
-                checked={paymentType === "full"}
-                onChange={() => setPaymentType("full")}
-              />
-              <div>
-                <p className="font-medium">Full Payment</p>
-                <p className="text-sm text-white/70">{formatINR(totalFare)}</p>
+            </>
+          ) : (
+            <>
+              <div className="space-y-3">
+                <label className="flex items-center gap-3 rounded-xl bg-white/10 p-4 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="pay_type"
+                    checked={paymentType === "advance"}
+                    onChange={() => setPaymentType("advance")}
+                  />
+                  <div>
+                    <p className="font-medium">Advance Payment (30%)</p>
+                    <p className="text-sm text-white/70">{formatINR(getAdvancePaymentAmount(totalFare, "advance"))}</p>
+                  </div>
+                </label>
+                <label className="flex items-center gap-3 rounded-xl bg-white/10 p-4 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="pay_type"
+                    checked={paymentType === "full"}
+                    onChange={() => setPaymentType("full")}
+                  />
+                  <div>
+                    <p className="font-medium">Full Payment</p>
+                    <p className="text-sm text-white/70">{formatINR(totalFare)}</p>
+                  </div>
+                </label>
               </div>
-            </label>
-          </div>
-          <p className="mt-4 text-sm text-white/60">Total fare: {formatINR(totalFare)}</p>
+              <p className="text-sm text-white/60">Total fare: {formatINR(totalFare)}</p>
+            </>
+          )}
         </div>
         <RazorpayCheckout
           bookingId={bookingId}
@@ -258,34 +309,14 @@ export default function UnifiedBookingForm(props: Props) {
             Owner: {listing.owner_name}
           </div>
         </div>
-        <div className="border-t border-white/20 pt-4 space-y-1 text-sm">
+        <div className="border-t border-white/20 pt-4">
           {isSelfDrive && selfDrivePricing ? (
             <>
-              <div className="flex justify-between">
-                <span>Daily Rent</span>
-                <span>{formatINR(selfDrivePricing.dailyRent)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Platform Fee</span>
-                <span>{formatINR(selfDrivePricing.platformFee)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>GST</span>
-                <span>{formatINR(selfDrivePricing.gst)}</span>
-              </div>
-              <div className="flex justify-between font-bold text-accent text-lg pt-2">
-                <span>Payable Amount</span>
-                <span>{formatINR(selfDrivePricing.payableAmount)}</span>
-              </div>
-              {selfDrivePricing.securityDeposit > 0 && (
-                <div className="flex justify-between text-white/70 pt-2 border-t border-white/10 mt-2">
-                  <span>Security Deposit (refundable)</span>
-                  <span>{formatINR(selfDrivePricing.securityDeposit)}</span>
-                </div>
-              )}
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-white/60">Booking Summary</p>
+              <SelfDriveFareSummary pricing={selfDrivePricing} paymentType="full" />
             </>
           ) : driverPricing ? (
-            <>
+            <div className="space-y-1 text-sm">
               <div className="flex justify-between">
                 <span>Base Fare</span>
                 <span>{formatINR(driverPricing.baseFare)}</span>
@@ -304,7 +335,7 @@ export default function UnifiedBookingForm(props: Props) {
                 <span>Final Fare</span>
                 <span>{formatINR(totalFare)}</span>
               </div>
-            </>
+            </div>
           ) : null}
         </div>
       </div>
