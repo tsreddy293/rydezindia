@@ -55,6 +55,8 @@ function isMultiCityTrip(service: ServiceType, tripType: DriverTripType) {
   return service === "with_driver" && tripType === "multi_city";
 }
 
+const COMPACT_FIELD_CLASS = "!py-2 text-sm md:!py-2.5";
+
 export default function HeroSearchForm() {
   const router = useRouter();
   const [serviceType, setServiceType] = useState<ServiceType>("with_driver");
@@ -189,19 +191,19 @@ export default function HeroSearchForm() {
   return (
     <motion.form
       id="search"
-      initial={{ opacity: 0, y: 16 }}
+      initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, delay: 0.08 }}
+      transition={{ duration: 0.45, delay: 0.05 }}
       onSubmit={handleSearch}
-      className="hero-glass mt-5 rounded-2xl p-4 md:mt-6 md:p-5"
+      className="hero-glass scroll-mt-24 mt-3 rounded-2xl p-3 sm:p-3.5 md:mt-4 md:p-4"
     >
-      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-accent md:text-xs">
+      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-accent sm:text-[11px] md:text-xs">
         Choose Service Type
       </p>
       <div
         role="tablist"
         aria-label="Choose service type"
-        className="flex gap-1 overflow-x-auto rounded-xl border border-white/15 bg-black/25 p-1"
+        className="flex gap-0.5 overflow-x-auto rounded-xl border border-white/15 bg-black/25 p-0.5 sm:gap-1 sm:p-1"
       >
         {SERVICE_TYPES.map((service) => {
           const selected = serviceType === service.key;
@@ -212,13 +214,13 @@ export default function HeroSearchForm() {
               role="tab"
               aria-selected={selected}
               onClick={() => setServiceType(service.key)}
-              className={`flex min-w-[84px] flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-[10px] font-semibold transition-all duration-200 sm:min-w-0 sm:px-2.5 sm:text-[11px] md:py-2.5 md:text-xs ${
+              className={`flex min-w-[72px] flex-1 items-center justify-center gap-1 rounded-lg px-1.5 py-1.5 text-[9px] font-semibold transition-all duration-200 sm:min-w-0 sm:gap-1.5 sm:px-2 sm:py-2 sm:text-[10px] md:py-2 md:text-[11px] lg:text-xs ${
                 selected
                   ? "bg-gradient-to-r from-primary to-blue-500 text-white shadow-md shadow-primary/30"
                   : "text-white/70 hover:bg-white/10 hover:text-white"
               }`}
             >
-              <span className="shrink-0 text-sm leading-none md:text-base">{service.emoji}</span>
+              <span className="shrink-0 text-xs leading-none sm:text-sm md:text-base">{service.emoji}</span>
               <span className="truncate">
                 <span className="sm:hidden">{service.shortLabel}</span>
                 <span className="hidden sm:inline">{service.label}</span>
@@ -227,18 +229,18 @@ export default function HeroSearchForm() {
           );
         })}
       </div>
-      <p className="mt-2 text-[11px] text-white/55 md:text-xs">{activeService.description}</p>
+      <p className="mt-1 hidden text-[10px] text-white/55 sm:block md:text-[11px]">{activeService.description}</p>
 
       {serviceType === "with_driver" && (
-        <div className="mt-3">
-          <p className="mb-2 text-xs font-medium text-white/90 md:text-sm">Trip Type</p>
-          <div className="flex flex-wrap gap-1.5 md:gap-2">
+        <div className="mt-2 md:mt-2.5">
+          <p className="mb-1.5 text-[11px] font-medium text-white/90 sm:text-xs md:text-sm">Trip Type</p>
+          <div className="flex flex-wrap gap-1 sm:gap-1.5 md:gap-2">
             {DRIVER_TRIP_TYPES.map((option) => (
               <button
                 key={option.key}
                 type="button"
                 onClick={() => handleDriverTripTypeChange(option.key)}
-                className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition md:px-4 md:py-2 md:text-sm ${
+                className={`rounded-full px-2.5 py-1 text-[10px] font-semibold transition sm:px-3 sm:py-1.5 sm:text-[11px] md:px-4 md:py-2 md:text-sm ${
                   driverTripType === option.key
                     ? "bg-primary text-white shadow-md shadow-primary/30"
                     : "border border-white/20 bg-white/10 text-white/80 hover:bg-white/15"
@@ -259,7 +261,7 @@ export default function HeroSearchForm() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.25 }}
-            className="mt-3 space-y-3"
+            className="mt-2 space-y-2 md:space-y-2.5"
           >
             <PlaceAutocompleteInput
               id="local-pickup"
@@ -268,6 +270,7 @@ export default function HeroSearchForm() {
               onChange={setFromPlace}
               placeholder="e.g. Hyderabad"
               variant="dark"
+              className={COMPACT_FIELD_CLASS}
               required
             />
             <div>
@@ -297,7 +300,7 @@ export default function HeroSearchForm() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.25 }}
-            className="mt-3 space-y-2"
+            className="mt-2 space-y-2"
           >
             <div className="flex items-center justify-between gap-2">
               <p className="text-xs font-medium text-white/90 md:text-sm">Multi-City Route</p>
@@ -335,6 +338,7 @@ export default function HeroSearchForm() {
                       onChange={(nextPlace) => updateMultiCityPlace(index, nextPlace)}
                       placeholder={`e.g. ${index === 0 ? "Hyderabad" : index === 1 ? "Vijayawada" : "Visakhapatnam"}`}
                       variant="dark"
+                      className={COMPACT_FIELD_CLASS}
                     />
                   </div>
                   {multiCityPlaces.length > MIN_MULTI_CITIES && (
@@ -358,8 +362,8 @@ export default function HeroSearchForm() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.25 }}
-            className={`mt-3 grid gap-3 ${
-              showsToLocation(serviceType, driverTripType) ? "sm:grid-cols-2 sm:gap-4" : "grid-cols-1"
+            className={`mt-2 grid gap-2 sm:gap-2.5 ${
+              showsToLocation(serviceType, driverTripType) ? "sm:grid-cols-2" : "grid-cols-1"
             }`}
           >
             <PlaceAutocompleteInput
@@ -369,6 +373,7 @@ export default function HeroSearchForm() {
               onChange={setFromPlace}
               placeholder="e.g. Hyderabad"
               variant="dark"
+              className={COMPACT_FIELD_CLASS}
               required
             />
             {showsToLocation(serviceType, driverTripType) && (
@@ -379,6 +384,7 @@ export default function HeroSearchForm() {
                 onChange={setToPlace}
                 placeholder="e.g. Vijayawada"
                 variant="dark"
+                className={COMPACT_FIELD_CLASS}
                 required
               />
             )}
@@ -386,8 +392,48 @@ export default function HeroSearchForm() {
         )}
       </AnimatePresence>
 
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={serviceType}
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -6 }}
+          transition={{ duration: 0.2 }}
+          className="mt-2 empty:hidden md:mt-2.5"
+        >
+          {serviceType === "self_drive" && (
+            <div>
+              <p className="mb-1.5 text-[11px] font-medium text-white/90 sm:text-xs md:text-sm">Rental Duration</p>
+              <div className="flex flex-wrap gap-1 sm:gap-1.5 md:gap-2">
+                {SELF_DRIVE_DURATIONS.map((option) => (
+                  <button
+                    key={option.key}
+                    type="button"
+                    onClick={() => setSelfDriveDuration(option.key)}
+                    className={`rounded-full px-2.5 py-1 text-[10px] font-semibold transition sm:px-3 sm:py-1.5 sm:text-[11px] md:px-4 md:py-2 md:text-sm ${
+                      selfDriveDuration === option.key
+                        ? "bg-primary text-white shadow-md shadow-primary/30"
+                        : "border border-white/20 bg-white/10 text-white/80 hover:bg-white/15"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {serviceType === "return_journey" && (
+            <div className="inline-flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent/10 px-2.5 py-1 text-[10px] font-semibold text-accent sm:px-3 sm:py-1.5 sm:text-[11px] md:text-xs">
+              <Sparkles className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
+              Save up to 40% on return journey bookings
+            </div>
+          )}
+        </motion.div>
+      </AnimatePresence>
+
       <RouteInsightsPanel
-        className="mt-4"
+        className="mt-2 md:mt-3"
         origin={routeOrigin ?? null}
         destination={routeDestination ?? null}
         waypoints={
@@ -406,48 +452,8 @@ export default function HeroSearchForm() {
         localPackagePrice={serviceType === "local_rental" ? selectedLocalPackage.basePrice : undefined}
       />
 
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={serviceType}
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -8 }}
-          transition={{ duration: 0.25 }}
-          className="mt-4"
-        >
-          {serviceType === "self_drive" && (
-            <div>
-              <p className="mb-2 text-xs font-medium text-white/90 md:text-sm">Rental Duration</p>
-              <div className="flex flex-wrap gap-1.5 md:gap-2">
-                {SELF_DRIVE_DURATIONS.map((option) => (
-                  <button
-                    key={option.key}
-                    type="button"
-                    onClick={() => setSelfDriveDuration(option.key)}
-                    className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition md:px-4 md:py-2 md:text-sm ${
-                      selfDriveDuration === option.key
-                        ? "bg-primary text-white shadow-md shadow-primary/30"
-                        : "border border-white/20 bg-white/10 text-white/80 hover:bg-white/15"
-                    }`}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {serviceType === "return_journey" && (
-            <div className="inline-flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent/10 px-3 py-1.5 text-[11px] font-semibold text-accent md:text-xs">
-              <Sparkles className="h-3.5 w-3.5" />
-              Save up to 40% on return journey bookings
-            </div>
-          )}
-        </motion.div>
-      </AnimatePresence>
-
-      <div className="mt-4 flex flex-col gap-3 sm:flex-row md:mt-5">
-        <Button type="submit" variant="accent" size="lg" className="w-full sm:w-auto sm:min-w-[200px]">
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center md:mt-3.5">
+        <Button type="submit" variant="accent" size="lg" className="w-full sm:w-auto sm:min-w-[180px]">
           <Search className="h-5 w-5" />
           Search Vehicles
         </Button>
@@ -455,7 +461,7 @@ export default function HeroSearchForm() {
           href="/signup/owner"
           variant="outline"
           size="lg"
-          className="w-full !border-white/40 !text-white hover:!bg-white hover:!text-secondary sm:w-auto lg:hidden"
+          className="hidden w-full !border-white/40 !text-white hover:!bg-white hover:!text-secondary sm:inline-flex sm:w-auto md:hidden"
         >
           Register Your Vehicle
         </Button>

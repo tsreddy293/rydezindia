@@ -35,41 +35,41 @@ export default function Hero() {
       </div>
       <div className="absolute inset-0 bg-gradient-to-b from-secondary/95 via-secondary/88 to-secondary/95" />
 
-      <div className="relative z-10 mx-auto max-w-7xl px-4 pb-16 pt-8 md:px-6 md:pb-20 md:pt-12 lg:pt-14">
-        <div className="grid items-start gap-10 lg:grid-cols-[1.05fr_0.95fr] lg:gap-12 xl:gap-16">
+      <div className="relative z-10 mx-auto max-w-7xl px-4 pb-8 pt-2 md:px-6 md:pb-10 md:pt-3 lg:pt-4">
+        <div className="grid items-start gap-6 lg:grid-cols-[1.05fr_0.95fr] lg:gap-8 xl:gap-10">
           <motion.div {...fadeUp} transition={{ duration: 0.55 }} className="min-w-0">
-            <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-white/90 backdrop-blur-sm md:text-xs">
-              <Sparkles className="h-3.5 w-3.5 text-accent" />
+            <span className="hidden items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-white/90 backdrop-blur-sm sm:inline-flex md:text-[11px]">
+              <Sparkles className="h-3 w-3 text-accent md:h-3.5 md:w-3.5" />
               India&apos;s Smart Vehicle Marketplace
             </span>
 
-            <h1 className="mt-5 text-[2rem] font-bold leading-[1.08] tracking-tight text-white sm:text-5xl md:text-[3.25rem] lg:text-[3.5rem] xl:text-6xl">
+            <h1 className="mt-2 text-[1.65rem] font-bold leading-[1.08] tracking-tight text-white sm:mt-3 sm:text-4xl md:text-[2.75rem] lg:text-[3rem] xl:text-[3.25rem]">
               Travel Smarter.
-              <span className="mt-1 block bg-gradient-to-r from-primary via-blue-400 to-accent bg-clip-text text-transparent sm:mt-2">
+              <span className="mt-0.5 block bg-gradient-to-r from-primary via-blue-400 to-accent bg-clip-text text-transparent sm:mt-1">
                 Earn Better.
               </span>
             </h1>
 
-            <p className="mt-4 max-w-xl text-base leading-relaxed text-white/80 md:mt-5 md:text-lg">
+            <GoogleMapsProvider>
+              <HeroSearchForm />
+            </GoogleMapsProvider>
+
+            <p className="mt-4 max-w-xl text-sm leading-relaxed text-white/75 md:mt-5 md:text-base lg:text-[15px]">
               Book verified rides, return journeys, self-drive cars, and chauffeur trips — or list
               your vehicle and start earning on a platform built for trust.
             </p>
 
-            <div className="mt-5 flex flex-wrap gap-2">
+            <div className="mt-3 flex flex-wrap gap-1.5 md:mt-4 md:gap-2">
               {TRUST_PILLS.map((pill) => (
                 <span
                   key={pill}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] font-medium text-white/85 md:text-xs"
+                  className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-medium text-white/80 md:gap-1.5 md:px-3 md:py-1.5 md:text-[11px]"
                 >
-                  <ShieldCheck className="h-3.5 w-3.5 text-accent" />
+                  <ShieldCheck className="h-3 w-3 text-accent md:h-3.5 md:w-3.5" />
                   {pill}
                 </span>
               ))}
             </div>
-
-            <GoogleMapsProvider>
-              <HeroSearchForm />
-            </GoogleMapsProvider>
           </motion.div>
 
           <motion.div
