@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Menu, X } from "lucide-react";
 import Button from "@/components/ui/Button";
 import AuthRoleModal from "@/components/auth/AuthRoleModal";
@@ -15,9 +16,10 @@ import type { UserRole } from "@/types/database";
 export type HeaderRole = UserRole | null;
 
 const NAV_LINKS = [
-  { href: "/", label: "Home" },
-  { href: "/about-us", label: "About" },
-  { href: "/contact", label: "Contact" },
+  { href: "/", label: "Home", match: (path: string) => path === "/" },
+  { href: "/#how-it-works", label: "How It Works", match: (path: string) => path === "/" },
+  { href: "/about-us", label: "About", match: (path: string) => path.startsWith("/about") },
+  { href: "/contact", label: "Contact", match: (path: string) => path.startsWith("/contact") },
 ];
 
 function getAccountLink(
@@ -30,10 +32,13 @@ function getAccountLink(
   return null;
 }
 
-const NAV_LINK_CLASS =
-  "text-sm font-medium text-gray-700 transition-colors hover:text-primary";
+const LOGIN_BTN =
+  "inline-flex items-center justify-center gap-2 rounded-[10px] border-2 border-[#2563eb] px-[22px] py-[10px] text-sm font-semibold text-[#2563eb] transition-all duration-300 hover:bg-[#2563eb] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2563eb]/30";
 
-function useIsMobile(breakpoint = 1024) {
+const SIGNUP_BTN =
+  "inline-flex items-center justify-center gap-2 rounded-[10px] bg-[linear-gradient(135deg,#00C6FF,#0072FF)] px-6 py-[10px] text-sm font-bold text-white shadow-[0_10px_25px_rgba(37,99,235,0.25)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_14px_32px_rgba(37,99,235,0.35)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2563eb]/40 active:translate-y-0";
+
+function useIsMobile(breakpoint = 768) {
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
     const mq = window.matchMedia(`(max-width: ${breakpoint - 1}px)`);
@@ -45,7 +50,40 @@ function useIsMobile(breakpoint = 1024) {
   return isMobile;
 }
 
+function NavLink({
+  href,
+  label,
+  active,
+  onNavigate,
+  compact = false,
+}: {
+  href: string;
+  label: string;
+  active: boolean;
+  onNavigate?: () => void;
+  compact?: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      onClick={onNavigate}
+      className={`group relative font-semibold text-[#334155] transition-colors duration-300 hover:text-[#2563eb] ${
+        compact ? "text-[15px] lg:text-base" : "text-base"
+      } ${active ? "text-[#2563eb]" : ""}`}
+    >
+      {label}
+      <span
+        className={`absolute -bottom-1 left-0 h-0.5 rounded-full bg-[#2563eb] transition-all duration-300 ease-out ${
+          active ? "w-full" : "w-0 group-hover:w-full"
+        }`}
+        aria-hidden
+      />
+    </Link>
+  );
+}
+
 export default function HeaderClient() {
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [role, setRole] = useState<HeaderRole>(null);
   const [userId, setUserId] = useState<string | null>(null);
@@ -97,7 +135,6 @@ export default function HeaderClient() {
         const dbRole = normalizeRole((profile as { role?: unknown } | null)?.role);
         const metadataRole = normalizeRole(user.user_metadata?.role);
 
-        // Admin/owner links require DB role — never trust metadata alone.
         let nextRole: HeaderRole = null;
         if (dbRole === "admin" || dbRole === "owner") {
           nextRole = dbRole;
@@ -126,6 +163,13 @@ export default function HeaderClient() {
     };
   }, []);
 
+  useEffect(() => {
+    document.body.style.overflow = open ? "hidden" : "";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [open]);
+
   function openAuth(mode: "login" | "signup") {
     setOpen(false);
     if (isMobile) {
@@ -135,11 +179,46 @@ export default function HeaderClient() {
     setAuthModal(mode);
   }
 
+  function closeMobile() {
+    setOpen(false);
+  }
+
+  const authButtons = showGuestActions ? (
+    <>
+      <button type="button" onClick={() => openAuth("login")} className={LOGIN_BTN}>
+        <span aria-hidden>🔐</span>
+        Login
+      </button>
+      <button type="button" onClick={() => openAuth("signup")} className={SIGNUP_BTN}>
+        🚀 Get Started
+      </button>
+    </>
+  ) : accountLink ? (
+    <>
+      <Button href={accountLink.href} variant="outline" size="sm">
+        {accountLink.label}
+      </Button>
+      <form action={signOutUser}>
+        <button
+          type="submit"
+          className="rounded-[10px] px-4 py-2 text-sm font-semibold text-[#334155] transition-colors duration-300 hover:bg-gray-50 hover:text-[#2563eb]"
+        >
+          Logout
+        </button>
+      </form>
+    </>
+  ) : null;
+
   return (
     <>
-      <header className="fixed top-0 left-0 right-0 z-50 min-h-20 glass border-b border-gray-200/50">
-        <div className="mx-auto flex min-h-20 max-w-7xl items-center justify-between px-4 md:px-6">
-          <Link href="/" className="flex items-center" onClick={() => setOpen(false)}>
+      <header className="sticky top-0 z-50 h-20 border-b border-[#e5e7eb] bg-white">
+        <div className="mx-auto flex h-20 max-w-7xl items-center px-4 md:grid md:grid-cols-[auto_1fr_auto] md:gap-4 lg:gap-6 md:px-6">
+          {/* LEFT — Logo */}
+          <Link
+            href="/"
+            className="relative z-10 flex shrink-0 items-center"
+            onClick={closeMobile}
+          >
             <Image
               src="/images/logo copy 2.png"
               alt="Rydez India"
@@ -147,104 +226,102 @@ export default function HeaderClient() {
               height={60}
               priority
               unoptimized
-              className="navbar-logo-image"
+              className="navbar-logo-image h-[48px] w-auto md:h-[56px] lg:h-[60px]"
             />
           </Link>
 
-          <nav className="hidden items-center gap-8 lg:flex">
+          {/* CENTER — Desktop & tablet navigation */}
+          <nav
+            className="hidden md:flex items-center justify-center gap-6 lg:gap-10"
+            aria-label="Main navigation"
+          >
             {NAV_LINKS.map((link) => (
-              <Link key={link.href} href={link.href} className={NAV_LINK_CLASS}>
-                {link.label}
-              </Link>
+              <NavLink
+                key={link.href}
+                href={link.href}
+                label={link.label}
+                active={link.match(pathname)}
+                compact
+              />
             ))}
-            {showGuestActions ? (
-              <>
-                <button type="button" onClick={() => openAuth("login")} className={NAV_LINK_CLASS}>
-                  Login
-                </button>
-                <button type="button" onClick={() => openAuth("signup")} className={NAV_LINK_CLASS}>
-                  Sign Up
-                </button>
-              </>
-            ) : null}
           </nav>
 
-          <div className="hidden items-center gap-3 lg:flex">
-            {isAuthenticated && accountLink ? (
-              <>
-                <Button href={accountLink.href} variant="outline" size="sm">
-                  {accountLink.label}
-                </Button>
-                <form action={signOutUser}>
-                  <button
-                    type="submit"
-                    className="rounded-xl px-4 py-2 text-sm font-medium text-secondary hover:bg-gray-100"
-                  >
-                    Logout
-                  </button>
-                </form>
-              </>
-            ) : null}
+          {/* RIGHT — Auth (desktop & tablet) */}
+          <div className="hidden md:flex items-center justify-end gap-3 shrink-0">
+            {authButtons}
           </div>
 
+          {/* Mobile hamburger */}
           <button
-            className="lg:hidden p-2 text-secondary"
+            type="button"
+            className="relative z-10 ml-auto flex h-10 w-10 items-center justify-center rounded-lg text-[#334155] transition-colors hover:bg-gray-50 md:hidden"
             onClick={() => setOpen(!open)}
-            aria-label="Toggle menu"
+            aria-label={open ? "Close menu" : "Open menu"}
+            aria-expanded={open}
           >
             {open ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
           </button>
         </div>
 
-        {open && (
-          <div className="lg:hidden border-t border-gray-200 bg-white px-4 py-6">
-            <nav className="flex flex-col gap-4">
-              {NAV_LINKS.map((link) => (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  className="text-base font-medium text-gray-700"
-                  onClick={() => setOpen(false)}
-                >
-                  {link.label}
-                </Link>
-              ))}
+        {/* Mobile drawer */}
+        <div
+          className={`md:hidden overflow-hidden border-t border-[#e5e7eb] bg-white transition-all duration-300 ease-out ${
+            open ? "max-h-[85vh] opacity-100" : "max-h-0 opacity-0 border-t-transparent"
+          }`}
+        >
+          <nav className="flex flex-col gap-1 px-4 py-5" aria-label="Mobile navigation">
+            {NAV_LINKS.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                onClick={closeMobile}
+                className={`rounded-lg px-3 py-3 text-base font-semibold transition-colors duration-300 ${
+                  link.match(pathname)
+                    ? "bg-blue-50 text-[#2563eb]"
+                    : "text-[#334155] hover:bg-gray-50 hover:text-[#2563eb]"
+                }`}
+              >
+                {link.label}
+              </Link>
+            ))}
+
+            <div className="mt-4 flex flex-col gap-3 border-t border-[#e5e7eb] pt-5">
               {showGuestActions ? (
                 <>
-                  <Link
-                    href="/login"
-                    className="text-base font-medium text-gray-700"
-                    onClick={() => setOpen(false)}
+                  <button
+                    type="button"
+                    className={`${LOGIN_BTN} w-full py-3`}
+                    onClick={() => openAuth("login")}
                   >
+                    <span aria-hidden>🔐</span>
                     Login
-                  </Link>
-                  <Link
-                    href="/signup"
-                    className="text-base font-medium text-gray-700"
-                    onClick={() => setOpen(false)}
+                  </button>
+                  <button
+                    type="button"
+                    className={`${SIGNUP_BTN} w-full py-3`}
+                    onClick={() => openAuth("signup")}
                   >
-                    Sign Up
-                  </Link>
+                    🚀 Get Started
+                  </button>
                 </>
-              ) : null}
-              {isAuthenticated && accountLink ? (
-                <div className="mt-4 flex flex-col gap-3 border-t border-gray-100 pt-4">
-                  <Button href={accountLink.href} variant="outline" size="sm" onClick={() => setOpen(false)}>
+              ) : accountLink ? (
+                <>
+                  <Button href={accountLink.href} variant="outline" size="sm" onClick={closeMobile}>
                     {accountLink.label}
                   </Button>
                   <form action={signOutUser}>
                     <button
                       type="submit"
-                      className="w-full rounded-xl px-4 py-2 text-left text-sm font-medium text-secondary hover:bg-gray-100"
+                      className="w-full rounded-[10px] px-4 py-3 text-left text-sm font-semibold text-[#334155] hover:bg-gray-50"
                     >
                       Logout
                     </button>
                   </form>
-                </div>
+                </>
               ) : null}
-            </nav>
-          </div>
-        )}
+            </div>
+          </nav>
+        </div>
       </header>
 
       {authModal && (

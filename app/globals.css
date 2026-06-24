@@ -43,12 +43,18 @@ body {
 }
 
 .navbar-logo-image {
-  height: 45px;
+  height: 48px;
   width: auto;
   object-fit: contain;
 }
 
 @media (min-width: 768px) {
+  .navbar-logo-image {
+    height: 56px;
+  }
+}
+
+@media (min-width: 1024px) {
   .navbar-logo-image {
     height: 60px;
   }
