@@ -7,6 +7,7 @@ import {
   SELF_DRIVE_DEPOSIT_PICKUP_NOTE,
   SELF_DRIVE_DEPOSIT_TOOLTIP,
   calculateSelfDriveCheckoutAmount,
+  formatLongDurationDiscountLabel,
   formatSelfDriveRentalDays,
   type SelfDrivePricingResult,
 } from "@/lib/pricing/self-drive-pricing";
@@ -74,6 +75,7 @@ export default function SelfDriveFareSummary({
   const labelClass = isDark ? "text-white/90" : "text-gray-800";
   const dividerClass = isDark ? "border-white/12" : "border-gray-200";
   const rowClass = "flex items-start justify-between gap-3";
+  const savingsClass = isDark ? "text-emerald-300" : "text-emerald-600";
 
   const tripFare = pricing.payableAmount;
   const protection = protectionSelected ? protectionFee : 0;
@@ -83,6 +85,7 @@ export default function SelfDriveFareSummary({
   const depositDisplayAmount = deposit.collectedAtPickup
     ? deposit.displayLabel
     : formatINR(deposit.amount);
+  const hasDiscount = pricing.longDurationDiscountAmount > 0;
 
   const depositCardClass = isDark
     ? "border-accent/20 bg-gradient-to-br from-white/[0.08] via-accent/[0.06] to-primary/[0.08]"
@@ -90,42 +93,81 @@ export default function SelfDriveFareSummary({
 
   const checkClass = isDark ? "text-emerald-400" : "text-emerald-600";
 
-  return (
-    <div className="space-y-3 text-sm">
-      {showLineItems ? (
-        <div className={`space-y-1.5 text-xs sm:text-sm ${mutedClass}`}>
+  const lineItems = (
+    <div className={`space-y-1.5 text-xs sm:text-sm ${mutedClass}`}>
+      <div className={rowClass}>
+        <span>Daily Rent</span>
+        <span className={`font-medium tabular-nums ${labelClass}`}>{formatINR(pricing.dailyRent)}</span>
+      </div>
+      <div className={rowClass}>
+        <span>Rental Duration</span>
+        <span className={`font-medium ${labelClass}`}>{formatSelfDriveRentalDays(pricing.rentalDays)}</span>
+      </div>
+      <div className={rowClass}>
+        <span>Vehicle Rent Total</span>
+        <span className={`font-medium tabular-nums ${labelClass}`}>
+          {formatINR(pricing.vehicleRentTotal)}
+        </span>
+      </div>
+      {hasDiscount ? (
+        <>
           <div className={rowClass}>
-            <span>Daily Rent</span>
-            <span className={`font-medium tabular-nums ${labelClass}`}>{formatINR(pricing.dailyRent)}</span>
-          </div>
-          <div className={rowClass}>
-            <span>Rental Duration</span>
-            <span className={`font-medium ${labelClass}`}>{formatSelfDriveRentalDays(pricing.rentalDays)}</span>
-          </div>
-          <div className={rowClass}>
-            <span>Vehicle Rent Total</span>
-            <span className={`font-medium tabular-nums ${labelClass}`}>
-              {formatINR(pricing.vehicleRentTotal)}
+            <span className={savingsClass}>
+              {formatLongDurationDiscountLabel(pricing.longDurationDiscountPercent)}
+            </span>
+            <span className={`font-semibold tabular-nums ${savingsClass}`}>
+              -{formatINR(pricing.longDurationDiscountAmount)}
             </span>
           </div>
           <div className={rowClass}>
-            <span>Platform Fee</span>
-            <span className={`font-medium tabular-nums ${labelClass}`}>{formatINR(pricing.platformFee)}</span>
+            <span>Discounted Fare</span>
+            <span className={`font-medium tabular-nums ${labelClass}`}>
+              {formatINR(pricing.discountedVehicleRentTotal)}
+            </span>
           </div>
-          <div className={rowClass}>
-            <span>GST</span>
-            <span className={`font-medium tabular-nums ${labelClass}`}>{formatINR(pricing.gst)}</span>
-          </div>
+        </>
+      ) : (
+        <div className={rowClass}>
+          <span>Discounted Fare</span>
+          <span className={`font-medium tabular-nums ${labelClass}`}>
+            {formatINR(pricing.discountedVehicleRentTotal)}
+          </span>
         </div>
-      ) : null}
+      )}
+      <div className={rowClass}>
+        <span>Platform Fee</span>
+        <span className={`font-medium tabular-nums ${labelClass}`}>{formatINR(pricing.platformFee)}</span>
+      </div>
+      <div className={rowClass}>
+        <span>GST</span>
+        <span className={`font-medium tabular-nums ${labelClass}`}>{formatINR(pricing.gst)}</span>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="space-y-3 text-sm">
+      {showLineItems ? lineItems : null}
 
       <div className={`space-y-2.5 rounded-xl border px-3 py-3 sm:px-3.5 sm:py-3.5 ${depositCardClass}`}>
+        {!showLineItems ? (
+          <div className={`mb-2 space-y-1.5 border-b pb-2.5 text-xs sm:text-sm ${dividerClass} ${mutedClass}`}>
+            {lineItems}
+          </div>
+        ) : null}
+
         <div className={`${rowClass} border-b pb-2.5 ${dividerClass}`}>
           <span className={`text-xs font-semibold sm:text-sm ${labelClass}`}>Trip Fare</span>
           <span className={`text-sm font-bold tabular-nums sm:text-base ${isDark ? "text-white" : "text-secondary"}`}>
             {formatINR(tripFare)}
           </span>
         </div>
+
+        {hasDiscount && (
+          <p className={`text-[11px] sm:text-xs font-medium ${savingsClass}`}>
+            You save {formatINR(pricing.longDurationDiscountAmount)} on this long rental
+          </p>
+        )}
 
         <div className={rowClass}>
           <div className="flex min-w-0 items-center gap-1">

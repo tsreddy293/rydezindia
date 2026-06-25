@@ -42,14 +42,34 @@ export interface SelfDriveRentalSchedule {
 export interface SelfDrivePricingResult {
   dailyRent: number;
   rentalDays: number;
+  /** Gross vehicle rent before long-duration discount. */
   vehicleRentTotal: number;
+  longDurationDiscountPercent: number;
+  longDurationDiscountAmount: number;
+  /** Vehicle rent after long-duration discount. */
+  discountedVehicleRentTotal: number;
   platformFee: number;
   gst: number;
-  /** Trip fare (vehicle rent + platform fee + GST) — excludes deposit. */
+  /** Trip fare (discounted rent + platform fee + GST) — excludes deposit. */
   payableAmount: number;
   deposit: SelfDriveDepositInfo;
   /** @deprecated Use deposit.amount — kept for legacy callers. */
   securityDeposit: number;
+}
+
+/** Long-duration rental discount tiers (self-drive). */
+export function getLongDurationDiscountPercent(rentalDays: number): number {
+  const days = Math.max(1, Math.round(rentalDays));
+  if (days <= 3) return 0;
+  if (days <= 7) return 5;
+  if (days <= 15) return 10;
+  if (days <= 30) return 15;
+  return 20;
+}
+
+export function formatLongDurationDiscountLabel(percent: number): string {
+  if (percent <= 0) return "Long Duration Discount";
+  return `Long Duration Discount (${percent}%)`;
 }
 
 export function formatSelfDriveRentalDays(days: number): string {
@@ -126,15 +146,25 @@ export function calculateSelfDrivePricing(
   const days = Math.max(1, Math.round(rentalDays));
   const normalizedRent = Math.max(0, Math.round(dailyRent));
   const vehicleRentTotal = normalizedRent * days;
-  const platformFee = Math.round(vehicleRentTotal * (SELF_DRIVE_PLATFORM_FEE_PERCENT / 100));
+  const longDurationDiscountPercent = getLongDurationDiscountPercent(days);
+  const longDurationDiscountAmount = Math.floor(
+    (vehicleRentTotal * longDurationDiscountPercent) / 100
+  );
+  const discountedVehicleRentTotal = vehicleRentTotal - longDurationDiscountAmount;
+  const platformFee = Math.round(
+    discountedVehicleRentTotal * (SELF_DRIVE_PLATFORM_FEE_PERCENT / 100)
+  );
   const gst = Math.round(platformFee * (SELF_DRIVE_GST_ON_PLATFORM_FEE_PERCENT / 100));
-  const payableAmount = vehicleRentTotal + platformFee + gst;
+  const payableAmount = discountedVehicleRentTotal + platformFee + gst;
   const onlineDeposit = depositInfo.collectedAtPickup ? 0 : depositInfo.amount;
 
   return {
     dailyRent: normalizedRent,
     rentalDays: days,
     vehicleRentTotal,
+    longDurationDiscountPercent,
+    longDurationDiscountAmount,
+    discountedVehicleRentTotal,
     platformFee,
     gst,
     payableAmount,

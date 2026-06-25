@@ -163,7 +163,7 @@ export default function UnifiedBookingForm(props: Props) {
       trip_type: tripType ?? "One Way",
       driver_required: !isSelfDrive,
       special_instructions: String(new FormData(e.currentTarget).get("special_instructions") ?? ""),
-      base_fare: isSelfDrive ? selfDrivePricing!.vehicleRentTotal : driverPricing!.baseFare,
+      base_fare: isSelfDrive ? selfDrivePricing!.discountedVehicleRentTotal : driverPricing!.baseFare,
       platform_fee: isSelfDrive ? selfDrivePricing!.platformFee : driverPricing!.platformFee,
       discount_amount: isSelfDrive ? 0 : driverPricing!.discountAmount,
       trip_fare_amount: totalFare,

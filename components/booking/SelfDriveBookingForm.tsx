@@ -167,7 +167,7 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
       trip_type: "Self Drive",
       driver_required: false,
       special_instructions: instructions || undefined,
-      base_fare: pricing.vehicleRentTotal,
+      base_fare: pricing.discountedVehicleRentTotal,
       platform_fee: pricing.platformFee,
       trip_fare_amount: totalFare,
       security_deposit_amount: pricing.deposit.amount,
