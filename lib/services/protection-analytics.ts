@@ -1,5 +1,11 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
+  BOOKING_PROTECTION_ANALYTICS_COLUMN_SETS,
+  BOOKING_PROTECTION_REFUND_COLUMN_SETS,
+  deriveProtectionFields,
+  selectBookingsWithFilter,
+} from "@/lib/bookings/booking-select";
+import {
   normalizeVehicleCategory,
   PROTECTION_CATEGORY_LABELS,
   type ProtectionVehicleCategory,
@@ -37,30 +43,28 @@ function categoryFromPlanName(planName?: string | null, vehicleType?: string | n
 }
 
 export async function getProtectionAnalytics(): Promise<ProtectionAnalytics> {
-  const db = createAdminClient();
-  const { data: bookings } = await db
-    .from("bookings")
-    .select(
-      "id, booking_reference, passenger_name, booking_type, protection_selected, flexible_cancellation, protection_fee, flexible_cancellation_fee, protection_plan_name, protection_status, created_at, vehicle_id"
-    )
-    .eq("booking_type", "self_drive")
-    .order("created_at", { ascending: false })
-    .limit(500);
+  const rows = await selectBookingsWithFilter(BOOKING_PROTECTION_ANALYTICS_COLUMN_SETS, (columns) => {
+    const db = createAdminClient();
+    return db
+      .from("bookings")
+      .select(columns)
+      .eq("booking_type", "self_drive")
+      .order("created_at", { ascending: false })
+      .limit(500);
+  });
 
-  const rows = bookings ?? [];
   const selfDriveTotal = rows.length;
 
-  const protectedRows = rows.filter(
-    (r) => r.protection_selected === true || r.flexible_cancellation === true
-  );
+  const protectedRows = rows.filter((row) => deriveProtectionFields(row).protection_selected);
 
   let protectionRevenue = 0;
   const categoryMap = new Map<ProtectionVehicleCategory, { count: number; revenue: number }>();
 
   for (const row of protectedRows) {
-    const fee = Number(row.protection_fee ?? row.flexible_cancellation_fee ?? 0);
+    const protection = deriveProtectionFields(row);
+    const fee = protection.protection_fee ?? 0;
     protectionRevenue += fee;
-    const cat = categoryFromPlanName(row.protection_plan_name as string, null);
+    const cat = categoryFromPlanName(protection.protection_plan_name, null);
     const existing = categoryMap.get(cat) ?? { count: 0, revenue: 0 };
     existing.count += 1;
     existing.revenue += fee;
@@ -77,9 +81,10 @@ export async function getProtectionAnalytics(): Promise<ProtectionAnalytics> {
 
   const topCategory = categoryBreakdown[0] ?? null;
 
-  const activeProtectionCount = protectedRows.filter(
-    (r) => String(r.protection_status ?? "active") === "active"
-  ).length;
+  const activeProtectionCount = protectedRows.filter((row) => {
+    const status = deriveProtectionFields(row).protection_status ?? "active";
+    return status === "active";
+  }).length;
 
   return {
     totalProtectionSales: protectedRows.length,
@@ -88,39 +93,70 @@ export async function getProtectionAnalytics(): Promise<ProtectionAnalytics> {
       selfDriveTotal > 0 ? Math.round((protectedRows.length / selfDriveTotal) * 100) : 0,
     totalEligibleBookings: selfDriveTotal,
     activeProtectionCount,
-    usedOrCancelledCount: protectedRows.filter((r) =>
-      ["used", "cancelled", "expired"].includes(String(r.protection_status ?? ""))
-    ).length,
+    usedOrCancelledCount: protectedRows.filter((row) => {
+      const status = deriveProtectionFields(row).protection_status ?? "";
+      return ["used", "cancelled", "expired"].includes(status);
+    }).length,
     topCategory: topCategory
       ? { category: topCategory.category, count: topCategory.count }
       : null,
     categoryBreakdown,
-    recentProtectedBookings: protectedRows.slice(0, 20).map((r) => ({
-      id: String(r.id),
-      booking_reference: r.booking_reference as string | undefined,
-      passenger_name: r.passenger_name as string | undefined,
-      protection_fee: Number(r.protection_fee ?? r.flexible_cancellation_fee ?? 0),
-      protection_plan_name: r.protection_plan_name as string | undefined,
-      protection_status: (r.protection_status as string | undefined) ?? "active",
-      created_at: r.created_at as string | undefined,
-    })),
+    recentProtectedBookings: protectedRows.slice(0, 20).map((row) => {
+      const protection = deriveProtectionFields(row);
+      return {
+        id: String(row.id),
+        booking_reference: row.booking_reference as string | undefined,
+        passenger_name: row.passenger_name as string | undefined,
+        protection_fee: protection.protection_fee ?? 0,
+        protection_plan_name: protection.protection_plan_name,
+        protection_status: protection.protection_status ?? "active",
+        created_at: row.created_at as string | undefined,
+      };
+    }),
   };
 }
 
 export async function getProtectionRefundReport(limit = 50) {
-  const db = createAdminClient();
-  const { data } = await db
-    .from("bookings")
-    .select(
-      "id, booking_reference, passenger_name, protection_selected, flexible_cancellation, protection_fee, flexible_cancellation_fee, protection_plan_name, protection_status, refund_amount, refund_status, cancelled_at, cancellation_status, booking_status"
-    )
-    .or("protection_selected.eq.true,flexible_cancellation.eq.true")
-    .order("cancelled_at", { ascending: false })
-    .limit(limit);
+  const rows = await selectBookingsWithFilter(BOOKING_PROTECTION_REFUND_COLUMN_SETS, async (columns) => {
+    const db = createAdminClient();
+    const withProtectionFilter = await db
+      .from("bookings")
+      .select(columns)
+      .or("protection_selected.eq.true,flexible_cancellation.eq.true")
+      .order("cancelled_at", { ascending: false })
+      .limit(limit);
 
-  return (data ?? []).filter(
-    (row) =>
-      String(row.cancellation_status) === "cancelled" ||
-      String(row.booking_status) === "cancelled"
-  );
+    if (!withProtectionFilter.error) {
+      return withProtectionFilter;
+    }
+
+    return db
+      .from("bookings")
+      .select(columns)
+      .eq("flexible_cancellation", true)
+      .order("cancelled_at", { ascending: false })
+      .limit(limit);
+  });
+
+  return rows
+    .filter(
+      (row) =>
+        String(row.cancellation_status) === "cancelled" ||
+        String(row.booking_status) === "cancelled"
+    )
+    .map((row) => {
+      const protection = deriveProtectionFields(row);
+      return {
+        id: String(row.id),
+        booking_reference: (row.booking_reference as string | null) ?? undefined,
+        passenger_name: (row.passenger_name as string | null) ?? undefined,
+        protection_fee: protection.protection_fee ?? null,
+        flexible_cancellation_fee: protection.flexible_cancellation_fee ?? null,
+        protection_plan_name: protection.protection_plan_name ?? null,
+        protection_status: protection.protection_status ?? null,
+        refund_amount: Number(row.refund_amount ?? 0) || null,
+        refund_status: (row.refund_status as string | null) ?? undefined,
+        cancelled_at: (row.cancelled_at as string | null) ?? undefined,
+      };
+    });
 }

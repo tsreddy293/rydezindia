@@ -118,8 +118,8 @@ export default async function UserDashboardPage({ searchParams }: Props) {
           {bookings.length === 0 ? (
             <div className="text-center py-10 rounded-xl bg-gray-50">
               <Car className="h-8 w-8 text-gray-300 mx-auto mb-3" />
-              <p className="text-gray-500 mb-4">No bookings yet.</p>
-              <Button href="/search" variant="primary">Book a Vehicle</Button>
+              <p className="text-gray-500 mb-4">No bookings found.</p>
+              <Button href="/search" variant="primary">Search Vehicles</Button>
             </div>
           ) : (
             <div className="space-y-3">

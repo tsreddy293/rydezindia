@@ -1,6 +1,10 @@
 import { AdminPageShell, AdminTable } from "@/components/admin/AdminTable";
 import ProtectionStatusBadge from "@/components/booking/ProtectionStatusBadge";
-import { getAdminRows } from "@/lib/supabase/queries";
+import {
+  deriveProtectionFields,
+  selectBookingsList,
+  BOOKING_ADMIN_LIST_COLUMN_SETS,
+} from "@/lib/bookings/booking-select";
 import { formatINR } from "@/lib/utils";
 import { cancelBooking } from "@/server/actions/marketplaceAdmin";
 import { requireRole } from "@/server/actions/auth";
@@ -9,16 +13,12 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminBookingsPage() {
   await requireRole("admin");
-  const bookings = await getAdminRows(
-    "bookings",
-    "id, booking_type, passenger_name, mobile, amount, booking_status, payment_status, protection_selected, flexible_cancellation, protection_fee, flexible_cancellation_fee, protection_status, protection_plan_name, created_at",
-    100
-  );
+  const bookings = await selectBookingsList(BOOKING_ADMIN_LIST_COLUMN_SETS, 100);
 
   const protectionRevenue = bookings.reduce((sum, b) => {
-    const selected = b.protection_selected === true || b.flexible_cancellation === true;
-    if (!selected) return sum;
-    return sum + Number(b.protection_fee ?? b.flexible_cancellation_fee ?? 0);
+    const protection = deriveProtectionFields(b);
+    if (!protection.protection_selected) return sum;
+    return sum + Number(protection.protection_fee ?? 0);
   }, 0);
 
   return (
@@ -31,7 +31,7 @@ export default async function AdminBookingsPage() {
         <div className="rounded-xl border bg-white p-4">
           <p className="text-xs text-gray-500">Protected Bookings</p>
           <p className="text-xl font-bold">
-            {bookings.filter((b) => b.protection_selected || b.flexible_cancellation).length}
+            {bookings.filter((b) => deriveProtectionFields(b).protection_selected).length}
           </p>
         </div>
       </div>
@@ -39,9 +39,9 @@ export default async function AdminBookingsPage() {
       <AdminTable
         headers={["Passenger", "Type", "Amount", "Protection", "Fee", "Booking", "Payment", "Actions"]}
         rows={bookings.map((booking) => {
-          const protected_ =
-            booking.protection_selected === true || booking.flexible_cancellation === true;
-          const fee = Number(booking.protection_fee ?? booking.flexible_cancellation_fee ?? 0);
+          const protection = deriveProtectionFields(booking);
+          const protected_ = protection.protection_selected;
+          const fee = Number(protection.protection_fee ?? 0);
 
           return [
             `${String(booking.passenger_name ?? "Passenger")} ${booking.mobile ? `(${booking.mobile})` : ""}`,
@@ -49,7 +49,7 @@ export default async function AdminBookingsPage() {
             formatINR(Number(booking.amount ?? 0)),
             protected_ ? (
               <span key="prot" className="text-xs font-semibold uppercase text-emerald-700">
-                {(booking.protection_status as string) ?? "ACTIVE"}
+                {protection.protection_status ?? "ACTIVE"}
               </span>
             ) : (
               "—"

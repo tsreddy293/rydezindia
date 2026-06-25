@@ -10,6 +10,7 @@ import {
   Eye,
   MapPin,
   RotateCcw,
+  Repeat,
 } from "lucide-react";
 import { useState } from "react";
 import Button from "@/components/ui/Button";
@@ -26,7 +27,12 @@ import {
   formatBookingTypeLabel,
   formatScheduleLine,
 } from "@/lib/bookings/my-bookings-utils";
-import { formatINR } from "@/lib/utils";
+import {
+  canGenerateTaxInvoice,
+  isCancelledStatus,
+  isPaymentCompleted,
+} from "@/lib/bookings/invoice-access";
+import { formatDate, formatINR } from "@/lib/utils";
 import type { MyBookingRecord } from "@/types/database";
 
 interface Props {
@@ -49,6 +55,18 @@ export default function MyBookingCard({ booking }: Props) {
   });
 
   const bookingId = booking.booking_reference ?? booking.id.slice(0, 8).toUpperCase();
+  const paid = isPaymentCompleted(booking.payment_status);
+  const cancelled = isCancelledStatus(booking.booking_status, booking.cancellation_status);
+  const canDownloadInvoice = canGenerateTaxInvoice({
+    paymentStatus: booking.payment_status,
+    bookingStatus: booking.booking_status,
+    cancellationStatus: booking.cancellation_status,
+  });
+
+  const rebookHref =
+    booking.reference_id || booking.vehicle_id
+      ? `/booking/${booking.reference_id || booking.vehicle_id}`
+      : "/search";
 
   return (
     <article
@@ -101,7 +119,8 @@ export default function MyBookingCard({ booking }: Props) {
             </div>
             <div className="text-right shrink-0">
               <p className="text-xl font-bold text-primary tabular-nums">{formatINR(booking.amount)}</p>
-              <p className="text-[11px] text-gray-500 mt-0.5">Total paid</p>
+              <p className="text-[11px] text-gray-500 mt-0.5">Total Paid</p>
+              <p className="text-[10px] text-gray-400 mt-1">Booked {formatDate(booking.created_at)}</p>
             </div>
           </div>
 
@@ -161,10 +180,16 @@ export default function MyBookingCard({ booking }: Props) {
               <Eye className="h-4 w-4 mr-1.5" />
               View Details
             </Button>
-            <Button href={`/booking/invoice/${booking.id}`} variant="outline" size="sm">
-              <Download className="h-4 w-4 mr-1.5" />
-              Download Invoice
-            </Button>
+            {(canDownloadInvoice || (cancelled && paid)) ? (
+              <Button href={`/booking/invoice/${booking.id}`} variant="outline" size="sm">
+                <Download className="h-4 w-4 mr-1.5" />
+                {cancelled ? "Cancellation Receipt" : "Download Invoice"}
+              </Button>
+            ) : (
+              <Button href={`/booking/confirmation/${booking.id}`} variant="outline" size="sm">
+                Continue to Payment
+              </Button>
+            )}
             <RescheduleBookingButton
               bookingId={booking.id}
               referenceId={booking.reference_id}
@@ -172,6 +197,10 @@ export default function MyBookingCard({ booking }: Props) {
               bookingStatus={booking.booking_status}
               protectionSelected={booking.protection_selected ?? undefined}
             />
+            <Button href={rebookHref} variant="outline" size="sm">
+              <Repeat className="h-4 w-4 mr-1.5" />
+              Rebook
+            </Button>
             {showCancel && (
               <CancelBookingButton
                 bookingId={booking.id}

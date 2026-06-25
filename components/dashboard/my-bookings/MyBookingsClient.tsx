@@ -76,9 +76,13 @@ export default function MyBookingsClient({ bookings }: Props) {
       {filtered.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50/50 py-16 text-center">
           <Car className="mx-auto h-12 w-12 text-gray-300" />
-          <p className="mt-4 text-gray-600 font-medium">No bookings in this category</p>
+          <p className="mt-4 text-gray-600 font-medium">
+            {bookings.length === 0 ? "No bookings found." : "No bookings in this category"}
+          </p>
           <p className="mt-1 text-sm text-gray-500">
-            {tab === "all" ? "Start exploring vehicles and book your first trip." : "Try another filter or book a new ride."}
+            {bookings.length === 0
+              ? "Search vehicles and book your next trip with Rydez India."
+              : "Try another filter or book a new ride."}
           </p>
           <Button href="/search" variant="primary" className="mt-6">
             <Search className="h-4 w-4 mr-1.5" />

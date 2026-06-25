@@ -1,6 +1,11 @@
 import { ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import ProtectionStatusBadge from "@/components/booking/ProtectionStatusBadge";
+import {
+  canGenerateTaxInvoice,
+  isCancelledStatus,
+  isPaymentCompleted,
+} from "@/lib/bookings/invoice-access";
 import { FLEXIBLE_PROTECTION_NAME } from "@/lib/services/flexible-cancellation-protection";
 import { formatDate, formatINR } from "@/lib/utils";
 import type { BookingConfirmation } from "@/types/database";
@@ -15,6 +20,13 @@ export default function BookingInvoiceCard({ booking }: Props) {
   const tripFare = booking.trip_fare_amount ?? Math.max(0, booking.amount - protectionFee);
   const deposit = booking.security_deposit_amount ?? 0;
   const protected_ = Boolean(booking.protection_selected || booking.flexible_cancellation);
+  const paid = isPaymentCompleted(booking.payment_status);
+  const cancelled = isCancelledStatus(booking.booking_status, booking.cancellation_status);
+  const canDownloadInvoice = canGenerateTaxInvoice({
+    paymentStatus: booking.payment_status,
+    bookingStatus: booking.booking_status,
+    cancellationStatus: booking.cancellation_status,
+  });
 
   return (
     <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden text-left">
@@ -25,13 +37,19 @@ export default function BookingInvoiceCard({ booking }: Props) {
             {booking.booking_reference ?? booking.id} · {formatDate(booking.created_at)}
           </p>
         </div>
-        <Link
-          href={`/booking/invoice/${booking.id}`}
-          className="text-xs font-semibold text-primary hover:underline"
-          target="_blank"
-        >
-          Download / Print PDF
-        </Link>
+        {canDownloadInvoice || (cancelled && paid) ? (
+          <Link
+            href={`/booking/invoice/${booking.id}`}
+            className="text-xs font-semibold text-primary hover:underline"
+            target="_blank"
+          >
+            Download / Print PDF
+          </Link>
+        ) : (
+          <span className="text-xs font-medium text-gray-500">
+            Invoice will be available after successful payment.
+          </span>
+        )}
       </div>
 
       <div className="px-5 py-4 space-y-0 text-sm">
@@ -137,6 +155,16 @@ export default function BookingInvoiceCard({ booking }: Props) {
           <span className="text-gray-500">Booking status</span>
           <span className="font-medium capitalize">{booking.booking_status}</span>
         </div>
+        {!paid && !cancelled && (
+          <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">
+            Invoice will be available after successful payment. Continue to payment from the booking confirmation page.
+          </div>
+        )}
+        {cancelled && !paid && (
+          <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs font-medium text-amber-900">
+            Booking Cancelled - No Payment Received.
+          </div>
+        )}
 
         <div className="border-t border-gray-100 pt-3 mt-2 text-xs text-gray-500 space-y-1">
           <p>

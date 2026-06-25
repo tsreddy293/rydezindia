@@ -1,5 +1,12 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
+  BOOKING_CANCELLATION_COLUMN_SETS,
+  BOOKING_CANCELLED_LIST_COLUMN_SETS,
+  deriveProtectionFields,
+  selectBookingById,
+  selectBookingsWithFilter,
+} from "@/lib/bookings/booking-select";
+import {
   calculateRefund,
   normalizeBookingTypeForPolicy,
   type RefundCalculationResult,
@@ -80,15 +87,8 @@ async function releaseReturnJourneySeats(db: ReturnType<typeof createAdminClient
 }
 
 export async function fetchBookingForCancellation(bookingId: string): Promise<BookingCancellationRow | null> {
-  const db = createAdminClient();
-  const { data } = await db
-    .from("bookings")
-    .select(
-      "id, user_id, owner_id, booking_type, trip_type, booking_status, payment_status, cancellation_status, amount, trip_fare_amount, security_deposit_amount, flexible_cancellation, protection_selected, pickup_date, pickup_time, refund_amount, refund_status, refund_trip_fare_amount, refund_deposit_amount, cancellation_reason, cancelled_at, refund_processed_at, booking_reference, passenger_name, ride_id, seats_booked"
-    )
-    .eq("id", bookingId)
-    .maybeSingle();
-  return (data as BookingCancellationRow | null) ?? null;
+  const row = await selectBookingById(bookingId, BOOKING_CANCELLATION_COLUMN_SETS);
+  return (row as BookingCancellationRow | null) ?? null;
 }
 
 function isMissingTableError(error: { message?: string } | null): boolean {
@@ -444,18 +444,36 @@ export async function getRefundAnalytics(): Promise<RefundAnalytics> {
 }
 
 export async function getCancelledBookings(limit = 100) {
-  const db = createAdminClient();
-  const { data, error } = await db
-    .from("bookings")
-    .select(
-      "id, booking_reference, booking_type, passenger_name, mobile, amount, refund_amount, refund_status, cancellation_reason, cancelled_at, pickup_date, payment_status, protection_selected, flexible_cancellation, flexible_cancellation_fee"
-    )
-    .or("cancellation_status.eq.cancelled,booking_status.eq.cancelled")
-    .order("cancelled_at", { ascending: false })
-    .limit(limit);
+  const rows = await selectBookingsWithFilter(BOOKING_CANCELLED_LIST_COLUMN_SETS, (columns) => {
+    const db = createAdminClient();
+    return db
+      .from("bookings")
+      .select(columns)
+      .or("cancellation_status.eq.cancelled,booking_status.eq.cancelled")
+      .order("cancelled_at", { ascending: false })
+      .limit(limit);
+  });
 
-  if (error) return [];
-  return data ?? [];
+  return rows.map((row) => {
+    const protection = deriveProtectionFields(row);
+    return {
+      id: String(row.id),
+      booking_reference: (row.booking_reference as string | null) ?? undefined,
+      booking_type: (row.booking_type as string | null) ?? undefined,
+      passenger_name: (row.passenger_name as string | null) ?? undefined,
+      mobile: (row.mobile as string | null) ?? undefined,
+      amount: Number(row.amount ?? 0) || null,
+      refund_amount: Number(row.refund_amount ?? 0) || null,
+      refund_status: (row.refund_status as string | null) ?? undefined,
+      cancellation_reason: (row.cancellation_reason as string | null) ?? undefined,
+      cancelled_at: (row.cancelled_at as string | null) ?? undefined,
+      pickup_date: (row.pickup_date as string | null) ?? undefined,
+      payment_status: (row.payment_status as string | null) ?? undefined,
+      protection_selected: protection.protection_selected,
+      flexible_cancellation: protection.flexible_cancellation,
+      flexible_cancellation_fee: protection.flexible_cancellation_fee ?? null,
+    };
+  });
 }
 
 export async function getUserRefundHistory(userId: string, limit = 50) {

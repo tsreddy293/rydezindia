@@ -78,7 +78,7 @@ export async function verifyRazorpayPayment(input: {
 
   const { data: paymentRow } = await db
     .from("payments")
-    .select("id, amount, owner_id, booking_id")
+    .select("id, amount, owner_id, user_id, booking_id")
     .eq("razorpay_order_id", input.razorpayOrderId)
     .maybeSingle();
 
@@ -93,10 +93,14 @@ export async function verifyRazorpayPayment(input: {
     })
     .eq("razorpay_order_id", input.razorpayOrderId);
 
+  const paymentUserId = (paymentRow as { user_id?: string } | null)?.user_id;
   const bookingUpdate: Record<string, unknown> = {
     payment_status: input.paymentType === "advance" ? "partial" : "paid",
     booking_status: "confirmed",
   };
+  if (paymentUserId) {
+    bookingUpdate.user_id = paymentUserId;
+  }
 
   await db.from("bookings").update(bookingUpdate).eq("id", input.bookingId);
 

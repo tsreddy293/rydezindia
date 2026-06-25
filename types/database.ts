@@ -145,6 +145,16 @@ export interface BookingConfirmation {
   protection_status?: string;
   trip_fare_amount?: number;
   security_deposit_amount?: number;
+  cancellation_status?: string;
+  cancelled_at?: string;
+  refund_amount?: number;
+  refund_status?: string;
+  refund_processed_at?: string;
+  cancellation_reason?: string;
+  cancellation_charges?: number;
+  refund_trip_fare_amount?: number;
+  refund_deposit_amount?: number;
+  refund_transaction_id?: string;
 }
 
 export type VehicleDetail =

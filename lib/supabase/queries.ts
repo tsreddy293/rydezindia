@@ -53,11 +53,12 @@ import type {
   VehicleOwner,
 } from "@/types/database";
 import { scoreRouteMatch } from "@/lib/services/route-matching";
-import {
-  parseReturnScheduleFromInstructions,
-  resolveVehicleImage,
-} from "@/lib/bookings/my-bookings-utils";
 import { resolveUserName } from "@/lib/users/display-name";
+import {
+  deriveProtectionFields,
+  selectBookingById,
+  selectBookingsWithRequestedColumns,
+} from "@/lib/bookings/booking-select";
 import { mapVehicleRow } from "@/lib/vehicles/format";
 import {
   buildVehicleDisplayName,
@@ -231,6 +232,10 @@ async function selectRecentOwnerUsers(limit = 8): Promise<Row[]> {
 }
 
 async function selectRows(table: string, columns = "*", limit = 100): Promise<Row[]> {
+  if (table === "bookings" && columns !== "*") {
+    return selectBookingsWithRequestedColumns(columns, limit);
+  }
+
   const { data, error } = await db()
     .from(table)
     .select(columns)
@@ -1504,18 +1509,26 @@ export async function getVehicleListingById(id: string): Promise<VehicleDetail |
 }
 
 export async function getBookingConfirmationById(id: string): Promise<BookingConfirmation | null> {
-  const { data, error } = await db()
-    .from("bookings")
-    .select("id, booking_reference, booking_type, passenger_name, mobile, amount, booking_status, payment_status, pickup_location, drop_location, pickup_date, pickup_time, trip_type, vehicle_id, owner_id, created_at, protection_selected, flexible_cancellation, flexible_cancellation_fee, protection_fee, protection_plan_name, protection_purchase_date, protection_status, trip_fare_amount, security_deposit_amount")
-    .eq("id", id)
-    .single();
+  const row = await selectBookingById(id);
+  if (!row) return null;
+  const cancelled =
+    getString(row, "booking_status").toLowerCase() === "cancelled" ||
+    getString(row, "cancellation_status").toLowerCase() === "cancelled";
 
-  if (error) {
-    console.error("[getBookingConfirmationById]", error.message);
-    return null;
+  let refundTransactionId: string | undefined;
+  if (cancelled) {
+    const { data: refundRow } = await db()
+      .from("refunds")
+      .select("transaction_id")
+      .eq("booking_id", id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const value = getString(refundRow as Row | null, "transaction_id");
+    if (value) refundTransactionId = value;
   }
 
-  const row = data as Row;
+  const protection = deriveProtectionFields(row);
   return {
     id: getString(row, "id"),
     booking_reference: getString(row, "booking_reference") || undefined,
@@ -1533,15 +1546,19 @@ export async function getBookingConfirmationById(id: string): Promise<BookingCon
     vehicle_id: getString(row, "vehicle_id") || undefined,
     owner_id: getString(row, "owner_id") || undefined,
     created_at: getString(row, "created_at"),
-    protection_selected: row.protection_selected === true || row.flexible_cancellation === true,
-    flexible_cancellation: row.flexible_cancellation === true,
-    flexible_cancellation_fee: getNumber(row, "flexible_cancellation_fee") || undefined,
-    protection_fee: getNumber(row, "protection_fee") || getNumber(row, "flexible_cancellation_fee") || undefined,
-    protection_plan_name: getString(row, "protection_plan_name") || undefined,
-    protection_purchase_date: getString(row, "protection_purchase_date") || undefined,
-    protection_status: getString(row, "protection_status") || undefined,
+    ...protection,
     trip_fare_amount: getNumber(row, "trip_fare_amount") || undefined,
     security_deposit_amount: getNumber(row, "security_deposit_amount") || undefined,
+    cancellation_status: getString(row, "cancellation_status") || undefined,
+    cancelled_at: getString(row, "cancelled_at") || undefined,
+    refund_amount: getNumber(row, "refund_amount") || undefined,
+    refund_status: getString(row, "refund_status") || undefined,
+    refund_processed_at: getString(row, "refund_processed_at") || undefined,
+    cancellation_reason: getString(row, "cancellation_reason") || undefined,
+    cancellation_charges: getNumber(row, "cancellation_charges") || undefined,
+    refund_trip_fare_amount: getNumber(row, "refund_trip_fare_amount") || undefined,
+    refund_deposit_amount: getNumber(row, "refund_deposit_amount") || undefined,
+    refund_transaction_id: refundTransactionId,
   };
 }
 
@@ -2516,27 +2533,21 @@ export async function getOwnerBookings(ownerId: string): Promise<UserBooking[]> 
 }
 
 export async function getUserBookings(userId: string): Promise<UserBooking[]> {
-  const rows = await selectRows(
-    "bookings",
-    "id, user_id, booking_reference, booking_type, passenger_name, amount, booking_status, payment_status, pickup_location, drop_location, pickup_date, pickup_time, created_at",
-    100
-  );
-  return rows
-    .filter((r) => getString(r, "user_id") === userId)
-    .map((row) => ({
-      id: getString(row, "id"),
-      booking_reference: getString(row, "booking_reference") || undefined,
-      booking_type: getString(row, "booking_type", "booking"),
-      passenger_name: getString(row, "passenger_name", "Passenger"),
-      amount: getNumber(row, "amount"),
-      booking_status: getString(row, "booking_status", "pending"),
-      payment_status: getString(row, "payment_status", "pending"),
-      pickup_location: getString(row, "pickup_location") || undefined,
-      drop_location: getString(row, "drop_location") || undefined,
-      pickup_date: getString(row, "pickup_date") || undefined,
-      pickup_time: getString(row, "pickup_time") || undefined,
-      created_at: getString(row, "created_at"),
-    }));
+  const records = await getMyBookingsForUser(userId);
+  return records.map((row) => ({
+    id: row.id,
+    booking_reference: row.booking_reference,
+    booking_type: row.booking_type,
+    passenger_name: row.passenger_name,
+    amount: row.amount,
+    booking_status: row.booking_status,
+    payment_status: row.payment_status,
+    pickup_location: row.pickup_location,
+    drop_location: row.drop_location,
+    pickup_date: row.pickup_date,
+    pickup_time: row.pickup_time,
+    created_at: row.created_at,
+  }));
 }
 
 export async function getUserBookingsExtended(userId: string): Promise<UserBookingExtended[]> {
@@ -2566,72 +2577,13 @@ export async function getUserBookingsExtended(userId: string): Promise<UserBooki
       refund_status: getString(row, "refund_status") || undefined,
       refund_processed_at: getString(row, "refund_processed_at") || undefined,
       cancellation_reason: getString(row, "cancellation_reason") || undefined,
-      flexible_cancellation: row.flexible_cancellation === true,
-      protection_selected: row.protection_selected === true || row.flexible_cancellation === true,
-      flexible_cancellation_fee: getNumber(row, "flexible_cancellation_fee") || undefined,
+      ...deriveProtectionFields(row),
     }));
 }
 
 export async function getMyBookingsForUser(userId: string): Promise<MyBookingRecord[]> {
-  const rows = await selectRows(
-    "bookings",
-    "id, user_id, booking_reference, booking_type, passenger_name, amount, booking_status, payment_status, pickup_location, drop_location, pickup_date, pickup_time, created_at, cancellation_status, cancelled_at, refund_amount, refund_status, refund_processed_at, cancellation_reason, cancellation_charges, flexible_cancellation, protection_selected, flexible_cancellation_fee, vehicle_id, reference_id, special_instructions",
-    100
-  );
-
-  const userRows = rows.filter((r) => getString(r, "user_id") === userId);
-  const vehicleIds = [
-    ...new Set(
-      userRows
-        .flatMap((row) => [getString(row, "vehicle_id"), getString(row, "reference_id")])
-        .filter(Boolean)
-    ),
-  ];
-  const vehicleMap = await getVehicleMap(vehicleIds);
-
-  return userRows.map((row) => {
-    const vehicleId = getString(row, "vehicle_id") || getString(row, "reference_id");
-    const vehicleRow = vehicleId ? vehicleMap.get(vehicleId) : undefined;
-    const returnSchedule = parseReturnScheduleFromInstructions(getString(row, "special_instructions"));
-    const vehicleName =
-      (vehicleRow ? buildVehicleDisplayName(vehicleRow) : "") ||
-      getString(vehicleRow, "vehicle_name") ||
-      "Vehicle";
-
-    return {
-      id: getString(row, "id"),
-      booking_reference: getString(row, "booking_reference") || undefined,
-      booking_type: getString(row, "booking_type", "booking"),
-      passenger_name: getString(row, "passenger_name", "Passenger"),
-      amount: getNumber(row, "amount"),
-      booking_status: getString(row, "booking_status", "pending"),
-      payment_status: getString(row, "payment_status", "pending"),
-      pickup_location: getString(row, "pickup_location") || undefined,
-      drop_location: getString(row, "drop_location") || undefined,
-      pickup_date: getString(row, "pickup_date") || undefined,
-      pickup_time: getString(row, "pickup_time") || undefined,
-      created_at: getString(row, "created_at"),
-      cancellation_status: getString(row, "cancellation_status") || undefined,
-      cancelled_at: getString(row, "cancelled_at") || undefined,
-      refund_amount: getNumber(row, "refund_amount") || undefined,
-      refund_status: getString(row, "refund_status") || undefined,
-      refund_processed_at: getString(row, "refund_processed_at") || undefined,
-      cancellation_reason: getString(row, "cancellation_reason") || undefined,
-      cancellation_charges: getNumber(row, "cancellation_charges") || undefined,
-      flexible_cancellation: row.flexible_cancellation === true,
-      protection_selected: row.protection_selected === true || row.flexible_cancellation === true,
-      flexible_cancellation_fee: getNumber(row, "flexible_cancellation_fee") || undefined,
-      vehicle_id: getString(row, "vehicle_id") || undefined,
-      reference_id: getString(row, "reference_id") || undefined,
-      vehicle_name: vehicleName,
-      vehicle_type: getString(vehicleRow, "vehicle_type") || undefined,
-      vehicle_image: resolveVehicleImage(vehicleRow),
-      return_date: returnSchedule.returnDate,
-      return_time: returnSchedule.returnTime,
-      return_location: getString(row, "drop_location") || undefined,
-      special_instructions: getString(row, "special_instructions") || undefined,
-    };
-  }).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  const { getMyBookingsForRider } = await import("@/lib/bookings/rider-bookings-query");
+  return getMyBookingsForRider(userId);
 }
 
 export async function getSavedVehicles(userId: string) {
