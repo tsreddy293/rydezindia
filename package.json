@@ -10,6 +10,8 @@
     "start": "next start",
     "lint": "eslint",
     "db:migrate:vehicles": "node scripts/apply-migration-012.mjs",
+    "db:migrate:cancellation": "node scripts/apply-migration-024.mjs",
+    "db:migrate:cancelled-by-role": "node scripts/apply-migration-025.mjs",
     "db:setup:customer-kyc": "node scripts/apply-customer-kyc.mjs",
     "diagnose:kyc-submit": "node scripts/diagnose-customer-kyc-submit.mjs",
     "probe:schema": "node scripts/probe-supabase-schema.mjs",

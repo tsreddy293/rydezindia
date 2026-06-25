@@ -1,11 +1,14 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
-  BOOKING_CANCELLATION_COLUMN_SETS,
   BOOKING_CANCELLED_LIST_COLUMN_SETS,
   deriveProtectionFields,
-  selectBookingById,
   selectBookingsWithFilter,
 } from "@/lib/bookings/booking-select";
+import {
+  bookingOwnedByUser,
+  fetchBookingForCancellation,
+} from "@/lib/bookings/fetch-booking-for-cancellation";
+import { applyBookingUpdateWithColumnFallback } from "@/lib/bookings/apply-booking-update";
 import {
   calculateRefund,
   normalizeBookingTypeForPolicy,
@@ -15,11 +18,15 @@ import { refundRazorpayPayment } from "@/lib/services/payments";
 import { createNotification } from "@/lib/services/notifications";
 import type { RefundStatus } from "@/lib/services/cancellation-policy";
 import type { CancellationReasonCategory } from "@/lib/services/cancellation-reasons";
-import { isTripStartReached } from "@/lib/bookings/my-bookings-utils";
+import {
+  isRiderCancellableBookingStatus,
+  isRiderPaymentCompleted,
+  isRiderTripStartedOrCompleted,
+} from "@/lib/bookings/my-bookings-utils";
 
 export interface BookingCancellationRow {
   id: string;
-  user_id: string;
+  user_id?: string | null;
   owner_id?: string | null;
   booking_type?: string | null;
   trip_type?: string | null;
@@ -40,11 +47,16 @@ export interface BookingCancellationRow {
   refund_deposit_amount?: number | null;
   cancellation_reason?: string | null;
   cancelled_at?: string | null;
+  cancelled_by?: string | null;
+  cancelled_by_role?: string | null;
   refund_processed_at?: string | null;
   booking_reference?: string | null;
   passenger_name?: string | null;
   ride_id?: string | null;
   seats_booked?: number | null;
+  vehicle_id?: string | null;
+  reference_id?: string | null;
+  mobile?: string | null;
 }
 
 function tripFarePaid(row: BookingCancellationRow): number {
@@ -58,11 +70,28 @@ function bookingAmountPaid(row: BookingCancellationRow): number {
 }
 
 export function computeBookingRefund(row: BookingCancellationRow, cancelledAt = new Date()): RefundCalculationResult {
+  const bookingAmount = bookingAmountPaid(row);
+  if (!isRiderPaymentCompleted(row.payment_status)) {
+    return {
+      tripFareRefundPercent: 0,
+      securityDepositRefundPercent: 0,
+      tripFareRefundAmount: 0,
+      securityDepositRefundAmount: 0,
+      totalRefundAmount: 0,
+      bookingAmount,
+      cancellationCharges: 0,
+      afterScheduledStart: false,
+      policyTier: "No payment received",
+      flexibleApplied: false,
+      refundEligible: false,
+    };
+  }
+
   return calculateRefund({
     bookingType: normalizeBookingTypeForPolicy(row.booking_type, row.trip_type),
     tripFareAmount: tripFarePaid(row),
     securityDepositAmount: Number(row.security_deposit_amount ?? 0),
-    bookingAmount: bookingAmountPaid(row),
+    bookingAmount,
     pickupDate: row.pickup_date,
     pickupTime: row.pickup_time,
     cancelledAt,
@@ -86,9 +115,49 @@ async function releaseReturnJourneySeats(db: ReturnType<typeof createAdminClient
     .eq("id", row.ride_id);
 }
 
-export async function fetchBookingForCancellation(bookingId: string): Promise<BookingCancellationRow | null> {
-  const row = await selectBookingById(bookingId, BOOKING_CANCELLATION_COLUMN_SETS);
-  return (row as BookingCancellationRow | null) ?? null;
+async function releaseVehicleAvailability(
+  db: ReturnType<typeof createAdminClient>,
+  row: BookingCancellationRow
+) {
+  const ids = [row.vehicle_id, row.reference_id].filter((id): id is string => Boolean(id));
+  if (ids.length === 0) return;
+
+  for (const id of ids) {
+    await db
+      .from("vehicles")
+      .update({ status: "available", availability: "available" })
+      .eq("id", id);
+    await db
+      .from("self_drive_vehicles")
+      .update({ status: "available", availability: "available" })
+      .eq("id", id);
+    await db
+      .from("driver_vehicles")
+      .update({ status: "available", availability: "available" })
+      .eq("id", id);
+  }
+}
+
+export { fetchBookingForCancellation } from "@/lib/bookings/fetch-booking-for-cancellation";
+
+export type CancellationActorRole = "rider" | "user" | "admin" | "owner";
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function normalizeCancelledByRole(role: CancellationActorRole): "rider" | "admin" | "owner" {
+  if (role === "admin") return "admin";
+  if (role === "owner") return "owner";
+  return "rider";
+}
+
+function cancellationLogActorRole(role: CancellationActorRole): "user" | "admin" | "owner" {
+  const normalized = normalizeCancelledByRole(role);
+  return normalized === "rider" ? "user" : normalized;
+}
+
+function isValidUuid(value: string): boolean {
+  return UUID_RE.test(value.trim());
 }
 
 function isMissingTableError(error: { message?: string } | null): boolean {
@@ -102,7 +171,7 @@ async function insertCancellationLog(
   input: {
     bookingId: string;
     userId?: string | null;
-    cancelledBy: "user" | "admin" | "owner";
+    cancelledByRole: CancellationActorRole;
     reasonCategory?: string | null;
     reason: string;
     refund: RefundCalculationResult;
@@ -111,7 +180,7 @@ async function insertCancellationLog(
   const { error } = await db.from("cancellation_logs").insert({
     booking_id: input.bookingId,
     user_id: input.userId ?? null,
-    cancelled_by: input.cancelledBy,
+    cancelled_by: cancellationLogActorRole(input.cancelledByRole),
     reason_category: input.reasonCategory ?? null,
     reason: input.reason,
     booking_amount: input.refund.bookingAmount,
@@ -166,26 +235,41 @@ export async function cancelBookingWithRefund(input: {
   bookingId: string;
   reason: string;
   reasonCategory?: CancellationReasonCategory | string;
-  cancelledBy: "user" | "admin" | "owner";
-  userId?: string;
+  /** Authenticated user UUID — stored in bookings.cancelled_by */
+  actorUserId: string;
+  /** Actor role label — stored in bookings.cancelled_by_role */
+  cancelledByRole: CancellationActorRole;
 }) {
+  const normalizedId = String(input.bookingId ?? "").trim();
+  const actorUserId = String(input.actorUserId ?? "").trim();
+  console.log("[cancelBookingWithRefund] bookingId:", normalizedId, "actorUserId:", actorUserId);
+
+  if (!isValidUuid(actorUserId)) {
+    return { success: false as const, error: "Authenticated user required to cancel booking" };
+  }
+
   const db = createAdminClient();
-  const row = await fetchBookingForCancellation(input.bookingId);
+  const row = await fetchBookingForCancellation(normalizedId);
   if (!row) return { success: false as const, error: "Booking not found" };
 
-  if (input.cancelledBy === "user" && input.userId && row.user_id !== input.userId) {
-    return { success: false as const, error: "You can only cancel your own bookings" };
+  const customerCancelled =
+    input.cancelledByRole === "user" || input.cancelledByRole === "rider";
+  if (customerCancelled) {
+    const owned = await bookingOwnedByUser(row, actorUserId);
+    if (!owned) {
+      return { success: false as const, error: "You can only cancel your own bookings" };
+    }
   }
 
-  if (input.cancelledBy === "user" && String(row.booking_status ?? "").toLowerCase() !== "confirmed") {
-    return { success: false as const, error: "Only confirmed bookings can be cancelled" };
+  if (customerCancelled && !isRiderCancellableBookingStatus(String(row.booking_status ?? ""))) {
+    return {
+      success: false as const,
+      error: "This booking can no longer be cancelled",
+    };
   }
 
-  if (
-    input.cancelledBy === "user" &&
-    isTripStartReached(row.pickup_date, row.pickup_time)
-  ) {
-    return { success: false as const, error: "Cannot cancel after trip start time" };
+  if (customerCancelled && isRiderTripStartedOrCompleted(String(row.booking_status ?? ""))) {
+    return { success: false as const, error: "Cannot cancel after the trip has started" };
   }
 
   const alreadyCancelled =
@@ -197,14 +281,14 @@ export async function cancelBookingWithRefund(input: {
 
   const refund = computeBookingRefund(row);
   const now = new Date().toISOString();
+  const reasonText = input.reason.trim();
 
   const updatePayload: Record<string, unknown> = {
     booking_status: "cancelled",
     cancellation_status: "cancelled",
-    cancellation_reason: input.reason.trim(),
-    cancellation_reason_category: input.reasonCategory ?? null,
-    cancel_reason: input.reason.trim(),
-    cancelled_by: input.cancelledBy,
+    cancellation_reason: reasonText,
+    cancelled_by: actorUserId,
+    cancelled_by_role: normalizeCancelledByRole(input.cancelledByRole),
     cancelled_at: now,
     cancellation_charges: refund.cancellationCharges,
     refund_amount: refund.totalRefundAmount,
@@ -213,15 +297,23 @@ export async function cancelBookingWithRefund(input: {
     refund_status: refund.refundEligible && refund.totalRefundAmount > 0 ? "pending" : null,
   };
 
-  const { error } = await db.from("bookings").update(updatePayload).eq("id", input.bookingId);
-  if (error) return { success: false as const, error: error.message };
+  if (input.reasonCategory) {
+    updatePayload.cancellation_reason_category = input.reasonCategory;
+  }
+  if (customerCancelled && !row.user_id) {
+    updatePayload.user_id = actorUserId;
+  }
+
+  const { error: updateError } = await applyBookingUpdateWithColumnFallback(db, row.id, updatePayload);
+  if (updateError) return { success: false as const, error: updateError };
 
   await releaseReturnJourneySeats(db, row);
+  await releaseVehicleAvailability(db, row);
 
   await insertCancellationLog(db, {
     bookingId: input.bookingId,
-    userId: row.user_id,
-    cancelledBy: input.cancelledBy,
+    userId: row.user_id ?? actorUserId,
+    cancelledByRole: input.cancelledByRole,
     reasonCategory: input.reasonCategory,
     reason: input.reason.trim(),
     refund,
@@ -233,11 +325,16 @@ export async function cancelBookingWithRefund(input: {
 
   const bookingRef = row.booking_reference ?? input.bookingId.slice(0, 8);
 
+  const refundMessage =
+    refund.totalRefundAmount > 0
+      ? `Refund pending: ₹${refund.totalRefundAmount}.`
+      : "No payment received — no refund due.";
+
   await createNotification({
     recipientRole: "admin",
     type: "booking_cancelled",
     title: "Booking cancelled",
-    message: `${row.passenger_name ?? "Customer"} cancelled booking ${bookingRef}. Refund pending: ₹${refund.totalRefundAmount}.`,
+    message: `${row.passenger_name ?? "Customer"} cancelled booking ${bookingRef}. ${refundMessage}`,
     metadata: {
       bookingId: input.bookingId,
       refundAmount: refund.totalRefundAmount,
@@ -263,7 +360,10 @@ export async function cancelBookingWithRefund(input: {
       recipientRole: "rider",
       type: "booking_cancelled",
       title: "Booking cancelled",
-      message: `Your booking ${bookingRef} has been cancelled. Refund of ₹${refund.totalRefundAmount} is being processed.`,
+      message:
+        refund.totalRefundAmount > 0
+          ? `Your booking ${bookingRef} has been cancelled. Refund of ₹${refund.totalRefundAmount} is being processed.`
+          : `Your booking ${bookingRef} has been cancelled.`,
       metadata: {
         bookingId: input.bookingId,
         refundAmount: refund.totalRefundAmount,
@@ -302,8 +402,8 @@ export async function updateRefundStatus(input: {
     update.payment_status = "refunded";
   }
 
-  const { error } = await db.from("bookings").update(update).eq("id", input.bookingId);
-  if (error) return { success: false as const, error: error.message };
+  const { error } = await applyBookingUpdateWithColumnFallback(db, input.bookingId, update);
+  if (error) return { success: false as const, error };
 
   if (row.user_id) {
     const titles: Record<RefundStatus, string> = {

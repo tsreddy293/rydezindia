@@ -1,10 +1,10 @@
 /** Customer cancellation reason options for My Bookings. */
 
 export const CANCELLATION_REASON_OPTIONS = [
-  { value: "change_of_plans", label: "Change of Plans" },
-  { value: "found_alternative", label: "Found Alternative Vehicle" },
-  { value: "emergency", label: "Emergency" },
-  { value: "pricing_issue", label: "Pricing Issue" },
+  { value: "change_of_plans", label: "Change of plans" },
+  { value: "booked_by_mistake", label: "Booked by mistake" },
+  { value: "found_another_vehicle", label: "Found another vehicle" },
+  { value: "price_issue", label: "Price issue" },
   { value: "other", label: "Other" },
 ] as const;
 

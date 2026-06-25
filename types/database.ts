@@ -157,6 +157,52 @@ export interface BookingConfirmation {
   refund_transaction_id?: string;
 }
 
+/** `public.bookings` cancellation & refund columns (migration 024). */
+export interface BookingsCancellationColumns {
+  booking_status: string;
+  cancellation_status?: string;
+  cancellation_reason?: string | null;
+  cancel_reason?: string | null;
+  cancelled_at?: string | null;
+  /** UUID of the user who cancelled */
+  cancelled_by?: string | null;
+  /** Actor role at cancellation: rider | owner | admin */
+  cancelled_by_role?: string | null;
+  cancellation_charges?: number | null;
+  refund_amount?: number | null;
+  refund_status?: string | null;
+  refund_processed_at?: string | null;
+  refund_trip_fare_amount?: number | null;
+  refund_deposit_amount?: number | null;
+  cancellation_reason_category?: string | null;
+  trip_fare_amount?: number | null;
+  security_deposit_amount?: number | null;
+  flexible_cancellation?: boolean;
+  flexible_cancellation_fee?: number | null;
+}
+
+export interface BookingsTableRow extends BookingsCancellationColumns {
+  id: string;
+  user_id?: string | null;
+  owner_id?: string | null;
+  booking_reference?: string | null;
+  booking_type?: string | null;
+  passenger_name?: string | null;
+  mobile?: string | null;
+  amount?: number | null;
+  payment_status?: string | null;
+  pickup_location?: string | null;
+  drop_location?: string | null;
+  pickup_date?: string | null;
+  pickup_time?: string | null;
+  trip_type?: string | null;
+  vehicle_id?: string | null;
+  reference_id?: string | null;
+  ride_id?: string | null;
+  seats_booked?: number | null;
+  created_at?: string;
+}
+
 export type VehicleDetail =
   | (SearchResult & { module: "return_journey"; price_label: string })
   | (DriverVehicleResult & { module: "with_driver"; price_label: string })

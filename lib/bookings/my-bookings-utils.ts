@@ -25,19 +25,68 @@ export function isTripStartReached(
   return reference.getTime() >= start.getTime();
 }
 
+/** Statuses where the rider may cancel before owner/admin approval. */
+export const RIDER_CANCELLABLE_BOOKING_STATUSES = new Set([
+  "pending",
+  "payment_pending",
+  "payment_completed",
+  "awaiting_admin_approval",
+  "awaiting_owner_approval",
+  "booking_created",
+  // legacy: paid but awaiting owner/admin action
+  "confirmed",
+]);
+
+/** Statuses where cancel must be hidden (approved, in-trip, or done). */
+export const RIDER_NON_CANCELLABLE_BOOKING_STATUSES = new Set([
+  "owner_confirmed",
+  "trip_started",
+  "trip_completed",
+  "cancelled",
+  "already_cancelled",
+  // legacy trip lifecycle
+  "active",
+  "completed",
+]);
+
+export function isRiderCancellableBookingStatus(status: string): boolean {
+  const normalized = String(status ?? "").toLowerCase().trim();
+  if (!normalized) return false;
+  if (RIDER_NON_CANCELLABLE_BOOKING_STATUSES.has(normalized)) return false;
+  return RIDER_CANCELLABLE_BOOKING_STATUSES.has(normalized);
+}
+
+export function isRiderTripStartedOrCompleted(status: string): boolean {
+  const normalized = String(status ?? "").toLowerCase().trim();
+  return (
+    normalized === "trip_started" ||
+    normalized === "trip_completed" ||
+    normalized === "active" ||
+    normalized === "completed"
+  );
+}
+
+export function isRiderPaymentCompleted(paymentStatus?: string | null): boolean {
+  const payment = String(paymentStatus ?? "").toLowerCase();
+  return payment === "paid" || payment === "partial" || payment === "payment_completed";
+}
+
+/** Whether the Cancel Booking action should render on the rider dashboard. */
 export function canCustomerCancelBooking(input: {
   bookingStatus: string;
+  paymentStatus?: string | null;
   cancellationStatus?: string | null;
   pickupDate?: string | null;
   pickupTime?: string | null;
 }): boolean {
-  const status = input.bookingStatus.toLowerCase();
+  const status = String(input.bookingStatus ?? "").toLowerCase().trim();
   const cancelled =
-    input.cancellationStatus === "cancelled" || status === "cancelled";
+    input.cancellationStatus === "cancelled" ||
+    status === "cancelled" ||
+    status === "already_cancelled";
   if (cancelled) return false;
-  if (status !== "confirmed") return false;
-  if (isTripStartReached(input.pickupDate, input.pickupTime)) return false;
-  return true;
+  if (isRiderTripStartedOrCompleted(status)) return false;
+  return isRiderCancellableBookingStatus(status);
 }
 
 export function formatBookingTypeLabel(type: string): string {
@@ -53,6 +102,15 @@ export function formatBookingTypeLabel(type: string): string {
 export function formatBookingStatusLabel(status: string): string {
   const key = status.toLowerCase();
   const labels: Record<string, string> = {
+    booking_created: "Booking Created",
+    payment_pending: "Payment Pending",
+    payment_completed: "Payment Completed",
+    awaiting_admin_approval: "Awaiting Admin Approval",
+    awaiting_owner_approval: "Awaiting Owner Approval",
+    owner_confirmed: "Owner Confirmed",
+    trip_started: "Trip Started",
+    trip_completed: "Trip Completed",
+    already_cancelled: "Cancelled",
     pending: "Pending",
     confirmed: "Confirmed",
     active: "Trip Started",

@@ -56,22 +56,24 @@ export const BOOKING_ADMIN_LIST_COLUMN_SETS = [
   "id, booking_type, passenger_name, mobile, amount, booking_status, payment_status, created_at",
 ] as const;
 
-/** Cancellation service */
+/** Cancellation service — minimal tiers last so schema gaps never block lookup. */
 export const BOOKING_CANCELLATION_COLUMN_SETS = [
   joinColumns(
-    "id, user_id, owner_id, booking_type, trip_type, booking_status, payment_status",
+    "id, user_id, owner_id, booking_type, trip_type, booking_status, payment_status, mobile",
     BOOKING_CANCELLATION,
     BOOKING_PROTECTION,
     BOOKING_FARE,
     BOOKING_RETURN,
-    "pickup_date, pickup_time, booking_reference, passenger_name"
+    "pickup_date, pickup_time, booking_reference, passenger_name, vehicle_id, reference_id"
   ),
   joinColumns(
-    "id, user_id, owner_id, booking_type, trip_type, booking_status, payment_status",
-    "flexible_cancellation, pickup_date, pickup_time, refund_amount, refund_status, refund_trip_fare_amount, refund_deposit_amount, cancellation_reason, cancelled_at, refund_processed_at, booking_reference, passenger_name, ride_id, seats_booked, amount",
+    "id, user_id, owner_id, booking_type, trip_type, booking_status, payment_status, mobile",
+    "flexible_cancellation, pickup_date, pickup_time, refund_amount, refund_status, refund_trip_fare_amount, refund_deposit_amount, cancellation_reason, cancelled_at, cancelled_by, cancelled_by_role, refund_processed_at, booking_reference, passenger_name, ride_id, seats_booked, amount, vehicle_id, reference_id",
     BOOKING_FARE
   ),
-  "id, user_id, owner_id, booking_type, booking_status, payment_status, amount, pickup_date, pickup_time, refund_amount, refund_status, booking_reference, passenger_name",
+  "id, user_id, owner_id, booking_type, booking_status, payment_status, amount, pickup_date, pickup_time, booking_reference, passenger_name, vehicle_id, reference_id, mobile",
+  "id, user_id, booking_type, booking_status, payment_status, amount, pickup_date, pickup_time, booking_reference, passenger_name, mobile",
+  "id, user_id, booking_status, payment_status, amount, mobile, cancel_reason, cancelled_at, cancelled_by, cancelled_by_role",
 ] as const;
 
 /** Protection analytics */
@@ -143,10 +145,11 @@ async function queryWithColumnFallback(
     if (!error) {
       return data as Row[] | Row | null;
     }
-    if (!isMissingColumnError(error)) {
-      console.error(`[${logLabel}]`, error.message);
-      return null;
+    if (isMissingColumnError(error)) {
+      continue;
     }
+    console.error(`[${logLabel}]`, error.message);
+    return null;
   }
   return null;
 }

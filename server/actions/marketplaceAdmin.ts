@@ -261,22 +261,24 @@ export async function updateKycStatus(id: string, status: "approved" | "rejected
   return { success: true };
 }
 
-import { cancelBookingWithRefund } from "@/lib/services/booking-cancellation";
+import { cancelBookingWithRefund, type CancellationActorRole } from "@/lib/services/booking-cancellation";
 
 export async function cancelBooking(input: {
   bookingId: string;
   reason: string;
   cancelledBy: UserRole;
 }) {
-  await requireRole(input.cancelledBy === "admin" ? "admin" : input.cancelledBy);
+  const requiredRole = input.cancelledBy === "admin" ? "admin" : input.cancelledBy === "owner" ? "owner" : "user";
+  const { user } = await requireRole(requiredRole);
 
-  const cancelledBy =
-    input.cancelledBy === "admin" ? "admin" : input.cancelledBy === "owner" ? "owner" : "user";
+  const cancelledByRole: CancellationActorRole =
+    input.cancelledBy === "admin" ? "admin" : input.cancelledBy === "owner" ? "owner" : "rider";
 
   const result = await cancelBookingWithRefund({
     bookingId: input.bookingId,
     reason: input.reason,
-    cancelledBy,
+    actorUserId: user.id,
+    cancelledByRole,
   });
 
   if (!result.success) return { success: false, error: result.error };

@@ -23,6 +23,7 @@ const TABS: { key: BookingFilterTab; label: string; icon: typeof Car }[] = [
 
 export default function MyBookingsClient({ bookings }: Props) {
   const [tab, setTab] = useState<BookingFilterTab>("all");
+  const [successToast, setSuccessToast] = useState<string | null>(null);
 
   const filtered = useMemo(() => filterBookingsByTab(bookings, tab), [bookings, tab]);
 
@@ -35,6 +36,15 @@ export default function MyBookingsClient({ bookings }: Props) {
 
   return (
     <div className="space-y-6">
+      {successToast && (
+        <div
+          className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800 shadow-sm"
+          role="status"
+        >
+          <CheckCircle2 className="h-5 w-5 shrink-0" />
+          {successToast}
+        </div>
+      )}
       {/* Stats */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
@@ -92,7 +102,16 @@ export default function MyBookingsClient({ bookings }: Props) {
       ) : (
         <div className="space-y-4">
           {filtered.map((booking) => (
-            <MyBookingCard key={booking.id} booking={booking} />
+            <MyBookingCard
+              key={booking.id}
+              booking={booking}
+              onBookingCancelled={(message) => {
+                setTab("cancelled");
+                const text = message ?? "Booking cancelled successfully";
+                setSuccessToast(text);
+                window.setTimeout(() => setSuccessToast(null), 5000);
+              }}
+            />
           ))}
         </div>
       )}

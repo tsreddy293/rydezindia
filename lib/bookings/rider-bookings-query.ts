@@ -251,7 +251,8 @@ function mapRowToMyBookingRecord(
     refund_amount: getNumber(row, "refund_amount") || undefined,
     refund_status: getString(row, "refund_status") || undefined,
     refund_processed_at: getString(row, "refund_processed_at") || undefined,
-    cancellation_reason: getString(row, "cancellation_reason") || undefined,
+    cancellation_reason:
+      getString(row, "cancellation_reason") || getString(row, "cancel_reason") || undefined,
     cancellation_charges: getNumber(row, "cancellation_charges") || undefined,
     ...protection,
     vehicle_id: getString(row, "vehicle_id") || undefined,

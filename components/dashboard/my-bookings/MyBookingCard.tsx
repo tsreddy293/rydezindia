@@ -37,9 +37,10 @@ import type { MyBookingRecord } from "@/types/database";
 
 interface Props {
   booking: MyBookingRecord;
+  onBookingCancelled?: (message?: string) => void;
 }
 
-export default function MyBookingCard({ booking }: Props) {
+export default function MyBookingCard({ booking, onBookingCancelled }: Props) {
   const router = useRouter();
   const [expanded, setExpanded] = useState(false);
 
@@ -49,6 +50,7 @@ export default function MyBookingCard({ booking }: Props) {
 
   const showCancel = canCustomerCancelBooking({
     bookingStatus: booking.booking_status,
+    paymentStatus: booking.payment_status,
     cancellationStatus: booking.cancellation_status,
     pickupDate: booking.pickup_date,
     pickupTime: booking.pickup_time,
@@ -180,15 +182,19 @@ export default function MyBookingCard({ booking }: Props) {
               <Eye className="h-4 w-4 mr-1.5" />
               View Details
             </Button>
-            {(canDownloadInvoice || (cancelled && paid)) ? (
-              <Button href={`/booking/invoice/${booking.id}`} variant="outline" size="sm">
-                <Download className="h-4 w-4 mr-1.5" />
-                {cancelled ? "Cancellation Receipt" : "Download Invoice"}
-              </Button>
-            ) : (
+            {!paid && !cancelled && (
               <Button href={`/booking/confirmation/${booking.id}`} variant="outline" size="sm">
                 Continue to Payment
               </Button>
+            )}
+            {showCancel && (
+              <CancelBookingButton
+                booking={booking}
+                onCancelled={(message) => {
+                  router.refresh();
+                  onBookingCancelled?.(message);
+                }}
+              />
             )}
             <RescheduleBookingButton
               bookingId={booking.id}
@@ -201,15 +207,11 @@ export default function MyBookingCard({ booking }: Props) {
               <Repeat className="h-4 w-4 mr-1.5" />
               Rebook
             </Button>
-            {showCancel && (
-              <CancelBookingButton
-                bookingId={booking.id}
-                bookingStatus={booking.booking_status}
-                cancellationStatus={booking.cancellation_status}
-                pickupDate={booking.pickup_date}
-                pickupTime={booking.pickup_time}
-                onCancelled={() => router.refresh()}
-              />
+            {(canDownloadInvoice || (cancelled && paid)) && (
+              <Button href={`/booking/invoice/${booking.id}`} variant="outline" size="sm">
+                <Download className="h-4 w-4 mr-1.5" />
+                {cancelled ? "Cancellation Receipt" : "Download Invoice"}
+              </Button>
             )}
           </div>
 
