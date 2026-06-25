@@ -1,215 +1,87 @@
-import {
-  BarChart3,
-  CalendarCheck,
-  Car,
-  CheckCircle,
-  Clock,
-  IndianRupee,
-  Shield,
-  Users,
-} from "lucide-react";
-import Link from "next/link";
 import SupabaseErrorBanner from "@/components/ui/SupabaseErrorBanner";
-import { ADMIN_MODULES } from "@/lib/admin/admin-modules";
+import ActionCenter from "@/components/admin/dashboard/ActionCenter";
+import DashboardBookingsWithFilters from "@/components/admin/dashboard/DashboardBookingsWithFilters";
+import FinanceSection from "@/components/admin/dashboard/FinanceSection";
+import MarketplaceSummary from "@/components/admin/dashboard/MarketplaceSummary";
+import PendingApprovalQueue from "@/components/admin/dashboard/PendingApprovalQueue";
+import RecentActivity from "@/components/admin/dashboard/RecentActivity";
+import ReminderCards from "@/components/admin/dashboard/ReminderCards";
+import ReportsSection from "@/components/admin/dashboard/ReportsSection";
+import UserManagementSection from "@/components/admin/dashboard/UserManagementSection";
+import VehicleManagementSection from "@/components/admin/dashboard/VehicleManagementSection";
+import { getAdminDashboardData } from "@/lib/admin/dashboard-data";
 import { testSupabaseConnection } from "@/lib/supabase/admin";
-import { getPlatformStats } from "@/lib/supabase/queries";
-import { formatDate, formatINR } from "@/lib/utils";
-import { requireRole, signOutUser } from "@/server/actions/auth";
+import { requireRole } from "@/server/actions/auth";
 
 export const dynamic = "force-dynamic";
-
-function ChartBars({ data }: { data: { label: string; value: number }[] }) {
-  const max = Math.max(...data.map((item) => item.value), 1);
-  return (
-    <div className="space-y-3">
-      {data.length === 0 ? (
-        <p className="text-sm text-gray-500">No chart data yet.</p>
-      ) : (
-        data.map((item) => (
-          <div key={item.label}>
-            <div className="mb-1 flex justify-between text-xs text-gray-500">
-              <span>{item.label}</span>
-              <span>{item.value.toLocaleString("en-IN")}</span>
-            </div>
-            <div className="h-2 rounded-full bg-gray-100">
-              <div
-                className="h-2 rounded-full bg-primary"
-                style={{ width: `${Math.max((item.value / max) * 100, 6)}%` }}
-              />
-            </div>
-          </div>
-        ))
-      )}
-    </div>
-  );
-}
 
 export default async function AdminPage() {
   await requireRole("admin");
   const connection = await testSupabaseConnection();
-  const stats = connection.ok ? await getPlatformStats() : await getPlatformStats();
-
-  const cards = [
-    { icon: Clock, label: "Pending Owner KYC", value: stats.pendingOwnerKyc.toLocaleString("en-IN") },
-    { icon: CheckCircle, label: "Approved Owner KYC", value: stats.approvedOwnerKyc.toLocaleString("en-IN") },
-    { icon: Clock, label: "Pending Customer KYC", value: stats.pendingCustomerKyc.toLocaleString("en-IN") },
-    { icon: Clock, label: "Pending Owners", value: stats.pendingOwners.toLocaleString("en-IN") },
-    { icon: Clock, label: "Pending Customers", value: stats.pendingCustomers.toLocaleString("en-IN") },
-    { icon: Clock, label: "Vehicles Pending Review", value: stats.pendingVehicleApprovals.toLocaleString("en-IN") },
-    { icon: CheckCircle, label: "Approved Owners", value: stats.approvedOwners.toLocaleString("en-IN") },
-    { icon: CheckCircle, label: "Approved Customers", value: stats.approvedCustomers.toLocaleString("en-IN") },
-    { icon: CheckCircle, label: "Approved Vehicles", value: stats.approvedVehicles.toLocaleString("en-IN") },
-    { icon: Shield, label: "Total Owners", value: stats.vehicleOwners.toLocaleString("en-IN") },
-    { icon: Users, label: "Total Users", value: stats.users.toLocaleString("en-IN") },
-    { icon: Car, label: "Total Vehicles", value: stats.vehicles.toLocaleString("en-IN") },
-    { icon: CalendarCheck, label: "Total Bookings", value: stats.bookings.toLocaleString("en-IN") },
-    { icon: CalendarCheck, label: "Today's Bookings", value: stats.todaysBookings.toLocaleString("en-IN") },
-    { icon: IndianRupee, label: "Monthly Revenue", value: formatINR(stats.monthlyRevenue) },
-    { icon: IndianRupee, label: "Total Revenue", value: formatINR(stats.revenue) },
-  ];
-
-  const modules = ADMIN_MODULES.filter((m) => m.href !== "/admin");
+  const dashboard = await getAdminDashboardData();
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-secondary text-white px-6 py-5">
-        <div className="mx-auto max-w-7xl flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold">Rydez India Admin</h1>
-            <p className="text-white/60 text-sm mt-0.5">
-              {connection.ok ? "Marketplace dashboard" : "Connection error"}
-            </p>
-          </div>
-          <div className="flex items-center gap-4">
-            <Link href="/" className="text-sm text-white/70 hover:text-white transition-colors">
-              Back to Site
-            </Link>
-            <form action={signOutUser}>
-              <button type="submit" className="text-sm text-white/70 hover:text-white transition-colors">
-                Logout
-              </button>
-            </form>
-          </div>
-        </div>
-      </header>
-
-      <div className="mx-auto max-w-7xl px-4 py-8 md:px-6">
-        {!connection.ok && (
-          <div className="mb-8">
-            <SupabaseErrorBanner message={connection.message} />
-          </div>
-        )}
-
-        {connection.ok && (
-          <div className="mb-6 rounded-xl bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-700">
-            {connection.message}
-          </div>
-        )}
-
-        <div className="mb-8 flex flex-wrap gap-3 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
-          {modules.map((module) => (
-            <Link
-              key={module.href}
-              href={module.href}
-              className="rounded-xl bg-gray-50 px-4 py-2 text-sm font-medium text-secondary hover:bg-primary hover:text-white transition-colors"
-            >
-              {module.label}
-            </Link>
-          ))}
-        </div>
-
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 mb-8">
-          {cards.map(({ icon: Icon, label, value }) => (
-            <div key={label} className="rounded-2xl bg-white border border-gray-100 p-6 shadow-sm">
-              <Icon className="h-6 w-6 text-primary mb-3" />
-              <p className="text-2xl font-bold text-secondary">{value}</p>
-              <p className="text-sm text-gray-500 mt-1">{label}</p>
-            </div>
-          ))}
-        </div>
-
-        <div className="grid gap-6 lg:grid-cols-3 mb-8">
-          <div className="rounded-2xl bg-white border border-gray-100 p-6 shadow-sm">
-            <h2 className="text-lg font-semibold text-secondary mb-4 flex items-center gap-2">
-              <BarChart3 className="h-5 w-5 text-primary" />
-              Revenue Trend
-            </h2>
-            <ChartBars data={stats.revenueTrend ?? []} />
-          </div>
-          <div className="rounded-2xl bg-white border border-gray-100 p-6 shadow-sm">
-            <h2 className="text-lg font-semibold text-secondary mb-4 flex items-center gap-2">
-              <BarChart3 className="h-5 w-5 text-primary" />
-              Booking Trend
-            </h2>
-            <ChartBars data={stats.bookingTrend ?? []} />
-          </div>
-          <div className="rounded-2xl bg-white border border-gray-100 p-6 shadow-sm">
-            <h2 className="text-lg font-semibold text-secondary mb-4 flex items-center gap-2">
-              <BarChart3 className="h-5 w-5 text-primary" />
-              Vehicle Category Distribution
-            </h2>
-            <ChartBars data={stats.vehicleCategoryDistribution ?? []} />
-          </div>
-        </div>
-
-        <div className="grid gap-6 lg:grid-cols-3">
-          <section className="rounded-2xl bg-white border border-gray-100 p-6 shadow-sm">
-            <h2 className="text-lg font-semibold text-secondary mb-4">Recent Bookings</h2>
-            <div className="space-y-3">
-              {(stats.recentBookings ?? []).length === 0 ? (
-                <p className="text-sm text-gray-500">No bookings yet.</p>
-              ) : (
-                stats.recentBookings?.map((booking) => (
-                  <div key={booking.id} className="rounded-xl bg-gray-50 p-4 text-sm">
-                    <div className="flex justify-between gap-3">
-                      <span className="font-medium text-secondary">{booking.booking_type}</span>
-                      <span className="font-semibold text-primary">{formatINR(booking.amount)}</span>
-                    </div>
-                    <p className="mt-1 text-gray-500">{booking.booking_status} - {formatDate(booking.created_at)}</p>
-                  </div>
-                ))
-              )}
-            </div>
-          </section>
-
-          <section className="rounded-2xl bg-white border border-gray-100 p-6 shadow-sm">
-            <h2 className="text-lg font-semibold text-secondary mb-4">Recent Vehicle Registrations</h2>
-            <div className="space-y-3">
-              {(stats.recentVehicles ?? []).length === 0 ? (
-                <p className="text-sm text-gray-500">No vehicles yet.</p>
-              ) : (
-                stats.recentVehicles?.map((vehicle) => (
-                  <div key={vehicle.id} className="rounded-xl bg-gray-50 p-4 text-sm">
-                    <p className="font-medium text-secondary">{vehicle.vehicle_name}</p>
-                    <p className="mt-1 text-gray-500">
-                      {vehicle.vehicle_type} - {vehicle.vehicle_number || "No number"} - {vehicle.status}
-                    </p>
-                    <p className="mt-1 text-xs text-gray-400">{formatDate(vehicle.created_at)}</p>
-                  </div>
-                ))
-              )}
-            </div>
-          </section>
-
-          <section className="rounded-2xl bg-white border border-gray-100 p-6 shadow-sm">
-            <h2 className="text-lg font-semibold text-secondary mb-4">Recent Owner Registrations</h2>
-            <div className="space-y-3">
-              {(stats.recentOwners ?? []).length === 0 ? (
-                <p className="text-sm text-gray-500">No owners yet.</p>
-              ) : (
-                stats.recentOwners?.map((owner) => (
-                  <div key={owner.id} className="rounded-xl bg-gray-50 p-4 text-sm">
-                    <p className="font-medium text-secondary">{owner.owner_name}</p>
-                    <p className="mt-1 text-gray-500">
-                      {owner.mobile} - {owner.verification_status}
-                    </p>
-                  </div>
-                ))
-              )}
-            </div>
-          </section>
-        </div>
+    <div className="space-y-10">
+      <div>
+        <h1 className="text-2xl font-bold text-secondary">Dashboard</h1>
+        <p className="mt-1 text-sm text-gray-500">
+          Task-oriented marketplace administration
+        </p>
       </div>
+
+      {!connection.ok && (
+        <SupabaseErrorBanner message={connection.message} />
+      )}
+
+      {connection.ok && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          {connection.message}
+        </div>
+      )}
+
+      <ActionCenter items={dashboard.actionCenter} />
+
+      <ReminderCards items={dashboard.reminders} />
+
+      <MarketplaceSummary summary={dashboard.summary} />
+
+      <RecentActivity items={dashboard.activity} />
+
+      <PendingApprovalQueue items={dashboard.pendingApprovals} />
+
+      <DashboardBookingsWithFilters bookings={dashboard.bookings} />
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <UserManagementSection data={dashboard.userManagement} />
+        <VehicleManagementSection data={dashboard.vehicleManagement} />
+      </div>
+
+      <FinanceSection finance={dashboard.finance} />
+
+      <ReportsSection reports={dashboard.reports} />
+
+      <section id="settings" className="scroll-mt-24 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+        <h2 className="text-lg font-bold text-secondary">Settings</h2>
+        <p className="mt-1 text-sm text-gray-500">
+          Admin configuration and module shortcuts
+        </p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            { label: "Coupons", href: "/admin/coupons" },
+            { label: "Notifications", href: "/admin/notifications" },
+            { label: "Payments", href: "/admin/payments" },
+            { label: "Protection Plans", href: "/admin/protection" },
+          ].map((item) => (
+            <a
+              key={item.href}
+              href={item.href}
+              className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 text-sm font-medium text-secondary hover:bg-white hover:shadow-sm"
+            >
+              {item.label}
+            </a>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }

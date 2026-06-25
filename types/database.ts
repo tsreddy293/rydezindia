@@ -68,6 +68,9 @@ export interface PlatformStats {
   pendingVehicles: number;
   rejectedVehicles: number;
   bookings: number;
+  pendingBookings: number;
+  cancelledBookings: number;
+  activeBookings: number;
   returnJourneys: number;
   selfDriveVehicles: number;
   driverVehicles: number;
@@ -151,7 +154,10 @@ export interface BookingConfirmation {
   refund_status?: string;
   refund_processed_at?: string;
   cancellation_reason?: string;
+  cancellation_reason_category?: string | null;
   cancellation_charges?: number;
+  cancelled_by?: string | null;
+  cancelled_by_role?: string | null;
   refund_trip_fare_amount?: number;
   refund_deposit_amount?: number;
   refund_transaction_id?: string;
@@ -489,6 +495,7 @@ export interface AdminVehicleRecord {
   service_with_driver: boolean;
   service_local_rental: boolean;
   service_return_journey: boolean;
+  created_at?: string;
 }
 
 export interface ApprovalLogRecord {
@@ -605,6 +612,7 @@ export interface UserBookingExtended extends UserBooking {
   refund_processed_at?: string | null;
   cancellation_reason?: string | null;
   cancellation_charges?: number | null;
+  cancelled_by_role?: string | null;
   flexible_cancellation?: boolean | null;
   protection_selected?: boolean | null;
   flexible_cancellation_fee?: number | null;

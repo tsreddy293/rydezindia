@@ -17,6 +17,9 @@ export const metadata = createPageMetadata({
 export default async function OwnerBookingsPage() {
   const { user } = await requireRole("owner");
   const bookings = await getOwnerBookings(user.id);
+  const visibleBookings = bookings.filter(
+    (b) => b.booking_status.toLowerCase() !== "cancelled"
+  );
 
   return (
     <PageLayout>
@@ -24,11 +27,11 @@ export default async function OwnerBookingsPage() {
         <OwnerDashboardNav />
         <h1 className="text-3xl font-bold text-secondary mb-8">My Bookings</h1>
 
-        {bookings.length === 0 ? (
-          <div className="rounded-2xl bg-gray-50 py-16 text-center text-gray-500">No bookings yet.</div>
+        {visibleBookings.length === 0 ? (
+          <div className="rounded-2xl bg-gray-50 py-16 text-center text-gray-500">No active bookings.</div>
         ) : (
           <div className="space-y-4">
-            {bookings.map((booking) => (
+            {visibleBookings.map((booking) => (
               <div key={booking.id} className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>

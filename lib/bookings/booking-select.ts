@@ -64,7 +64,7 @@ export const BOOKING_CANCELLATION_COLUMN_SETS = [
     BOOKING_PROTECTION,
     BOOKING_FARE,
     BOOKING_RETURN,
-    "pickup_date, pickup_time, booking_reference, passenger_name, vehicle_id, reference_id"
+    "pickup_date, pickup_time, booking_reference, passenger_name, vehicle_id, reference_id, cancelled_by_role"
   ),
   joinColumns(
     "id, user_id, owner_id, booking_type, trip_type, booking_status, payment_status, mobile",
@@ -79,12 +79,12 @@ export const BOOKING_CANCELLATION_COLUMN_SETS = [
 /** Protection analytics */
 export const BOOKING_PROTECTION_ANALYTICS_COLUMN_SETS = [
   joinColumns(
-    "id, booking_reference, passenger_name, booking_type, created_at, vehicle_id",
+    "id, booking_reference, passenger_name, booking_type, booking_status, payment_status, refund_status, cancellation_status, created_at, vehicle_id",
     BOOKING_PROTECTION,
     "flexible_cancellation, flexible_cancellation_fee"
   ),
-  "id, booking_reference, passenger_name, booking_type, flexible_cancellation, flexible_cancellation_fee, created_at, vehicle_id",
-  "id, booking_reference, passenger_name, booking_type, created_at, vehicle_id",
+  "id, booking_reference, passenger_name, booking_type, booking_status, payment_status, refund_status, cancellation_status, flexible_cancellation, flexible_cancellation_fee, created_at, vehicle_id",
+  "id, booking_reference, passenger_name, booking_type, booking_status, payment_status, created_at, vehicle_id",
 ] as const;
 
 export const BOOKING_PROTECTION_REFUND_COLUMN_SETS = [

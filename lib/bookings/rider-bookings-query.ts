@@ -253,6 +253,7 @@ function mapRowToMyBookingRecord(
     refund_processed_at: getString(row, "refund_processed_at") || undefined,
     cancellation_reason:
       getString(row, "cancellation_reason") || getString(row, "cancel_reason") || undefined,
+    cancelled_by_role: getString(row, "cancelled_by_role") || undefined,
     cancellation_charges: getNumber(row, "cancellation_charges") || undefined,
     ...protection,
     vehicle_id: getString(row, "vehicle_id") || undefined,

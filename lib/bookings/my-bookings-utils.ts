@@ -1,5 +1,9 @@
 /** Helpers for the My Bookings dashboard module. */
 
+import {
+  isBookingCancelledStatus,
+} from "@/lib/bookings/cancellation-eligibility";
+
 export function parseReturnScheduleFromInstructions(text?: string | null): {
   returnDate?: string;
   returnTime?: string;
@@ -71,22 +75,30 @@ export function isRiderPaymentCompleted(paymentStatus?: string | null): boolean 
   return payment === "paid" || payment === "partial" || payment === "payment_completed";
 }
 
-/** Whether the Cancel Booking action should render on the rider dashboard. */
-export function canCustomerCancelBooking(input: {
+export {
+  canRiderCancelBeforeOwnerApproval as canCustomerCancelBooking,
+  isBookingCancelledStatus,
+  deriveOwnerApprovalStatus,
+  deriveTripPhaseStatus,
+} from "@/lib/bookings/cancellation-eligibility";
+
+/** Payment badge label for rider booking cards (handles cancelled state). */
+export function formatRiderPaymentBadgeLabel(input: {
   bookingStatus: string;
   paymentStatus?: string | null;
   cancellationStatus?: string | null;
-  pickupDate?: string | null;
-  pickupTime?: string | null;
-}): boolean {
-  const status = String(input.bookingStatus ?? "").toLowerCase().trim();
-  const cancelled =
-    input.cancellationStatus === "cancelled" ||
-    status === "cancelled" ||
-    status === "already_cancelled";
-  if (cancelled) return false;
-  if (isRiderTripStartedOrCompleted(status)) return false;
-  return isRiderCancellableBookingStatus(status);
+  refundStatus?: string | null;
+}): string {
+  const cancelled = isBookingCancelledStatus(input.bookingStatus, input.cancellationStatus);
+  if (cancelled) {
+    const refund = String(input.refundStatus ?? "").toLowerCase();
+    if (refund === "refunded") return "Payment Refunded";
+    if (refund === "pending" || refund === "processing" || refund === "approved") {
+      return "Refund Pending";
+    }
+    return "Booking Cancelled";
+  }
+  return formatPaymentStatusLabel(input.paymentStatus ?? "pending");
 }
 
 export function formatBookingTypeLabel(type: string): string {
@@ -136,9 +148,10 @@ export function formatPaymentStatusLabel(status: string): string {
 
 export function formatRefundStatusLabel(status: string): string {
   const key = status.toLowerCase();
-  if (key === "pending" || key === "processing") return "Processing";
+  if (key === "not_required") return "No Payment Received";
+  if (key === "pending" || key === "processing") return "Refund Pending";
   if (key === "approved") return "Approved";
-  if (key === "refunded") return "Completed";
+  if (key === "refunded") return "Payment Refunded";
   if (key === "rejected") return "Rejected";
   return status.replace(/_/g, " ");
 }

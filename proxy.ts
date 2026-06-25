@@ -65,6 +65,19 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   };
 
+  // --- Admin login: always show login unless an authenticated admin session exists ---
+  if (isAdminLoginPath(path)) {
+    if (path === "/login/admin" || path === "/admin/login") {
+      const url = request.nextUrl.clone();
+      url.pathname = ADMIN_LOGIN_PATH;
+      return NextResponse.redirect(url);
+    }
+    if (data.user && role === "admin") {
+      return redirectTo("/admin");
+    }
+    return response;
+  }
+
   // --- Admin routes: role=admin only; query strings never grant access ---
   if (isProtectedAdminPath(path)) {
     if (!data.user) {
@@ -73,13 +86,6 @@ export async function proxy(request: NextRequest) {
     if (role !== "admin") {
       return redirectTo(redirectPathForWrongAdminAccess(role));
     }
-  }
-
-  // --- Legacy admin login URLs → canonical /admin-login (preserve error query params) ---
-  if (path === "/login/admin" || path === "/admin/login") {
-    const url = request.nextUrl.clone();
-    url.pathname = ADMIN_LOGIN_PATH;
-    return NextResponse.redirect(url);
   }
 
   // --- Owner routes ---
@@ -147,11 +153,6 @@ export async function proxy(request: NextRequest) {
   if ((bookingDetailMatch || bookingConfirmationMatch) && !data.user) {
     const returnPath = `${path}${request.nextUrl.search}`;
     return redirectToLoginWithReturnTo(returnPath);
-  }
-
-  // --- Block non-admins from lingering on admin login after session exists ---
-  if (isAdminLoginPath(path) && data.user && role === "admin") {
-    return redirectTo("/admin");
   }
 
   // Legacy login redirects (never point customer/owner flows to /admin)

@@ -10,6 +10,7 @@ import {
   PROTECTION_CATEGORY_LABELS,
   type ProtectionVehicleCategory,
 } from "@/lib/services/flexible-cancellation-protection";
+import { countsTowardRevenue } from "@/lib/bookings/revenue-eligibility";
 
 export interface ProtectionAnalytics {
   totalProtectionSales: number;
@@ -61,6 +62,7 @@ export async function getProtectionAnalytics(): Promise<ProtectionAnalytics> {
   const categoryMap = new Map<ProtectionVehicleCategory, { count: number; revenue: number }>();
 
   for (const row of protectedRows) {
+    if (!countsTowardRevenue(row)) continue;
     const protection = deriveProtectionFields(row);
     const fee = protection.protection_fee ?? 0;
     protectionRevenue += fee;

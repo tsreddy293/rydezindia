@@ -1,29 +1,31 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  sumBookingRevenue,
+  sumBookingRevenueSince,
+} from "@/lib/bookings/revenue-eligibility";
 
 export async function getAnalyticsReport() {
   const db = createAdminClient();
   const today = new Date();
-  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString();
-  const dayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
+  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  const dayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
 
-  const [bookings, payments, vehicles, owners, users] = await Promise.all([
-    db.from("bookings").select("id, amount, booking_status, pickup_location, drop_location, owner_id, vehicle_id, created_at"),
-    db.from("payments").select("id, amount, status, created_at").eq("status", "paid"),
+  const [bookings, vehicles, owners, users] = await Promise.all([
+    db
+      .from("bookings")
+      .select(
+        "id, amount, booking_status, payment_status, refund_status, cancellation_status, pickup_location, drop_location, owner_id, vehicle_id, created_at"
+      ),
     db.from("vehicles").select("id, vehicle_name, vehicle_type, status"),
     db.from("owners").select("id, owner_name"),
     db.from("users").select("id, role"),
   ]);
 
-  const bookingRows = bookings.data ?? [];
-  const paymentRows = payments.data ?? [];
+  const bookingRows = (bookings.data ?? []) as Array<Record<string, unknown>>;
 
-  const dailyRevenue = paymentRows
-    .filter((p) => String((p as { created_at: string }).created_at) >= dayStart)
-    .reduce((s, p) => s + Number((p as { amount: number }).amount), 0);
-
-  const monthlyRevenue = paymentRows
-    .filter((p) => String((p as { created_at: string }).created_at) >= monthStart)
-    .reduce((s, p) => s + Number((p as { amount: number }).amount), 0);
+  const dailyRevenue = sumBookingRevenueSince(bookingRows, dayStart);
+  const monthlyRevenue = sumBookingRevenueSince(bookingRows, monthStart);
+  const totalRecognizedRevenue = sumBookingRevenue(bookingRows);
 
   const routeCounts = new Map<string, number>();
   for (const b of bookingRows) {
@@ -84,6 +86,7 @@ export async function getAnalyticsReport() {
   return {
     dailyRevenue,
     monthlyRevenue,
+    totalRecognizedRevenue,
     totalBookings: bookingRows.length,
     totalUsers: (users.data ?? []).filter((u) => {
       const r = (u as { role: string }).role;
@@ -103,6 +106,7 @@ export function analyticsToCsv(report: Awaited<ReturnType<typeof getAnalyticsRep
     "Metric,Value",
     `Daily Revenue,${report.dailyRevenue}`,
     `Monthly Revenue,${report.monthlyRevenue}`,
+    `Total Recognized Revenue,${report.totalRecognizedRevenue}`,
     `Total Bookings,${report.totalBookings}`,
     `Vehicle Utilization,${report.vehicleUtilization}%`,
     "",

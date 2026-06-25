@@ -1,5 +1,6 @@
 "use server";
 
+import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import {
   cancelBookingWithRefund,
@@ -10,8 +11,8 @@ import {
   updateRefundStatus,
 } from "@/lib/services/booking-cancellation";
 import { bookingOwnedByUser } from "@/lib/bookings/fetch-booking-for-cancellation";
+import { riderCancelIneligibilityReason } from "@/lib/bookings/cancellation-eligibility";
 import {
-  isRiderCancellableBookingStatus,
   isRiderPaymentCompleted,
 } from "@/lib/bookings/my-bookings-utils";
 import { requireRole } from "@/server/actions/auth";
@@ -21,18 +22,10 @@ import type { CancellationReasonCategory } from "@/lib/services/cancellation-rea
 
 function assertRiderCanCancel(row: Awaited<ReturnType<typeof fetchBookingForCancellation>>) {
   if (!row) return "Booking not found";
-  const bookingStatus = String(row.booking_status ?? "").toLowerCase().trim();
-  if (
-    row.cancellation_status === "cancelled" ||
-    bookingStatus === "cancelled" ||
-    bookingStatus === "already_cancelled"
-  ) {
-    return "Booking is already cancelled";
-  }
-  if (!isRiderCancellableBookingStatus(bookingStatus)) {
-    return "This booking can no longer be cancelled";
-  }
-  return null;
+  return riderCancelIneligibilityReason({
+    bookingStatus: String(row.booking_status ?? ""),
+    cancellationStatus: row.cancellation_status,
+  });
 }
 
 export async function getRefundEstimateAction(bookingId: string): Promise<
@@ -100,12 +93,19 @@ export async function cancelBookingByCustomer(input: {
   const normalizedId = String(input.bookingId ?? "").trim();
   console.log("[cancelBookingByCustomer] bookingId:", normalizedId);
 
+  const headerStore = await headers();
+  const clientIp =
+    headerStore.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    headerStore.get("x-real-ip") ||
+    null;
+
   const result = await cancelBookingWithRefund({
     bookingId: normalizedId,
     reason,
     reasonCategory: input.reasonCategory,
     actorUserId: user.id,
     cancelledByRole: "rider",
+    clientIp,
   });
 
   if (!result.success) return { success: false, error: result.error };

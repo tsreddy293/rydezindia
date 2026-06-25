@@ -1,5 +1,3 @@
-import Link from "next/link";
-
 export function AdminPageShell({
   title,
   description,
@@ -10,19 +8,12 @@ export function AdminPageShell({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-secondary text-white px-6 py-5">
-        <div className="mx-auto max-w-7xl flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold">{title}</h1>
-            <p className="text-white/60 text-sm mt-0.5">{description}</p>
-          </div>
-          <Link href="/admin" className="text-sm text-white/70 hover:text-white transition-colors">
-            Back to Admin
-          </Link>
-        </div>
-      </header>
-      <main className="mx-auto max-w-7xl px-4 py-8 md:px-6">{children}</main>
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-secondary">{title}</h1>
+        <p className="mt-1 text-sm text-gray-500">{description}</p>
+      </div>
+      {children}
     </div>
   );
 }

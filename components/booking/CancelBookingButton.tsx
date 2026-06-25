@@ -1,55 +1,77 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { AlertTriangle, CheckCircle2, Loader2, XCircle } from "lucide-react";
+import { useEffect, useState, useTransition } from "react";
+import { createPortal } from "react-dom";
+import { AlertTriangle, Loader2, XCircle } from "lucide-react";
 import Button from "@/components/ui/Button";
 import { cancelBookingByCustomer, getRefundEstimateAction } from "@/server/actions/bookingCancellation";
-import { REFUND_PROCESSING_ESTIMATE } from "@/lib/services/cancellation-policy";
 import {
   CANCELLATION_REASON_OPTIONS,
   type CancellationReasonCategory,
 } from "@/lib/services/cancellation-reasons";
-import { formatPaymentStatusLabel } from "@/lib/bookings/my-bookings-utils";
+import { formatRiderPaymentBadgeLabel, formatScheduleLine } from "@/lib/bookings/my-bookings-utils";
 import { formatINR } from "@/lib/utils";
 import type { RefundCalculationResult } from "@/lib/services/cancellation-policy";
 import type { MyBookingRecord } from "@/types/database";
 
 interface Props {
   booking: MyBookingRecord;
-  onCancelled?: (message?: string) => void;
+  onCancelled?: (message?: string, bookingId?: string) => void;
+}
+
+function SummaryRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between gap-3 text-sm">
+      <span className="text-gray-600 shrink-0">{label}</span>
+      <span className="font-semibold text-secondary text-right">{value}</span>
+    </div>
+  );
 }
 
 export default function CancelBookingButton({ booking, onCancelled }: Props) {
   const bookingId = booking.id;
+  const displayId = booking.booking_reference ?? booking.id.slice(0, 8).toUpperCase();
 
   const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const [reasonCategory, setReasonCategory] = useState<CancellationReasonCategory | "">("");
   const [reasonDetails, setReasonDetails] = useState("");
   const [estimate, setEstimate] = useState<{
-    bookingId: string;
-    bookingReference?: string;
-    bookingStatus: string;
-    paymentStatus: string;
     paymentCompleted: boolean;
-    tripFarePaid: number;
-    refundableDeposit: number;
-    protectionFee: number;
     refund: RefundCalculationResult;
   } | null>(null);
   const [error, setError] = useState("");
   const [pending, startTransition] = useTransition();
 
-  async function openDialog() {
-    console.log("Booking:", booking);
-    console.log("Booking ID:", booking.id);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [open]);
+
+  function closeDialog() {
+    if (pending) return;
+    setOpen(false);
+  }
+
+  async function openDialog() {
     setError("");
     setOpen(true);
     const result = await getRefundEstimateAction(bookingId);
     if (result.success && result.data) {
-      setEstimate(result.data);
+      setEstimate({
+        paymentCompleted: result.data.paymentCompleted,
+        refund: result.data.refund,
+      });
     } else if (!result.success) {
-      setError(result.error ?? "Unable to load refund estimate");
+      setError(result.error ?? "Unable to load cancellation summary");
     }
   }
 
@@ -63,129 +85,89 @@ export default function CancelBookingButton({ booking, onCancelled }: Props) {
       return;
     }
 
-    const resolvedId = estimate?.bookingId ?? bookingId;
-    console.log("Booking:", booking);
-    console.log("Booking ID:", booking.id);
-    console.log("Cancelling with bookingId:", resolvedId);
-
     startTransition(async () => {
       setError("");
       const result = await cancelBookingByCustomer({
-        bookingId: resolvedId,
+        bookingId,
         reasonCategory,
         reasonDetails: reasonDetails.trim() || undefined,
       });
       if (result.success) {
         setOpen(false);
-        onCancelled?.(result.message ?? "Booking cancelled successfully");
+        onCancelled?.("✓ Booking cancelled successfully.", bookingId);
       } else {
         setError(result.error ?? "Cancellation failed");
       }
     });
   }
 
-  return (
-    <>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={openDialog}
-        className="border-red-200 text-red-600 hover:bg-red-50"
-      >
-        <XCircle className="h-4 w-4 mr-1.5" />
-        Cancel Booking
-      </Button>
+  const paymentLabel = formatRiderPaymentBadgeLabel({
+    bookingStatus: booking.booking_status,
+    paymentStatus: booking.payment_status,
+    cancellationStatus: booking.cancellation_status,
+  });
 
-      {open && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4 backdrop-blur-[2px]">
-          <div
-            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl max-h-[90vh] overflow-y-auto animate-[fadeUp_0.25s_ease-out]"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="cancel-title"
-          >
+  const charges = estimate?.refund.cancellationCharges ?? 0;
+  const refundAmount = estimate?.paymentCompleted ? (estimate.refund.totalRefundAmount ?? 0) : 0;
+  const refundLabel = estimate?.paymentCompleted
+    ? formatINR(refundAmount)
+    : "₹0 — No Payment Received";
+
+  const dialog =
+    open && mounted ? (
+      <div
+        className="fixed inset-0 z-[99999] flex items-center justify-center p-4 overscroll-contain"
+        style={{ backgroundColor: "rgba(0, 0, 0, 0.55)" }}
+        onClick={closeDialog}
+        role="presentation"
+        aria-hidden={false}
+      >
+        <div
+          className="flex w-[95%] max-w-[620px] max-h-[90vh] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl animate-[fadeUp_0.25s_ease-out]"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="cancel-title"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pt-6 pb-4">
             <div className="flex items-start gap-3">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-50 text-red-600">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-50 text-red-600">
                 <AlertTriangle className="h-5 w-5" />
               </span>
-              <div>
-                <h3 id="cancel-title" className="text-lg font-bold text-secondary">
+              <div className="min-w-0">
+                <h3 id="cancel-title" className="text-xl font-bold text-secondary">
                   Cancel this booking?
                 </h3>
-                <p className="mt-1 text-sm text-gray-500">
-                  {estimate
-                    ? estimate.paymentCompleted
-                      ? "Refunds follow our cancellation policy based on time before pickup."
-                      : "No payment has been received for this booking."
-                    : "Review booking details before confirming cancellation."}
+                <p className="mt-1 text-sm text-gray-600">
+                  Are you sure you want to cancel this booking?
+                </p>
+                <p className="mt-0.5 text-sm font-medium text-red-600/90">
+                  This action cannot be undone.
                 </p>
               </div>
             </div>
 
-            {estimate && (
-              <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm space-y-2.5">
-                <p className="text-xs font-medium text-gray-500">{estimate.refund.policyTier}</p>
-                <div className="flex justify-between gap-3">
-                  <span className="text-gray-600">Booking ID</span>
-                  <span className="font-semibold tabular-nums text-secondary">
-                    {estimate.bookingReference || estimate.bookingId}
-                  </span>
-                </div>
-                <div className="flex justify-between gap-3">
-                  <span className="text-gray-600">Payment Status</span>
-                  <span className="font-semibold capitalize text-secondary">
-                    {formatPaymentStatusLabel(estimate.paymentStatus || booking.payment_status || "pending")}
-                  </span>
-                </div>
-                {estimate.paymentCompleted && (
-                  <>
-                    <div className="flex justify-between gap-3">
-                      <span className="text-gray-600">Trip Fare Paid</span>
-                      <span className="font-semibold tabular-nums text-secondary">
-                        {formatINR(estimate.tripFarePaid)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between gap-3">
-                      <span className="text-gray-600">Refundable Deposit</span>
-                      <span className="font-semibold tabular-nums text-secondary">
-                        {formatINR(estimate.refundableDeposit)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between gap-3">
-                      <span className="text-gray-600">Flexible Cancellation Protection Fee</span>
-                      <span className="font-semibold tabular-nums text-secondary">
-                        {formatINR(estimate.protectionFee)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between gap-3">
-                      <span className="text-gray-600">Booking Amount Paid</span>
-                      <span className="font-semibold tabular-nums text-secondary">
-                        {formatINR(booking.amount ?? estimate.refund.bookingAmount)}
-                      </span>
-                    </div>
-                  </>
-                )}
-                <div className="flex justify-between gap-3">
-                  <span className="text-gray-600">Cancellation Charges</span>
-                  <span className="font-semibold tabular-nums text-red-600">
-                    {formatINR(estimate.refund.cancellationCharges)}
-                  </span>
-                </div>
-                <div className="flex justify-between gap-3 border-t border-gray-200 pt-2.5">
-                  <span className="font-medium text-gray-800">Estimated Refund Amount</span>
-                  <span className="font-bold tabular-nums text-emerald-700">
-                    {formatINR(estimate.refund.totalRefundAmount)}
-                  </span>
-                </div>
-                {estimate.paymentCompleted && estimate.refund.totalRefundAmount > 0 && (
-                  <p className="text-xs text-gray-500 pt-0.5">
-                    Estimated Refund Time:{" "}
-                    {REFUND_PROCESSING_ESTIMATE.replace("Refund will be processed within ", "")}
-                  </p>
-                )}
+            <div className="mt-5 rounded-xl border border-gray-200 bg-gray-50/80 p-4 space-y-2.5">
+              <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
+                Cancellation Summary
+              </p>
+              <SummaryRow label="Booking ID" value={`#${displayId}`} />
+              <SummaryRow label="Vehicle Name" value={booking.vehicle_name ?? "Vehicle"} />
+              <SummaryRow
+                label="Pickup Date"
+                value={formatScheduleLine(booking.pickup_date, booking.pickup_time)}
+              />
+              <SummaryRow
+                label="Return Date"
+                value={formatScheduleLine(booking.return_date, booking.return_time)}
+              />
+              <SummaryRow label="Payment Status" value={paymentLabel} />
+              <SummaryRow label="Cancellation Charges" value={formatINR(charges)} />
+              <div className="flex justify-between gap-3 border-t border-gray-200 pt-2.5 text-sm">
+                <span className="font-medium text-gray-800">Estimated Refund</span>
+                <span className="font-bold text-emerald-700 tabular-nums">{refundLabel}</span>
               </div>
-            )}
+            </div>
 
             <label className="mt-4 block text-sm font-medium text-secondary">
               Reason for cancellation
@@ -216,10 +198,18 @@ export default function CancelBookingButton({ booking, onCancelled }: Props) {
               </label>
             )}
 
-            {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+            {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+          </div>
 
-            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={pending}>
+          <div className="sticky bottom-0 shrink-0 border-t border-gray-200 bg-white px-4 py-4">
+            <div className="flex items-center justify-between gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={closeDialog}
+                disabled={pending}
+                className="shrink-0"
+              >
                 Keep Booking
               </Button>
               <Button
@@ -227,7 +217,7 @@ export default function CancelBookingButton({ booking, onCancelled }: Props) {
                 variant="primary"
                 onClick={handleCancel}
                 disabled={pending}
-                className="bg-red-600 hover:bg-red-700"
+                className="shrink-0 bg-red-600 hover:bg-red-700 border-red-600"
               >
                 {pending ? (
                   <>
@@ -241,7 +231,23 @@ export default function CancelBookingButton({ booking, onCancelled }: Props) {
             </div>
           </div>
         </div>
-      )}
+      </div>
+    ) : null;
+
+  return (
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={openDialog}
+        className="border-red-200 text-red-600 hover:bg-red-50"
+      >
+        <XCircle className="h-4 w-4 mr-1.5" />
+        Cancel Booking
+      </Button>
+
+      {mounted && dialog ? createPortal(dialog, document.body) : null}
     </>
   );
 }

@@ -9,8 +9,8 @@ import {
   Download,
   Eye,
   MapPin,
-  RotateCcw,
   Repeat,
+  RotateCcw,
 } from "lucide-react";
 import { useState } from "react";
 import Button from "@/components/ui/Button";
@@ -26,10 +26,11 @@ import {
   canCustomerCancelBooking,
   formatBookingTypeLabel,
   formatScheduleLine,
+  isRiderPaymentCompleted,
 } from "@/lib/bookings/my-bookings-utils";
+import { isBookingCancelledStatus } from "@/lib/bookings/cancellation-eligibility";
 import {
   canGenerateTaxInvoice,
-  isCancelledStatus,
   isPaymentCompleted,
 } from "@/lib/bookings/invoice-access";
 import { formatDate, formatINR } from "@/lib/utils";
@@ -37,28 +38,30 @@ import type { MyBookingRecord } from "@/types/database";
 
 interface Props {
   booking: MyBookingRecord;
-  onBookingCancelled?: (message?: string) => void;
+  onBookingCancelled?: (message?: string, bookingId?: string) => void;
 }
 
 export default function MyBookingCard({ booking, onBookingCancelled }: Props) {
   const router = useRouter();
   const [expanded, setExpanded] = useState(false);
 
-  const isCancelled =
-    booking.cancellation_status === "cancelled" ||
-    booking.booking_status.toLowerCase() === "cancelled";
+  const isCancelled = isBookingCancelledStatus(
+    booking.booking_status,
+    booking.cancellation_status
+  );
 
-  const showCancel = canCustomerCancelBooking({
-    bookingStatus: booking.booking_status,
-    paymentStatus: booking.payment_status,
-    cancellationStatus: booking.cancellation_status,
-    pickupDate: booking.pickup_date,
-    pickupTime: booking.pickup_time,
-  });
+  const showCancel =
+    !isCancelled &&
+    canCustomerCancelBooking({
+      bookingStatus: booking.booking_status,
+      paymentStatus: booking.payment_status,
+      cancellationStatus: booking.cancellation_status,
+      pickupDate: booking.pickup_date,
+      pickupTime: booking.pickup_time,
+    });
 
   const bookingId = booking.booking_reference ?? booking.id.slice(0, 8).toUpperCase();
   const paid = isPaymentCompleted(booking.payment_status);
-  const cancelled = isCancelledStatus(booking.booking_status, booking.cancellation_status);
   const canDownloadInvoice = canGenerateTaxInvoice({
     paymentStatus: booking.payment_status,
     bookingStatus: booking.booking_status,
@@ -72,18 +75,27 @@ export default function MyBookingCard({ booking, onBookingCancelled }: Props) {
 
   return (
     <article
-      className="group overflow-hidden rounded-2xl border border-gray-200/80 bg-white shadow-sm transition-all duration-300 hover:border-primary/20 hover:shadow-lg hover:shadow-primary/5"
+      className={`group overflow-hidden rounded-2xl border bg-white shadow-sm transition-all duration-300 ${
+        isCancelled
+          ? "border-gray-200 opacity-95"
+          : "border-gray-200/80 hover:border-primary/20 hover:shadow-lg hover:shadow-primary/5"
+      }`}
       style={{ animation: "fadeUp 0.35s ease-out both" }}
     >
       <div className="flex flex-col lg:flex-row">
-        {/* Vehicle image */}
-        <div className="relative h-44 w-full shrink-0 bg-gradient-to-br from-slate-100 to-slate-200 lg:h-auto lg:w-52 xl:w-56">
+        <div
+          className={`relative h-44 w-full shrink-0 bg-gradient-to-br from-slate-100 to-slate-200 lg:h-auto lg:w-52 xl:w-56 ${
+            isCancelled ? "grayscale" : ""
+          }`}
+        >
           {booking.vehicle_image ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={booking.vehicle_image}
               alt={booking.vehicle_name ?? "Vehicle"}
-              className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+              className={`absolute inset-0 h-full w-full object-cover transition-transform duration-500 ${
+                isCancelled ? "opacity-70" : "group-hover:scale-105"
+              }`}
             />
           ) : (
             <div className="flex h-full min-h-[11rem] flex-col items-center justify-center gap-2 text-gray-400">
@@ -91,16 +103,25 @@ export default function MyBookingCard({ booking, onBookingCancelled }: Props) {
               <span className="text-xs font-medium">No image</span>
             </div>
           )}
-          <div className="absolute left-3 top-3">
-            <BookingStatusBadge status={booking.booking_status} />
+          <div className="absolute left-3 top-3 flex flex-col gap-1.5">
+            {isCancelled ? (
+              <span className="inline-flex items-center rounded-full bg-red-600 px-2.5 py-1 text-[11px] font-bold text-white shadow-sm">
+                Cancelled
+              </span>
+            ) : (
+              <BookingStatusBadge status={booking.booking_status} />
+            )}
           </div>
         </div>
 
-        {/* Content */}
         <div className="flex min-w-0 flex-1 flex-col p-4 sm:p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
-              <h3 className="text-lg font-bold text-secondary truncate">
+              <h3
+                className={`text-lg font-bold truncate ${
+                  isCancelled ? "text-gray-500" : "text-secondary"
+                }`}
+              >
                 {booking.vehicle_name ?? "Vehicle Booking"}
               </h3>
               <p className="mt-0.5 text-xs font-mono text-gray-500">#{bookingId}</p>
@@ -111,7 +132,7 @@ export default function MyBookingCard({ booking, onBookingCancelled }: Props) {
                 {booking.vehicle_type && (
                   <span className="text-xs text-gray-500 capitalize">{booking.vehicle_type}</span>
                 )}
-                {(booking.protection_selected || booking.flexible_cancellation) && (
+                {!isCancelled && (booking.protection_selected || booking.flexible_cancellation) && (
                   <ProtectionStatusBadge
                     selected
                     fee={booking.flexible_cancellation_fee ?? undefined}
@@ -120,13 +141,18 @@ export default function MyBookingCard({ booking, onBookingCancelled }: Props) {
               </div>
             </div>
             <div className="text-right shrink-0">
-              <p className="text-xl font-bold text-primary tabular-nums">{formatINR(booking.amount)}</p>
-              <p className="text-[11px] text-gray-500 mt-0.5">Total Paid</p>
+              <p
+                className={`text-xl font-bold tabular-nums ${
+                  isCancelled ? "text-gray-500" : "text-primary"
+                }`}
+              >
+                {formatINR(booking.amount)}
+              </p>
+              <p className="text-[11px] text-gray-500 mt-0.5">Total</p>
               <p className="text-[10px] text-gray-400 mt-1">Booked {formatDate(booking.created_at)}</p>
             </div>
           </div>
 
-          {/* Schedule grid */}
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <div className="rounded-xl border border-gray-100 bg-gray-50/80 px-3 py-2.5">
               <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
@@ -156,15 +182,22 @@ export default function MyBookingCard({ booking, onBookingCancelled }: Props) {
             </div>
           </div>
 
-          {/* Status row */}
           <div className="mt-4 flex flex-wrap items-center gap-2">
-            <PaymentStatusBadge status={booking.payment_status} />
-            {isCancelled && booking.refund_status && (
-              <RefundStatusBadge status={booking.refund_status} />
-            )}
+            <PaymentStatusBadge
+              status={booking.payment_status}
+              bookingStatus={booking.booking_status}
+              cancellationStatus={booking.cancellation_status}
+              refundStatus={booking.refund_status}
+            />
+            {isCancelled &&
+              isRiderPaymentCompleted(booking.payment_status) &&
+              booking.refund_status &&
+              booking.refund_status !== "not_required" && (
+                <RefundStatusBadge status={booking.refund_status} />
+              )}
           </div>
 
-          {isCancelled && booking.refund_status && (
+          {isCancelled && booking.refund_status && booking.refund_status !== "not_required" && (
             <RefundTracker
               refundStatus={booking.refund_status}
               refundAmount={booking.refund_amount}
@@ -172,50 +205,57 @@ export default function MyBookingCard({ booking, onBookingCancelled }: Props) {
             />
           )}
 
-          {/* Actions */}
           <div className="mt-4 flex flex-wrap gap-2 border-t border-gray-100 pt-4">
-            <Button
-              href={`/booking/confirmation/${booking.id}`}
-              variant="primary"
-              size="sm"
-            >
+            <Button href={`/booking/confirmation/${booking.id}`} variant="primary" size="sm">
               <Eye className="h-4 w-4 mr-1.5" />
               View Details
             </Button>
-            {!paid && !cancelled && (
-              <Button href={`/booking/confirmation/${booking.id}`} variant="outline" size="sm">
-                Continue to Payment
-              </Button>
+
+            {!isCancelled && (
+              <>
+                {!paid && (
+                  <Button href={`/booking/confirmation/${booking.id}`} variant="outline" size="sm">
+                    Continue to Payment
+                  </Button>
+                )}
+                {showCancel && (
+                  <CancelBookingButton
+                    booking={booking}
+                    onCancelled={(message, id) => {
+                      router.refresh();
+                      onBookingCancelled?.(message, id);
+                    }}
+                  />
+                )}
+                <RescheduleBookingButton
+                  bookingId={booking.id}
+                  referenceId={booking.reference_id}
+                  bookingType={booking.booking_type}
+                  bookingStatus={booking.booking_status}
+                  protectionSelected={booking.protection_selected ?? undefined}
+                />
+              </>
             )}
-            {showCancel && (
-              <CancelBookingButton
-                booking={booking}
-                onCancelled={(message) => {
-                  router.refresh();
-                  onBookingCancelled?.(message);
-                }}
-              />
-            )}
-            <RescheduleBookingButton
-              bookingId={booking.id}
-              referenceId={booking.reference_id}
-              bookingType={booking.booking_type}
-              bookingStatus={booking.booking_status}
-              protectionSelected={booking.protection_selected ?? undefined}
-            />
+
             <Button href={rebookHref} variant="outline" size="sm">
               <Repeat className="h-4 w-4 mr-1.5" />
               Rebook
             </Button>
-            {(canDownloadInvoice || (cancelled && paid)) && (
+
+            {!isCancelled && canDownloadInvoice && (
               <Button href={`/booking/invoice/${booking.id}`} variant="outline" size="sm">
                 <Download className="h-4 w-4 mr-1.5" />
-                {cancelled ? "Cancellation Receipt" : "Download Invoice"}
+                Download Invoice
+              </Button>
+            )}
+            {isCancelled && paid && (
+              <Button href={`/booking/invoice/${booking.id}`} variant="outline" size="sm">
+                <Download className="h-4 w-4 mr-1.5" />
+                Cancellation Receipt
               </Button>
             )}
           </div>
 
-          {/* Expand timeline */}
           <button
             type="button"
             onClick={() => setExpanded((v) => !v)}
@@ -237,12 +277,10 @@ export default function MyBookingCard({ booking, onBookingCancelled }: Props) {
               bookingStatus={booking.booking_status}
               paymentStatus={booking.payment_status}
               cancellationStatus={booking.cancellation_status}
+              cancelledByRole={booking.cancelled_by_role}
               refundStatus={booking.refund_status}
               createdAt={booking.created_at}
               cancelledAt={booking.cancelled_at}
-              refundProcessedAt={booking.refund_processed_at}
-              pickupDate={booking.pickup_date}
-              pickupTime={booking.pickup_time}
               className="mt-2 border-t border-gray-100 pt-4"
             />
           )}

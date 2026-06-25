@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CalendarCheck, Car, CheckCircle2, Search, XCircle } from "lucide-react";
 import Button from "@/components/ui/Button";
 import MyBookingCard from "@/components/dashboard/my-bookings/MyBookingCard";
@@ -21,31 +21,60 @@ const TABS: { key: BookingFilterTab; label: string; icon: typeof Car }[] = [
   { key: "cancelled", label: "Cancelled", icon: XCircle },
 ];
 
-export default function MyBookingsClient({ bookings }: Props) {
+export default function MyBookingsClient({ bookings: initialBookings }: Props) {
   const [tab, setTab] = useState<BookingFilterTab>("all");
   const [successToast, setSuccessToast] = useState<string | null>(null);
+  const [localBookings, setLocalBookings] = useState(initialBookings);
 
-  const filtered = useMemo(() => filterBookingsByTab(bookings, tab), [bookings, tab]);
+  useEffect(() => {
+    setLocalBookings(initialBookings);
+  }, [initialBookings]);
+
+  const filtered = useMemo(() => filterBookingsByTab(localBookings, tab), [localBookings, tab]);
 
   const stats = useMemo(() => {
-    const active = filterBookingsByTab(bookings, "active").length;
-    const completed = filterBookingsByTab(bookings, "completed").length;
-    const cancelled = filterBookingsByTab(bookings, "cancelled").length;
-    return { total: bookings.length, active, completed, cancelled };
-  }, [bookings]);
+    const active = filterBookingsByTab(localBookings, "active").length;
+    const completed = filterBookingsByTab(localBookings, "completed").length;
+    const cancelled = filterBookingsByTab(localBookings, "cancelled").length;
+    return { total: localBookings.length, active, completed, cancelled };
+  }, [localBookings]);
+
+  function handleBookingCancelled(message?: string, bookingId?: string) {
+    if (bookingId) {
+      setLocalBookings((prev) =>
+        prev.map((b) =>
+          b.id === bookingId
+            ? {
+                ...b,
+                booking_status: "cancelled",
+                cancellation_status: "cancelled",
+                cancelled_at: new Date().toISOString(),
+                cancelled_by_role: "rider",
+                refund_status: b.payment_status === "paid" ? "pending" : "not_required",
+                refund_amount: 0,
+              }
+            : b
+        )
+      );
+    }
+    setTab("cancelled");
+    const text = message ?? "✓ Booking cancelled successfully.";
+    setSuccessToast(text);
+    window.setTimeout(() => setSuccessToast(null), 5000);
+  }
 
   return (
     <div className="space-y-6">
       {successToast && (
         <div
-          className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800 shadow-sm"
+          className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800 shadow-sm animate-[fadeUp_0.25s_ease-out]"
           role="status"
         >
           <CheckCircle2 className="h-5 w-5 shrink-0" />
           {successToast}
         </div>
       )}
-      {/* Stats */}
+
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
           { label: "Total", value: stats.total, color: "from-primary/10 to-blue-500/10 text-primary" },
@@ -63,7 +92,6 @@ export default function MyBookingsClient({ bookings }: Props) {
         ))}
       </div>
 
-      {/* Tabs */}
       <div className="flex flex-wrap gap-2 rounded-2xl border border-gray-100 bg-white p-2 shadow-sm">
         {TABS.map(({ key, label, icon: Icon }) => (
           <button
@@ -82,39 +110,59 @@ export default function MyBookingsClient({ bookings }: Props) {
         ))}
       </div>
 
-      {/* List */}
       {filtered.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50/50 py-16 text-center">
-          <Car className="mx-auto h-12 w-12 text-gray-300" />
-          <p className="mt-4 text-gray-600 font-medium">
-            {bookings.length === 0 ? "No bookings found." : "No bookings in this category"}
-          </p>
-          <p className="mt-1 text-sm text-gray-500">
-            {bookings.length === 0
-              ? "Search vehicles and book your next trip with Rydez India."
-              : "Try another filter or book a new ride."}
-          </p>
-          <Button href="/search" variant="primary" className="mt-6">
-            <Search className="h-4 w-4 mr-1.5" />
-            Search Vehicles
-          </Button>
-        </div>
+        <CancelledEmptyState tab={tab} hasAnyBookings={localBookings.length > 0} />
       ) : (
         <div className="space-y-4">
           {filtered.map((booking) => (
             <MyBookingCard
               key={booking.id}
               booking={booking}
-              onBookingCancelled={(message) => {
-                setTab("cancelled");
-                const text = message ?? "Booking cancelled successfully";
-                setSuccessToast(text);
-                window.setTimeout(() => setSuccessToast(null), 5000);
-              }}
+              onBookingCancelled={handleBookingCancelled}
             />
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function CancelledEmptyState({
+  tab,
+  hasAnyBookings,
+}: {
+  tab: BookingFilterTab;
+  hasAnyBookings: boolean;
+}) {
+  if (tab === "cancelled") {
+    return (
+      <div className="rounded-2xl border border-dashed border-red-100 bg-red-50/30 py-16 text-center">
+        <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-red-100/80">
+          <XCircle className="h-10 w-10 text-red-400" />
+        </div>
+        <p className="mt-5 text-gray-700 font-semibold">No cancelled bookings yet.</p>
+        <p className="mt-1 text-sm text-gray-500 max-w-sm mx-auto">
+          Your cancelled bookings will appear here.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50/50 py-16 text-center">
+      <Car className="mx-auto h-12 w-12 text-gray-300" />
+      <p className="mt-4 text-gray-600 font-medium">
+        {hasAnyBookings ? "No bookings in this category" : "No bookings found."}
+      </p>
+      <p className="mt-1 text-sm text-gray-500">
+        {hasAnyBookings
+          ? "Try another filter or book a new ride."
+          : "Search vehicles and book your next trip with Rydez India."}
+      </p>
+      <Button href="/search" variant="primary" className="mt-6">
+        <Search className="h-4 w-4 mr-1.5" />
+        Search Vehicles
+      </Button>
     </div>
   );
 }

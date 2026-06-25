@@ -10,6 +10,10 @@ import {
 } from "@/lib/bookings/fetch-booking-for-cancellation";
 import { applyBookingUpdateWithColumnFallback } from "@/lib/bookings/apply-booking-update";
 import {
+  canRiderCancelBeforeOwnerApproval,
+  riderCancelIneligibilityReason,
+} from "@/lib/bookings/cancellation-eligibility";
+import {
   calculateRefund,
   normalizeBookingTypeForPolicy,
   type RefundCalculationResult,
@@ -19,9 +23,7 @@ import { createNotification } from "@/lib/services/notifications";
 import type { RefundStatus } from "@/lib/services/cancellation-policy";
 import type { CancellationReasonCategory } from "@/lib/services/cancellation-reasons";
 import {
-  isRiderCancellableBookingStatus,
   isRiderPaymentCompleted,
-  isRiderTripStartedOrCompleted,
 } from "@/lib/bookings/my-bookings-utils";
 
 export interface BookingCancellationRow {
@@ -200,6 +202,32 @@ async function insertCancellationLog(
   }
 }
 
+async function insertBookingActivityLog(
+  db: ReturnType<typeof createAdminClient>,
+  input: {
+    bookingId: string;
+    eventType: string;
+    actorUserId?: string | null;
+    actorRole?: string | null;
+    reason?: string | null;
+    clientIp?: string | null;
+  }
+) {
+  const { error } = await db.from("booking_activity_logs").insert({
+    booking_id: input.bookingId,
+    event_type: input.eventType,
+    actor_user_id: input.actorUserId ?? null,
+    actor_role: input.actorRole ?? null,
+    reason: input.reason ?? null,
+    ip_address: input.clientIp ?? null,
+    metadata: {},
+  });
+
+  if (error && !isMissingTableError(error)) {
+    console.warn("[insertBookingActivityLog]", error.message);
+  }
+}
+
 async function createPendingRefundRecord(
   db: ReturnType<typeof createAdminClient>,
   bookingId: string,
@@ -239,6 +267,7 @@ export async function cancelBookingWithRefund(input: {
   actorUserId: string;
   /** Actor role label — stored in bookings.cancelled_by_role */
   cancelledByRole: CancellationActorRole;
+  clientIp?: string | null;
 }) {
   const normalizedId = String(input.bookingId ?? "").trim();
   const actorUserId = String(input.actorUserId ?? "").trim();
@@ -259,17 +288,24 @@ export async function cancelBookingWithRefund(input: {
     if (!owned) {
       return { success: false as const, error: "You can only cancel your own bookings" };
     }
-  }
-
-  if (customerCancelled && !isRiderCancellableBookingStatus(String(row.booking_status ?? ""))) {
-    return {
-      success: false as const,
-      error: "This booking can no longer be cancelled",
-    };
-  }
-
-  if (customerCancelled && isRiderTripStartedOrCompleted(String(row.booking_status ?? ""))) {
-    return { success: false as const, error: "Cannot cancel after the trip has started" };
+    const blockReason = riderCancelIneligibilityReason({
+      bookingStatus: String(row.booking_status ?? ""),
+      cancellationStatus: row.cancellation_status,
+    });
+    if (blockReason) {
+      return { success: false as const, error: blockReason };
+    }
+    if (
+      !canRiderCancelBeforeOwnerApproval({
+        bookingStatus: String(row.booking_status ?? ""),
+        paymentStatus: row.payment_status,
+        cancellationStatus: row.cancellation_status,
+        pickupDate: row.pickup_date,
+        pickupTime: row.pickup_time,
+      })
+    ) {
+      return { success: false as const, error: "This booking can no longer be cancelled" };
+    }
   }
 
   const alreadyCancelled =
@@ -282,6 +318,13 @@ export async function cancelBookingWithRefund(input: {
   const refund = computeBookingRefund(row);
   const now = new Date().toISOString();
   const reasonText = input.reason.trim();
+  const paymentCompleted = isRiderPaymentCompleted(row.payment_status);
+  const refundAmount = paymentCompleted ? refund.totalRefundAmount : 0;
+  const refundStatus = paymentCompleted
+    ? refundAmount > 0
+      ? "pending"
+      : "not_required"
+    : "not_required";
 
   const updatePayload: Record<string, unknown> = {
     booking_status: "cancelled",
@@ -290,11 +333,11 @@ export async function cancelBookingWithRefund(input: {
     cancelled_by: actorUserId,
     cancelled_by_role: normalizeCancelledByRole(input.cancelledByRole),
     cancelled_at: now,
-    cancellation_charges: refund.cancellationCharges,
-    refund_amount: refund.totalRefundAmount,
-    refund_trip_fare_amount: refund.tripFareRefundAmount,
-    refund_deposit_amount: refund.securityDepositRefundAmount,
-    refund_status: refund.refundEligible && refund.totalRefundAmount > 0 ? "pending" : null,
+    cancellation_charges: paymentCompleted ? refund.cancellationCharges : 0,
+    refund_amount: refundAmount,
+    refund_trip_fare_amount: paymentCompleted ? refund.tripFareRefundAmount : 0,
+    refund_deposit_amount: paymentCompleted ? refund.securityDepositRefundAmount : 0,
+    refund_status: refundStatus,
   };
 
   if (input.reasonCategory) {
@@ -319,27 +362,40 @@ export async function cancelBookingWithRefund(input: {
     refund,
   });
 
-  if (refund.refundEligible && refund.totalRefundAmount > 0) {
-    await createPendingRefundRecord(db, input.bookingId, refund.totalRefundAmount, input.reason.trim());
+  await insertBookingActivityLog(db, {
+    bookingId: input.bookingId,
+    eventType: "booking_cancelled",
+    actorUserId,
+    actorRole: normalizeCancelledByRole(input.cancelledByRole),
+    reason: reasonText,
+    clientIp: input.clientIp,
+  });
+
+  if (refund.refundEligible && refundAmount > 0) {
+    await createPendingRefundRecord(db, input.bookingId, refundAmount, input.reason.trim());
   }
 
   const bookingRef = row.booking_reference ?? input.bookingId.slice(0, 8);
+  const riderRoleLabel = normalizeCancelledByRole(input.cancelledByRole);
 
   const refundMessage =
-    refund.totalRefundAmount > 0
-      ? `Refund pending: ₹${refund.totalRefundAmount}.`
-      : "No payment received — no refund due.";
+    refundAmount > 0
+      ? `Refund pending: ₹${refundAmount}.`
+      : paymentCompleted
+        ? "No refund due per policy."
+        : "No payment received.";
 
   await createNotification({
     recipientRole: "admin",
     type: "booking_cancelled",
     title: "Booking cancelled",
-    message: `${row.passenger_name ?? "Customer"} cancelled booking ${bookingRef}. ${refundMessage}`,
+    message: `Booking ${bookingRef} cancelled by ${riderRoleLabel === "rider" ? "Rider" : riderRoleLabel}. ${refundMessage}`,
     metadata: {
       bookingId: input.bookingId,
-      refundAmount: refund.totalRefundAmount,
-      cancellationCharges: refund.cancellationCharges,
+      refundAmount,
+      cancellationCharges: paymentCompleted ? refund.cancellationCharges : 0,
       reasonCategory: input.reasonCategory,
+      reason: reasonText,
     },
   });
 
@@ -348,26 +404,24 @@ export async function cancelBookingWithRefund(input: {
       recipientId: row.owner_id,
       recipientRole: "owner",
       type: "booking_cancelled",
-      title: "Booking cancelled",
-      message: `${row.passenger_name ?? "Customer"} cancelled booking ${bookingRef}.`,
-      metadata: { bookingId: input.bookingId, refundAmount: refund.totalRefundAmount },
+      title: "Booking Cancelled",
+      message: `Booking ${bookingRef} was cancelled by Rider before approval. No further action required.`,
+      metadata: { bookingId: input.bookingId, bookingReference: bookingRef },
     });
   }
 
-  if (row.user_id) {
+  const notifyRiderId = row.user_id ?? (customerCancelled ? actorUserId : null);
+  if (notifyRiderId) {
     await createNotification({
-      recipientId: row.user_id,
+      recipientId: notifyRiderId,
       recipientRole: "rider",
       type: "booking_cancelled",
       title: "Booking cancelled",
-      message:
-        refund.totalRefundAmount > 0
-          ? `Your booking ${bookingRef} has been cancelled. Refund of ₹${refund.totalRefundAmount} is being processed.`
-          : `Your booking ${bookingRef} has been cancelled.`,
+      message: "Your booking has been cancelled successfully.",
       metadata: {
         bookingId: input.bookingId,
-        refundAmount: refund.totalRefundAmount,
-        cancellationCharges: refund.cancellationCharges,
+        refundAmount,
+        cancellationCharges: paymentCompleted ? refund.cancellationCharges : 0,
       },
     });
   }

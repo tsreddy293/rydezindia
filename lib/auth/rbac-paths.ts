@@ -12,6 +12,7 @@ export const RIDER_BOOKINGS_PATH = "/dashboard/bookings";
 export const OWNER_DASHBOARD_INTERNAL_PATH = "/owner/dashboard";
 
 export function isProtectedAdminPath(pathname: string): boolean {
+  if (isAdminLoginPath(pathname)) return false;
   return pathname === ADMIN_HOME_PATH || pathname.startsWith(`${ADMIN_HOME_PATH}/`);
 }
 

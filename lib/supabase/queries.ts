@@ -23,6 +23,12 @@ import {
   customerKycDocumentsFromRow,
 } from "@/lib/admin/customer-kyc-fields";
 import { effectiveVehicleStat } from "@/lib/admin/vehicle-approval";
+import {
+  bookingRevenueAmount,
+  countsTowardRevenue,
+  sumBookingRevenue,
+  sumBookingRevenueSince,
+} from "@/lib/bookings/revenue-eligibility";
 import { getVehicleImages } from "@/lib/services/vehicle-upload";
 import type {
   AdminOwnerKycRecord,
@@ -740,9 +746,16 @@ function mapVehicleRowToReturnJourneyResult(
 function bucketTrend(rows: Row[], amountKey?: string): ChartPoint[] {
   const buckets = new Map<string, number>();
   rows.forEach((row) => {
+    if (amountKey) {
+      if (!countsTowardRevenue(row)) return;
+      const amount = bookingRevenueAmount(row);
+      if (amount <= 0) return;
+      const key = getDateKey(row.created_at);
+      buckets.set(key, (buckets.get(key) ?? 0) + amount);
+      return;
+    }
     const key = getDateKey(row.created_at);
-    const value = amountKey ? getNumber(row, amountKey) : 1;
-    buckets.set(key, (buckets.get(key) ?? 0) + value);
+    buckets.set(key, (buckets.get(key) ?? 0) + 1);
   });
 
   return [...buckets.entries()]
@@ -792,7 +805,11 @@ export async function getPlatformStats(): Promise<PlatformStats> {
     countTable("driver_vehicles"),
     countTable("bookings"),
     countTable("bookings", { createdAfter: `${today}T00:00:00.000Z` }),
-    selectRows("bookings", "id, booking_type, amount, booking_status, created_at", 500),
+    selectRows(
+      "bookings",
+      "id, booking_type, amount, booking_status, payment_status, refund_status, cancellation_status, created_at",
+      500
+    ),
     selectRows(
       "vehicles",
       "id, owner_id, vehicle_make, vehicle_model, vehicle_year, vehicle_name, vehicle_type, vehicle_category, registration_number, approval_status, vehicle_approval_status, created_at",
@@ -808,19 +825,17 @@ export async function getPlatformStats(): Promise<PlatformStats> {
     selectRows("vehicles", "id, approval_status, documents_status", 500),
   ]);
 
-  const revenue = bookingRows.reduce((sum, row) => sum + getNumber(row, "amount"), 0);
+  const revenue = sumBookingRevenue(bookingRows);
   const returnJourneyRevenue = bookingRows
     .filter((row) => getString(row, "booking_type", "return_journey") === "return_journey")
-    .reduce((sum, row) => sum + getNumber(row, "amount"), 0);
+    .reduce((sum, row) => sum + bookingRevenueAmount(row), 0);
   const driverVehicleRevenue = bookingRows
     .filter((row) => getString(row, "booking_type") === "with_driver")
-    .reduce((sum, row) => sum + getNumber(row, "amount"), 0);
+    .reduce((sum, row) => sum + bookingRevenueAmount(row), 0);
   const selfDriveRevenue = bookingRows
     .filter((row) => getString(row, "booking_type") === "self_drive")
-    .reduce((sum, row) => sum + getNumber(row, "amount"), 0);
-  const monthlyRevenue = bookingRows
-    .filter((row) => new Date(String(row.created_at)) >= monthStart)
-    .reduce((sum, row) => sum + getNumber(row, "amount"), 0);
+    .reduce((sum, row) => sum + bookingRevenueAmount(row), 0);
+  const monthlyRevenue = sumBookingRevenueSince(bookingRows, monthStart);
   const pendingOwnerKyc = ownerManagementList.filter((row) => row.kycStatus === "pending").length;
   const approvedOwnerKyc = ownerManagementList.filter((row) => row.kycStatus === "approved").length;
   const pendingCustomerKyc = customerManagementList.filter((row) => row.kycStatus === "pending").length;
@@ -853,6 +868,18 @@ export async function getPlatformStats(): Promise<PlatformStats> {
   ).length;
   const pendingApprovals = pendingVehicles + pendingKyc + pendingOwners + pendingCustomers;
 
+  const pendingBookings = bookingRows.filter(
+    (row) => getString(row, "booking_status", "pending").toLowerCase() === "pending"
+  ).length;
+  const cancelledBookings = bookingRows.filter((row) => {
+    const status = getString(row, "booking_status", "").toLowerCase();
+    return status === "cancelled" || status === "already_cancelled";
+  }).length;
+  const activeBookings = bookingRows.filter((row) => {
+    const status = getString(row, "booking_status", "").toLowerCase();
+    return status !== "cancelled" && status !== "already_cancelled" && status !== "completed";
+  }).length;
+
   const categoryCounts = new Map<string, number>();
   vehicleCategoryRows.forEach((row) => {
     const type = getString(row, "vehicle_category", getString(row, "vehicle_type", "Unknown"));
@@ -868,6 +895,9 @@ export async function getPlatformStats(): Promise<PlatformStats> {
     pendingVehicles,
     rejectedVehicles,
     bookings,
+    pendingBookings,
+    cancelledBookings,
+    activeBookings,
     returnJourneys,
     selfDriveVehicles,
     driverVehicles,
@@ -930,6 +960,9 @@ function emptyStats(error: string): PlatformStats {
     pendingVehicles: 0,
     rejectedVehicles: 0,
     bookings: 0,
+    pendingBookings: 0,
+    cancelledBookings: 0,
+    activeBookings: 0,
     returnJourneys: 0,
     selfDriveVehicles: 0,
     driverVehicles: 0,
@@ -1555,7 +1588,9 @@ export async function getBookingConfirmationById(id: string): Promise<BookingCon
     refund_status: getString(row, "refund_status") || undefined,
     refund_processed_at: getString(row, "refund_processed_at") || undefined,
     cancellation_reason: getString(row, "cancellation_reason") || undefined,
+    cancellation_reason_category: getString(row, "cancellation_reason_category") || undefined,
     cancellation_charges: getNumber(row, "cancellation_charges") || undefined,
+    cancelled_by_role: getString(row, "cancelled_by_role") || undefined,
     refund_trip_fare_amount: getNumber(row, "refund_trip_fare_amount") || undefined,
     refund_deposit_amount: getNumber(row, "refund_deposit_amount") || undefined,
     refund_transaction_id: refundTransactionId,
@@ -1965,6 +2000,7 @@ export async function getAdminVehicleList(limit = 200): Promise<AdminVehicleReco
       service_with_driver: mapped.service_with_driver ?? true,
       service_local_rental: mapped.service_local_rental ?? true,
       service_return_journey: mapped.service_return_journey ?? false,
+      created_at: getString(row, "created_at"),
     };
   });
 }
@@ -2391,28 +2427,28 @@ export async function getAdminVehicleDocumentList(limit = 200): Promise<AdminVeh
 
 export async function getOwnerStats(ownerId: string): Promise<OwnerStats> {
   const stats = await getPlatformStats();
-  const [vehicles, returnJourneys, driverVehicles, selfDriveVehicles, bookings, payments] = await Promise.all([
+  const [vehicles, returnJourneys, driverVehicles, selfDriveVehicles, bookings] = await Promise.all([
     selectRows("vehicles", "id, owner_id, vehicle_make, vehicle_model, vehicle_year, registration_number, vehicle_category, approval_status, created_at", 500),
     selectRows("return_journeys", "id, owner_id, vehicle_name, vehicle_type, status, available_seats, created_at", 500),
     selectRows("driver_vehicles", "id, owner_id, vehicle_name, vehicle_type, status, available_seats, created_at", 500),
     selectRows("self_drive_vehicles", "id, owner_id, vehicle_name, vehicle_type, status, available_seats, created_at", 500),
-    selectRows("bookings", "id, owner_id, amount, booking_status, created_at", 500),
-    selectRows("payments", "id, owner_id, amount, status, created_at", 500),
+    selectRows(
+      "bookings",
+      "id, owner_id, amount, booking_status, payment_status, refund_status, cancellation_status, booking_type, created_at",
+      500
+    ),
   ]);
 
   const ownerVehicles = [...vehicles, ...returnJourneys, ...driverVehicles, ...selfDriveVehicles].filter(
     (row) => getString(row, "owner_id") === ownerId
   );
   const ownerBookings = bookings.filter((row) => getString(row, "owner_id") === ownerId);
-  const ownerPayments = payments.filter((row) => getString(row, "owner_id") === ownerId);
   const monthStart = new Date();
   monthStart.setDate(1);
   monthStart.setHours(0, 0, 0, 0);
-  const revenueRows = ownerPayments.length > 0 ? ownerPayments : ownerBookings;
-  const revenue = revenueRows.reduce((sum, row) => sum + getNumber(row, "amount"), 0);
-  const monthlyRevenue = revenueRows
-    .filter((row) => new Date(getString(row, "created_at")) >= monthStart)
-    .reduce((sum, row) => sum + getNumber(row, "amount"), 0);
+  const revenueRows = ownerBookings;
+  const revenue = sumBookingRevenue(revenueRows);
+  const monthlyRevenue = sumBookingRevenueSince(revenueRows, monthStart);
 
   return {
     ...stats,
