@@ -33,6 +33,8 @@ export interface RefundCalculationInput {
   bookingType: BookingTypeForPolicy | string;
   tripFareAmount: number;
   securityDepositAmount?: number;
+  /** Full checkout amount when available (used for cancellation charges display). */
+  bookingAmount?: number;
   pickupDate?: string | null;
   pickupTime?: string | null;
   cancelledAt?: Date;
@@ -47,6 +49,10 @@ export interface RefundCalculationResult {
   tripFareRefundAmount: number;
   securityDepositRefundAmount: number;
   totalRefundAmount: number;
+  /** Total amount paid by the customer (trip fare + deposit + fees as stored on booking). */
+  bookingAmount: number;
+  /** Non-refundable portion per cancellation policy. */
+  cancellationCharges: number;
   afterScheduledStart: boolean;
   policyTier: string;
   flexibleApplied: boolean;
@@ -187,12 +193,22 @@ export function calculateRefund(input: RefundCalculationInput): RefundCalculatio
       ? Math.round((deposit * securityDepositRefundPercent) / 100)
       : 0;
 
+  const totalRefundAmount = tripFareRefundAmount + securityDepositRefundAmount;
+  const explicitBookingAmount = Math.max(0, Math.round(input.bookingAmount ?? 0));
+  const bookingAmount =
+    explicitBookingAmount > 0 ? explicitBookingAmount : tripFare + deposit;
+  const cancellationCharges = refundEligible
+    ? Math.max(0, bookingAmount - totalRefundAmount)
+    : bookingAmount;
+
   return {
     tripFareRefundPercent,
     securityDepositRefundPercent,
     tripFareRefundAmount,
     securityDepositRefundAmount,
-    totalRefundAmount: tripFareRefundAmount + securityDepositRefundAmount,
+    totalRefundAmount,
+    bookingAmount,
+    cancellationCharges,
     afterScheduledStart: afterStart,
     policyTier: flexibleApplied
       ? flexibleProtectionTierLabel(hoursBefore, afterStart)

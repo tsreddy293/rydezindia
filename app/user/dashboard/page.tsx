@@ -6,7 +6,9 @@ import ChangePasswordForm from "@/components/auth/ChangePasswordForm";
 import { getSavedVehicles, getUserBookings } from "@/lib/supabase/queries";
 import { formatDate, formatINR } from "@/lib/utils";
 import { getCustomerKycStatus, type CustomerKycStatusResult } from "@/server/actions/customerKyc";
-import { requireRole, signOutUser } from "@/server/actions/auth";
+import { requireRiderDashboard } from "@/lib/auth/customer-auth";
+import { RIDER_BOOKINGS_PATH } from "@/lib/auth/rbac-paths";
+import { signOutUser } from "@/server/actions/auth";
 import { shouldShowRiderKyc } from "@/lib/services/customer-profile";
 import { getRiderDisplayName } from "@/lib/users/rider-profile";
 
@@ -31,7 +33,7 @@ function kycStatusDescription(status: CustomerKycStatusResult["status"]): string
 }
 
 export default async function UserDashboardPage({ searchParams }: Props) {
-  const { user } = await requireRole("user");
+  const { user } = await requireRiderDashboard("/dashboard");
   const { passwordError, passwordSuccess } = await searchParams;
   const emailVerified = Boolean(user.email_confirmed_at || user.confirmed_at);
 
@@ -111,7 +113,7 @@ export default async function UserDashboardPage({ searchParams }: Props) {
         <section className="rounded-2xl bg-white border p-6 shadow-sm mb-8">
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-lg font-semibold text-secondary">Recent Bookings</h3>
-            <Button href="/user/bookings" variant="outline" size="sm">View All</Button>
+            <Button href={RIDER_BOOKINGS_PATH} variant="outline" size="sm">View All</Button>
           </div>
           {bookings.length === 0 ? (
             <div className="text-center py-10 rounded-xl bg-gray-50">

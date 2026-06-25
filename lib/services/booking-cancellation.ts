@@ -7,6 +7,8 @@ import {
 import { refundRazorpayPayment } from "@/lib/services/payments";
 import { createNotification } from "@/lib/services/notifications";
 import type { RefundStatus } from "@/lib/services/cancellation-policy";
+import type { CancellationReasonCategory } from "@/lib/services/cancellation-reasons";
+import { isTripStartReached } from "@/lib/bookings/my-bookings-utils";
 
 export interface BookingCancellationRow {
   id: string;
@@ -44,11 +46,16 @@ function tripFarePaid(row: BookingCancellationRow): number {
   return Number(row.amount ?? 0);
 }
 
+function bookingAmountPaid(row: BookingCancellationRow): number {
+  return Math.max(0, Math.round(Number(row.amount ?? 0)));
+}
+
 export function computeBookingRefund(row: BookingCancellationRow, cancelledAt = new Date()): RefundCalculationResult {
   return calculateRefund({
     bookingType: normalizeBookingTypeForPolicy(row.booking_type, row.trip_type),
     tripFareAmount: tripFarePaid(row),
     securityDepositAmount: Number(row.security_deposit_amount ?? 0),
+    bookingAmount: bookingAmountPaid(row),
     pickupDate: row.pickup_date,
     pickupTime: row.pickup_time,
     cancelledAt,
@@ -84,9 +91,81 @@ export async function fetchBookingForCancellation(bookingId: string): Promise<Bo
   return (data as BookingCancellationRow | null) ?? null;
 }
 
+function isMissingTableError(error: { message?: string } | null): boolean {
+  if (!error?.message) return false;
+  const msg = error.message.toLowerCase();
+  return msg.includes("could not find the table") || msg.includes("does not exist");
+}
+
+async function insertCancellationLog(
+  db: ReturnType<typeof createAdminClient>,
+  input: {
+    bookingId: string;
+    userId?: string | null;
+    cancelledBy: "user" | "admin" | "owner";
+    reasonCategory?: string | null;
+    reason: string;
+    refund: RefundCalculationResult;
+  }
+) {
+  const { error } = await db.from("cancellation_logs").insert({
+    booking_id: input.bookingId,
+    user_id: input.userId ?? null,
+    cancelled_by: input.cancelledBy,
+    reason_category: input.reasonCategory ?? null,
+    reason: input.reason,
+    booking_amount: input.refund.bookingAmount,
+    cancellation_charges: input.refund.cancellationCharges,
+    refund_amount: input.refund.totalRefundAmount,
+    policy_tier: input.refund.policyTier,
+    refund_trip_fare_amount: input.refund.tripFareRefundAmount,
+    refund_deposit_amount: input.refund.securityDepositRefundAmount,
+    metadata: {
+      tripFareRefundPercent: input.refund.tripFareRefundPercent,
+      flexibleApplied: input.refund.flexibleApplied,
+    },
+  });
+
+  if (error && !isMissingTableError(error)) {
+    console.warn("[insertCancellationLog]", error.message);
+  }
+}
+
+async function createPendingRefundRecord(
+  db: ReturnType<typeof createAdminClient>,
+  bookingId: string,
+  refundAmount: number,
+  reason: string
+) {
+  if (refundAmount <= 0) return;
+
+  const { data: payment } = await db
+    .from("payments")
+    .select("id")
+    .eq("booking_id", bookingId)
+    .in("status", ["captured", "paid"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const { error } = await db.from("refunds").insert({
+    payment_id: (payment as { id?: string } | null)?.id ?? null,
+    booking_id: bookingId,
+    amount: refundAmount,
+    status: "created",
+    reason,
+    metadata: { source: "customer_cancellation", pending: true },
+  });
+
+  if (error && !isMissingTableError(error)) {
+    console.warn("[createPendingRefundRecord]", error.message);
+  }
+}
+
 export async function cancelBookingWithRefund(input: {
   bookingId: string;
   reason: string;
+  reasonCategory?: CancellationReasonCategory | string;
   cancelledBy: "user" | "admin" | "owner";
   userId?: string;
 }) {
@@ -96,6 +175,17 @@ export async function cancelBookingWithRefund(input: {
 
   if (input.cancelledBy === "user" && input.userId && row.user_id !== input.userId) {
     return { success: false as const, error: "You can only cancel your own bookings" };
+  }
+
+  if (input.cancelledBy === "user" && String(row.booking_status ?? "").toLowerCase() !== "confirmed") {
+    return { success: false as const, error: "Only confirmed bookings can be cancelled" };
+  }
+
+  if (
+    input.cancelledBy === "user" &&
+    isTripStartReached(row.pickup_date, row.pickup_time)
+  ) {
+    return { success: false as const, error: "Cannot cancel after trip start time" };
   }
 
   const alreadyCancelled =
@@ -112,9 +202,11 @@ export async function cancelBookingWithRefund(input: {
     booking_status: "cancelled",
     cancellation_status: "cancelled",
     cancellation_reason: input.reason.trim(),
+    cancellation_reason_category: input.reasonCategory ?? null,
     cancel_reason: input.reason.trim(),
     cancelled_by: input.cancelledBy,
     cancelled_at: now,
+    cancellation_charges: refund.cancellationCharges,
     refund_amount: refund.totalRefundAmount,
     refund_trip_fare_amount: refund.tripFareRefundAmount,
     refund_deposit_amount: refund.securityDepositRefundAmount,
@@ -126,14 +218,57 @@ export async function cancelBookingWithRefund(input: {
 
   await releaseReturnJourneySeats(db, row);
 
+  await insertCancellationLog(db, {
+    bookingId: input.bookingId,
+    userId: row.user_id,
+    cancelledBy: input.cancelledBy,
+    reasonCategory: input.reasonCategory,
+    reason: input.reason.trim(),
+    refund,
+  });
+
+  if (refund.refundEligible && refund.totalRefundAmount > 0) {
+    await createPendingRefundRecord(db, input.bookingId, refund.totalRefundAmount, input.reason.trim());
+  }
+
+  const bookingRef = row.booking_reference ?? input.bookingId.slice(0, 8);
+
+  await createNotification({
+    recipientRole: "admin",
+    type: "booking_cancelled",
+    title: "Booking cancelled",
+    message: `${row.passenger_name ?? "Customer"} cancelled booking ${bookingRef}. Refund pending: ₹${refund.totalRefundAmount}.`,
+    metadata: {
+      bookingId: input.bookingId,
+      refundAmount: refund.totalRefundAmount,
+      cancellationCharges: refund.cancellationCharges,
+      reasonCategory: input.reasonCategory,
+    },
+  });
+
   if (row.owner_id) {
     await createNotification({
       recipientId: row.owner_id,
       recipientRole: "owner",
       type: "booking_cancelled",
       title: "Booking cancelled",
-      message: `${row.passenger_name ?? "Customer"} cancelled booking ${row.booking_reference ?? input.bookingId.slice(0, 8)}.`,
+      message: `${row.passenger_name ?? "Customer"} cancelled booking ${bookingRef}.`,
       metadata: { bookingId: input.bookingId, refundAmount: refund.totalRefundAmount },
+    });
+  }
+
+  if (row.user_id) {
+    await createNotification({
+      recipientId: row.user_id,
+      recipientRole: "rider",
+      type: "booking_cancelled",
+      title: "Booking cancelled",
+      message: `Your booking ${bookingRef} has been cancelled. Refund of ₹${refund.totalRefundAmount} is being processed.`,
+      metadata: {
+        bookingId: input.bookingId,
+        refundAmount: refund.totalRefundAmount,
+        cancellationCharges: refund.cancellationCharges,
+      },
     });
   }
 

@@ -548,9 +548,22 @@ export interface UserBookingExtended extends UserBooking {
   refund_status?: string | null;
   refund_processed_at?: string | null;
   cancellation_reason?: string | null;
+  cancellation_charges?: number | null;
   flexible_cancellation?: boolean | null;
   protection_selected?: boolean | null;
   flexible_cancellation_fee?: number | null;
+}
+
+export interface MyBookingRecord extends UserBookingExtended {
+  vehicle_id?: string;
+  reference_id?: string;
+  vehicle_name?: string;
+  vehicle_type?: string;
+  vehicle_image?: string | null;
+  return_date?: string;
+  return_time?: string;
+  return_location?: string;
+  special_instructions?: string;
 }
 
 export interface ActionResult<T = unknown> {

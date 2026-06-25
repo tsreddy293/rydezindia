@@ -5,6 +5,8 @@ export const ADMIN_LOGIN_PATH = "/admin-login";
 export const ADMIN_HOME_PATH = "/admin";
 export const OWNER_DASHBOARD_PATH = "/owner-dashboard";
 export const CUSTOMER_HOME_PATH = "/";
+export const RIDER_DASHBOARD_PATH = "/dashboard";
+export const RIDER_BOOKINGS_PATH = "/dashboard/bookings";
 
 /** Internal owner dashboard (content lives here; /owner-dashboard is the entry alias). */
 export const OWNER_DASHBOARD_INTERNAL_PATH = "/owner/dashboard";
@@ -30,7 +32,17 @@ export function isBlockedCustomerRedirect(path: string | null | undefined): bool
   return false;
 }
 
-/** Where to send users who hit /admin without admin role (never the public home page). */
-export function redirectPathForWrongAdminAccess(_role: UserRole | null): string {
+/** Where to send users who hit /admin without admin role. */
+export function redirectPathForWrongAdminAccess(role: UserRole | null): string {
+  if (role === "rider") return RIDER_DASHBOARD_PATH;
+  if (role === "owner") return OWNER_DASHBOARD_PATH;
+  return ADMIN_LOGIN_PATH;
+}
+
+/** Home route for an authenticated role (never sends riders to /admin). */
+export function homePathForRole(role: UserRole | null): string {
+  if (role === "rider") return RIDER_DASHBOARD_PATH;
+  if (role === "owner") return OWNER_DASHBOARD_PATH;
+  if (role === "admin") return ADMIN_HOME_PATH;
   return ADMIN_LOGIN_PATH;
 }

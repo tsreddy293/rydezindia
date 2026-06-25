@@ -10,6 +10,7 @@ import {
   isProtectedAdminPath,
   OWNER_DASHBOARD_PATH,
   redirectPathForWrongAdminAccess,
+  homePathForRole,
 } from "@/lib/auth/rbac-paths";
 import type { UserRole } from "@/types/database";
 
@@ -135,12 +136,8 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (riderOnly && data.user && role === "owner") {
-    return redirectTo(OWNER_DASHBOARD_PATH);
-  }
-
-  if (riderOnly && data.user && role === "admin") {
-    return redirectTo("/admin");
+  if (riderOnly && data.user && role !== "rider") {
+    return redirectTo(homePathForRole(role));
   }
 
   // --- Booking routes — authenticated only (KYC checked on server) ---

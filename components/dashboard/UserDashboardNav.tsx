@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { RIDER_BOOKINGS_PATH } from "@/lib/auth/rbac-paths";
 
 const USER_LINKS = [
   { href: "/dashboard", label: "Overview", aliases: ["/user/dashboard"] },
   { href: "/dashboard/kyc", label: "KYC Documents", kycOnly: true, aliases: ["/user/profile/kyc"] },
   { href: "/dashboard/verification", label: "Verification", kycOnly: true, aliases: ["/user/dashboard/verification"] },
-  { href: "/dashboard/bookings", label: "My Bookings", aliases: ["/user/bookings"] },
+  { href: RIDER_BOOKINGS_PATH, label: "My Bookings", aliases: ["/user/bookings"] },
   { href: "/dashboard/wallet", label: "Wallet", aliases: ["/user/wallet"] },
   { href: "/dashboard/referrals", label: "Referrals", aliases: ["/user/referrals"] },
   { href: "/user/profile/safety", label: "Safety" },

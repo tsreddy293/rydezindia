@@ -46,12 +46,17 @@ import type {
   SelfDriveResult,
   UserBooking,
   UserBookingExtended,
+  MyBookingRecord,
   UserRole,
   OwnerStatus,
   VehicleDetail,
   VehicleOwner,
 } from "@/types/database";
 import { scoreRouteMatch } from "@/lib/services/route-matching";
+import {
+  parseReturnScheduleFromInstructions,
+  resolveVehicleImage,
+} from "@/lib/bookings/my-bookings-utils";
 import { resolveUserName } from "@/lib/users/display-name";
 import { mapVehicleRow } from "@/lib/vehicles/format";
 import {
@@ -2565,6 +2570,68 @@ export async function getUserBookingsExtended(userId: string): Promise<UserBooki
       protection_selected: row.protection_selected === true || row.flexible_cancellation === true,
       flexible_cancellation_fee: getNumber(row, "flexible_cancellation_fee") || undefined,
     }));
+}
+
+export async function getMyBookingsForUser(userId: string): Promise<MyBookingRecord[]> {
+  const rows = await selectRows(
+    "bookings",
+    "id, user_id, booking_reference, booking_type, passenger_name, amount, booking_status, payment_status, pickup_location, drop_location, pickup_date, pickup_time, created_at, cancellation_status, cancelled_at, refund_amount, refund_status, refund_processed_at, cancellation_reason, cancellation_charges, flexible_cancellation, protection_selected, flexible_cancellation_fee, vehicle_id, reference_id, special_instructions",
+    100
+  );
+
+  const userRows = rows.filter((r) => getString(r, "user_id") === userId);
+  const vehicleIds = [
+    ...new Set(
+      userRows
+        .flatMap((row) => [getString(row, "vehicle_id"), getString(row, "reference_id")])
+        .filter(Boolean)
+    ),
+  ];
+  const vehicleMap = await getVehicleMap(vehicleIds);
+
+  return userRows.map((row) => {
+    const vehicleId = getString(row, "vehicle_id") || getString(row, "reference_id");
+    const vehicleRow = vehicleId ? vehicleMap.get(vehicleId) : undefined;
+    const returnSchedule = parseReturnScheduleFromInstructions(getString(row, "special_instructions"));
+    const vehicleName =
+      (vehicleRow ? buildVehicleDisplayName(vehicleRow) : "") ||
+      getString(vehicleRow, "vehicle_name") ||
+      "Vehicle";
+
+    return {
+      id: getString(row, "id"),
+      booking_reference: getString(row, "booking_reference") || undefined,
+      booking_type: getString(row, "booking_type", "booking"),
+      passenger_name: getString(row, "passenger_name", "Passenger"),
+      amount: getNumber(row, "amount"),
+      booking_status: getString(row, "booking_status", "pending"),
+      payment_status: getString(row, "payment_status", "pending"),
+      pickup_location: getString(row, "pickup_location") || undefined,
+      drop_location: getString(row, "drop_location") || undefined,
+      pickup_date: getString(row, "pickup_date") || undefined,
+      pickup_time: getString(row, "pickup_time") || undefined,
+      created_at: getString(row, "created_at"),
+      cancellation_status: getString(row, "cancellation_status") || undefined,
+      cancelled_at: getString(row, "cancelled_at") || undefined,
+      refund_amount: getNumber(row, "refund_amount") || undefined,
+      refund_status: getString(row, "refund_status") || undefined,
+      refund_processed_at: getString(row, "refund_processed_at") || undefined,
+      cancellation_reason: getString(row, "cancellation_reason") || undefined,
+      cancellation_charges: getNumber(row, "cancellation_charges") || undefined,
+      flexible_cancellation: row.flexible_cancellation === true,
+      protection_selected: row.protection_selected === true || row.flexible_cancellation === true,
+      flexible_cancellation_fee: getNumber(row, "flexible_cancellation_fee") || undefined,
+      vehicle_id: getString(row, "vehicle_id") || undefined,
+      reference_id: getString(row, "reference_id") || undefined,
+      vehicle_name: vehicleName,
+      vehicle_type: getString(vehicleRow, "vehicle_type") || undefined,
+      vehicle_image: resolveVehicleImage(vehicleRow),
+      return_date: returnSchedule.returnDate,
+      return_time: returnSchedule.returnTime,
+      return_location: getString(row, "drop_location") || undefined,
+      special_instructions: getString(row, "special_instructions") || undefined,
+    };
+  }).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 }
 
 export async function getSavedVehicles(userId: string) {

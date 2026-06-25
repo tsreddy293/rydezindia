@@ -17,6 +17,7 @@ import {
   ADMIN_HOME_PATH,
   ADMIN_LOGIN_PATH,
   OWNER_DASHBOARD_PATH,
+  homePathForRole,
   redirectPathForWrongAdminAccess,
 } from "@/lib/auth/rbac-paths";
 import { safePostLoginRedirect } from "@/lib/auth/safe-redirect";
@@ -586,13 +587,12 @@ export async function requireRole(role: UserRole | "user", returnPath?: string) 
 
   if (currentRole !== expectedRole) {
     if (expectedRole === "rider") {
-      redirectToCustomerLogin(returnPath);
+      redirect(homePathForRole(currentRole));
     }
     if (expectedRole === "admin") {
       redirect(redirectPathForWrongAdminAccess(currentRole));
     }
     if (currentRole === "owner") redirect(OWNER_DASHBOARD_PATH);
-    if (currentRole === "admin") redirect(ADMIN_HOME_PATH);
     redirect(ROLE_LOGIN_PATHS[expectedRole]);
   }
 

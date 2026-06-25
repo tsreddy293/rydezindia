@@ -24,6 +24,8 @@ describe("cancellation-policy", () => {
     expect(result.tripFareRefundAmount).toBe(5000);
     expect(result.securityDepositRefundAmount).toBe(3000);
     expect(result.totalRefundAmount).toBe(8000);
+    expect(result.bookingAmount).toBe(8000);
+    expect(result.cancellationCharges).toBe(0);
   });
 
   it("self drive 90% refund between 24-48 hours", () => {

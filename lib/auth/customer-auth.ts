@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 import { normalizeRole, ROLE_LOGIN_PATHS } from "@/lib/auth/roles";
 import { getRoleForUser } from "@/lib/auth/get-role-for-user";
+import { resolveAuthenticatedUserRole } from "@/lib/auth/get-role-for-user";
+import { homePathForRole, RIDER_DASHBOARD_PATH } from "@/lib/auth/rbac-paths";
 import { safeRiderRedirectPath } from "@/lib/kyc/self-drive-nav";
 import { bookingAuthLoginPath } from "@/lib/booking/booking-return-path";
 import { createClient } from "@/lib/supabase/server";
@@ -37,6 +39,33 @@ export async function requireRiderForBooking(returnPath?: string): Promise<{
 
   if (currentRole !== "rider") {
     redirectToCustomerLogin(returnPath);
+  }
+
+  return { user: data.user, role: "rider" };
+}
+
+/**
+ * Guard for /dashboard/* rider pages.
+ * Authenticated wrong-role users go to their own dashboard — never /admin for riders.
+ */
+export async function requireRiderDashboard(returnPath?: string): Promise<{
+  user: User;
+  role: "rider";
+}> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.auth.getUser();
+
+  if (error || !data.user) {
+    redirectToCustomerLogin(returnPath ?? RIDER_DASHBOARD_PATH);
+  }
+
+  const currentRole = await resolveAuthenticatedUserRole(
+    data.user.id,
+    data.user.user_metadata?.role
+  );
+
+  if (currentRole !== "rider") {
+    redirect(homePathForRole(currentRole));
   }
 
   return { user: data.user, role: "rider" };
