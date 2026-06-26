@@ -8,6 +8,7 @@ import RewardPointsCard from "@/components/rider/dashboard/RewardPointsCard";
 import RiderActionCenter from "@/components/rider/dashboard/RiderActionCenter";
 import RiderReminders from "@/components/rider/dashboard/RiderReminders";
 import RiderStatsGrid from "@/components/rider/dashboard/RiderStatsGrid";
+import RiderWelcomeSection from "@/components/rider/dashboard/RiderWelcomeSection";
 import SavedVehiclesSection from "@/components/rider/dashboard/SavedVehiclesSection";
 import SupportCenterCard from "@/components/rider/dashboard/SupportCenterCard";
 import UpcomingTripCard from "@/components/rider/dashboard/UpcomingTripCard";
@@ -28,20 +29,12 @@ export default async function UserDashboardPage({ searchParams }: Props) {
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-sm font-medium text-primary">Welcome back</p>
-          <h1 className="text-2xl font-bold text-secondary md:text-3xl">{data.displayName}</h1>
-          <p className="mt-1 text-sm text-gray-500">Your rides, wallet, and rewards in one place</p>
-        </div>
-        <span
-          className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-semibold ${
-            data.emailVerified ? "bg-emerald-100 text-emerald-800" : "bg-orange-100 text-orange-800"
-          }`}
-        >
-          {data.emailVerified ? "Email verified" : "Verify your email"}
-        </span>
-      </div>
+      <RiderWelcomeSection
+        displayName={data.displayName}
+        memberSince={data.memberSince}
+        verificationLabel={data.verificationLabel}
+        averageRating={data.averageRating}
+      />
 
       <RiderReminders items={data.reminders} />
 

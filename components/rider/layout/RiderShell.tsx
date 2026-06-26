@@ -9,12 +9,12 @@ import type { RiderNotificationItem } from "@/components/rider/layout/RiderNotif
 export default function RiderShell({
   children,
   notifications,
-  displayName,
+  firstName,
   showKycLinks,
 }: {
   children: React.ReactNode;
   notifications: RiderNotificationItem[];
-  displayName: string;
+  firstName: string;
   showKycLinks: boolean;
 }) {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -50,7 +50,7 @@ export default function RiderShell({
           <p className="font-bold text-secondary">Rydez</p>
         </div>
 
-        <RiderHeader notifications={notifications} displayName={displayName} />
+        <RiderHeader notifications={notifications} firstName={firstName} />
         <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">{children}</main>
       </div>
     </div>

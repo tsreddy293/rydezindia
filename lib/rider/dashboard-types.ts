@@ -46,6 +46,10 @@ export interface RiderSavedVehicle {
 
 export interface RiderDashboardData {
   displayName: string;
+  firstName: string;
+  memberSince: string;
+  verificationLabel: string;
+  averageRating: number | null;
   emailVerified: boolean;
   showKycSection: boolean;
   kycStatus: string;

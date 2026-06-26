@@ -1,6 +1,7 @@
 import { listNotifications } from "@/lib/services/notifications";
 import { shouldShowRiderKyc } from "@/lib/services/customer-profile";
-import { getRiderDisplayName } from "@/lib/users/rider-profile";
+import { getCustomerKycStatus } from "@/server/actions/customerKyc";
+import { getRiderWelcomeProfile } from "@/lib/users/rider-profile";
 import { requireRiderDashboard } from "@/lib/auth/customer-auth";
 import RiderShell from "@/components/rider/layout/RiderShell";
 import type { RiderNotificationItem } from "@/components/rider/layout/RiderNotificationBell";
@@ -19,11 +20,16 @@ function notificationHref(type: string): string {
 
 export default async function RiderLayoutWrapper({ children }: { children: React.ReactNode }) {
   const { user } = await requireRiderDashboard();
-  const [notificationsRaw, displayName, showKycLinks] = await Promise.all([
+  const [notificationsRaw, kyc, showKycLinks] = await Promise.all([
     listNotifications({ recipientId: user.id, recipientRole: "rider", limit: 20 }),
-    getRiderDisplayName(user.id, "Rider"),
+    getCustomerKycStatus(user.id),
     shouldShowRiderKyc(user.id),
   ]);
+
+  const welcome = await getRiderWelcomeProfile(user, {
+    kycStatus: kyc.status,
+    showKycSection: showKycLinks,
+  });
 
   const notifications: RiderNotificationItem[] = notificationsRaw.map((n) => ({
     id: String(n.id),
@@ -36,7 +42,7 @@ export default async function RiderLayoutWrapper({ children }: { children: React
   return (
     <RiderShell
       notifications={notifications}
-      displayName={displayName}
+      firstName={welcome.firstName}
       showKycLinks={showKycLinks}
     >
       {children}

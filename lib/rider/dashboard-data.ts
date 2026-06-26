@@ -11,7 +11,7 @@ import { getSavedVehicles, getMyBookingsForUser } from "@/lib/supabase/queries";
 import { getCustomerKycStatus } from "@/server/actions/customerKyc";
 import { fetchLoyaltyStatus, fetchReferralStats, fetchWalletData } from "@/server/actions/phase2";
 import { shouldShowRiderKyc } from "@/lib/services/customer-profile";
-import { getRiderBookingProfile, getRiderDisplayName } from "@/lib/users/rider-profile";
+import { getRiderBookingProfile, getRiderWelcomeProfile } from "@/lib/users/rider-profile";
 
 function priorityFromCount(count: number): RiderActionItem["priority"] {
   if (count === 0) return "completed";
@@ -65,7 +65,6 @@ export async function getRiderDashboardData(user: User): Promise<RiderDashboardD
     bookingsRaw,
     savedRaw,
     kyc,
-    displayName,
     showKycSection,
     profile,
     walletData,
@@ -75,17 +74,21 @@ export async function getRiderDashboardData(user: User): Promise<RiderDashboardD
     getMyBookingsForUser(userId),
     getSavedVehicles(userId),
     getCustomerKycStatus(userId),
-    getRiderDisplayName(userId, "Rider"),
     shouldShowRiderKyc(userId),
     getRiderBookingProfile(userId, {
       email: user.email,
-      name: String(user.user_metadata?.name ?? ""),
+      name: String(user.user_metadata?.name ?? user.user_metadata?.full_name ?? ""),
       mobile: String(user.user_metadata?.mobile ?? ""),
     }),
     fetchWalletData(),
     fetchReferralStats(),
     fetchLoyaltyStatus(userId),
   ]);
+
+  const welcomeProfile = await getRiderWelcomeProfile(user, {
+    kycStatus: kyc.status,
+    showKycSection,
+  });
 
   const bookings = bookingsRaw.map(mapBooking);
   const activeTrips = bookings.filter((b) =>
@@ -226,7 +229,11 @@ export async function getRiderDashboardData(user: User): Promise<RiderDashboardD
     }));
 
   return {
-    displayName,
+    displayName: welcomeProfile.displayName,
+    firstName: welcomeProfile.firstName,
+    memberSince: welcomeProfile.memberSince,
+    verificationLabel: welcomeProfile.verificationLabel,
+    averageRating: welcomeProfile.averageRating,
     emailVerified: Boolean(user.email_confirmed_at || user.confirmed_at),
     showKycSection,
     kycStatus: kyc.status,

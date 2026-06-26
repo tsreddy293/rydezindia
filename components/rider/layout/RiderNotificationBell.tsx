@@ -16,8 +16,10 @@ export interface RiderNotificationItem {
 
 export default function RiderNotificationBell({
   notifications,
+  showLabel = false,
 }: {
   notifications: RiderNotificationItem[];
+  showLabel?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -38,10 +40,21 @@ export default function RiderNotificationBell({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="relative rounded-xl p-2 text-gray-600 hover:bg-gray-100"
+        className={`relative text-gray-600 hover:bg-gray-100 ${
+          showLabel
+            ? "inline-flex items-center gap-1.5 rounded-xl border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700"
+            : "rounded-xl p-2"
+        }`}
         aria-label="Notifications"
       >
-        <Bell className="h-5 w-5" />
+        {showLabel ? (
+          <>
+            <span aria-hidden>🔔</span>
+            <span>Notifications</span>
+          </>
+        ) : (
+          <Bell className="h-5 w-5" />
+        )}
         {unread.length > 0 && (
           <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
             {unread.length > 9 ? "9+" : unread.length}
