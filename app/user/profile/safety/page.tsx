@@ -1,5 +1,3 @@
-import PageLayout from "@/components/layout/PageLayout";
-import UserDashboardNav from "@/components/dashboard/UserDashboardNav";
 import EmergencyContactsForm from "@/components/forms/EmergencyContactsForm";
 import SosButton from "@/components/safety/SosButton";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -9,9 +7,9 @@ import { requireRole } from "@/server/actions/auth";
 export const dynamic = "force-dynamic";
 
 export const metadata = createPageMetadata({
-  title: "Safety",
+  title: "Safety & Support",
   description: "Manage emergency contacts and SOS on Rydez India.",
-  path: "/user/profile/safety",
+  path: "/dashboard/support",
   noIndex: true,
 });
 
@@ -27,23 +25,29 @@ export default async function SafetyPage() {
   const c = contacts as Record<string, string> | null;
 
   return (
-    <PageLayout>
-      <div className="mx-auto max-w-2xl px-4 py-12 md:px-6">
-        <UserDashboardNav />
-        <h1 className="text-3xl font-bold text-secondary mb-8">Safety</h1>
+    <>
+      <div className="mx-auto max-w-2xl space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-secondary md:text-3xl">Safety & Support</h1>
+          <p className="mt-1 text-sm text-gray-500">Emergency contacts and SOS</p>
+        </div>
         <EmergencyContactsForm
-          defaultValues={c ? {
-            contact1_name: c.contact1_name,
-            contact1_phone: c.contact1_phone,
-            contact2_name: c.contact2_name,
-            contact2_phone: c.contact2_phone,
-          } : undefined}
+          defaultValues={
+            c
+              ? {
+                  contact1_name: c.contact1_name,
+                  contact1_phone: c.contact1_phone,
+                  contact2_name: c.contact2_name,
+                  contact2_phone: c.contact2_phone,
+                }
+              : undefined
+          }
         />
-        <p className="text-xs text-gray-400 mt-6 text-center">
+        <p className="text-center text-xs text-gray-400">
           Live trip sharing coming soon. SOS notifies your emergency contacts and Rydez support.
         </p>
       </div>
       <SosButton />
-    </PageLayout>
+    </>
   );
 }

@@ -80,16 +80,31 @@ export async function useReferralCode(code: string): Promise<ActionResult> {
 
 export async function fetchReferralStats() {
   const { user } = await requireRole("user");
-  return getReferralStats(user.id);
+  try {
+    return await getReferralStats(user.id);
+  } catch (error) {
+    console.warn("[fetchReferralStats]", error);
+    return {
+      referralCode: `RYD${user.id.replace(/-/g, "").slice(0, 5).toUpperCase()}`,
+      totalReferrals: 0,
+      successfulReferrals: 0,
+      earnings: 0,
+    };
+  }
 }
 
 export async function fetchWalletData() {
   const { user } = await requireRole("user");
-  const [balance, transactions] = await Promise.all([
-    getWalletBalance(user.id),
-    getWalletTransactions(user.id),
-  ]);
-  return { balance, transactions };
+  try {
+    const [balance, transactions] = await Promise.all([
+      getWalletBalance(user.id),
+      getWalletTransactions(user.id),
+    ]);
+    return { balance, transactions };
+  } catch (error) {
+    console.warn("[fetchWalletData]", error);
+    return { balance: 0, transactions: [] };
+  }
 }
 
 export async function fetchLoyaltyStatus(userId?: string) {

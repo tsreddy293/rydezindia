@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isMissingTableError } from "@/lib/supabase/errors";
 import { creditWallet } from "@/lib/services/wallet";
 
 const REFERRER_REWARD = 100;
@@ -105,10 +106,19 @@ export async function completeReferral(referredUserId: string) {
 export async function getReferralStats(userId: string) {
   const db = createAdminClient();
   const code = await getOrCreateReferralCode(userId);
-  const { data: referrals } = await db
+  const { data: referrals, error } = await db
     .from("referrals")
     .select("*")
     .eq("referrer_id", userId);
+
+  if (error && isMissingTableError(error)) {
+    return {
+      referralCode: code,
+      totalReferrals: 0,
+      successfulReferrals: 0,
+      earnings: 0,
+    };
+  }
 
   const rows = referrals ?? [];
   const completed = rows.filter((r) => (r as { status: string }).status === "completed");
