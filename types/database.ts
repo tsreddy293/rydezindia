@@ -138,6 +138,7 @@ export interface BookingConfirmation {
   trip_type?: string;
   vehicle_id?: string;
   owner_id?: string;
+  user_id?: string;
   created_at: string;
   protection_selected?: boolean;
   flexible_cancellation?: boolean;
@@ -602,6 +603,8 @@ export interface UserBooking {
   pickup_date?: string;
   pickup_time?: string;
   created_at: string;
+  cancellation_status?: string | null;
+  refund_status?: string | null;
 }
 
 export interface UserBookingExtended extends UserBooking {

@@ -18,7 +18,7 @@ import {
   normalizeBookingTypeForPolicy,
   type RefundCalculationResult,
 } from "@/lib/services/cancellation-policy";
-import { refundRazorpayPayment } from "@/lib/services/payments";
+import { cancelOwnerEarningsForBooking, refundRazorpayPayment } from "@/lib/services/payments";
 import { createNotification } from "@/lib/services/notifications";
 import type { RefundStatus } from "@/lib/services/cancellation-policy";
 import type { CancellationReasonCategory } from "@/lib/services/cancellation-reasons";
@@ -350,6 +350,8 @@ export async function cancelBookingWithRefund(input: {
   const { error: updateError } = await applyBookingUpdateWithColumnFallback(db, row.id, updatePayload);
   if (updateError) return { success: false as const, error: updateError };
 
+  await cancelOwnerEarningsForBooking(input.bookingId);
+
   await releaseReturnJourneySeats(db, row);
   await releaseVehicleAvailability(db, row);
 
@@ -503,7 +505,7 @@ export async function executeApprovedRefund(bookingId: string) {
     .from("payments")
     .select("id, razorpay_payment_id, amount, status")
     .eq("booking_id", bookingId)
-    .eq("status", "captured")
+    .eq("status", "paid")
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();

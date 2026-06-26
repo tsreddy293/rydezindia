@@ -20,7 +20,7 @@ export const metadata = createPageMetadata({
 export default async function CustomerKycPage() {
   const { user } = await requireRole("user");
   await recordSelfDriveInterestForUser(user.id);
-  const { status, documents, hasRequiredDocs, canSubmit } = await getCustomerKycStatus(user.id);
+  const { status, documents, hasRequiredDocs, canSubmit } = await getCustomerKycStatus();
 
   return (
     <PageLayout>

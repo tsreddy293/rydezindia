@@ -29,7 +29,7 @@ export default async function DashboardKycPage({ searchParams }: Props) {
   const { user } = await requireRole("user", returnPath);
   const { reason, return: bookingReturn } = params;
   await recordSelfDriveInterestForUser(user.id);
-  const { status, documents, hasRequiredDocs, canSubmit, loadError } = await getCustomerKycStatus(user.id);
+  const { status, documents, hasRequiredDocs, canSubmit, loadError } = await getCustomerKycStatus();
 
   const kycRow = status === "approved" ? await getCustomerKyc(user.id) : null;
   const storedReturn = safeRiderRedirectPath(

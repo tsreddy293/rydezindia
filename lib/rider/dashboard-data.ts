@@ -8,7 +8,8 @@ import type {
 } from "@/lib/rider/dashboard-types";
 import type { MyBookingRecord } from "@/types/database";
 import { getSavedVehicles, getMyBookingsForUser } from "@/lib/supabase/queries";
-import { getCustomerKycStatus } from "@/server/actions/customerKyc";
+import { resolveCustomerKycStatus } from "@/lib/kyc/resolve-customer-kyc-status";
+import { requiresCustomerPaymentAction } from "@/lib/owner/booking-eligibility";
 import { fetchLoyaltyStatus, fetchReferralStats, fetchWalletData } from "@/server/actions/phase2";
 import { shouldShowRiderKyc } from "@/lib/services/customer-profile";
 import { getRiderBookingProfile, getRiderWelcomeProfile } from "@/lib/users/rider-profile";
@@ -73,7 +74,7 @@ export async function getRiderDashboardData(user: User): Promise<RiderDashboardD
   ] = await Promise.all([
     getMyBookingsForUser(userId),
     getSavedVehicles(userId),
-    getCustomerKycStatus(userId),
+    resolveCustomerKycStatus(userId),
     shouldShowRiderKyc(userId),
     getRiderBookingProfile(userId, {
       email: user.email,
@@ -96,10 +97,12 @@ export async function getRiderDashboardData(user: User): Promise<RiderDashboardD
   );
   const completedTrips = bookings.filter((b) => b.bookingStatus.toLowerCase() === "completed");
 
-  const paymentPending = bookings.filter(
-    (b) =>
-      b.paymentStatus.toLowerCase() === "pending" &&
-      !["cancelled", "completed"].includes(b.bookingStatus.toLowerCase())
+  const paymentPending = bookings.filter((b) =>
+    requiresCustomerPaymentAction({
+      bookingStatus: b.bookingStatus,
+      paymentStatus: b.paymentStatus,
+      cancellationStatus: b.cancellationStatus,
+    })
   ).length;
 
   const upcomingRide = activeTrips.filter((b) => b.bookingStatus.toLowerCase() === "confirmed").length;

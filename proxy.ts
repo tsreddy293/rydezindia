@@ -94,20 +94,11 @@ export async function proxy(request: NextRequest) {
     path === "/signup/owner" ||
     path === "/owner/login" ||
     path === "/owner/register" ||
+    path === "/owner/forgot-password" ||
     path === OWNER_DASHBOARD_PATH;
 
   const ownerOnly =
-    path.startsWith("/owner/dashboard") ||
-    path.startsWith("/owner/action-center") ||
-    path.startsWith("/owner/return-journeys") ||
-    path.startsWith("/owner/kyc") ||
-    path.startsWith("/owner/vehicles") ||
-    path.startsWith("/owner/my-vehicles") ||
-    path.startsWith("/owner/add-vehicle") ||
-    path.startsWith("/owner/edit-vehicle") ||
-    path.startsWith("/owner/bookings") ||
-    path.startsWith("/owner/earnings") ||
-    path.startsWith("/owner/profile") ||
+    (path.startsWith("/owner/") && !ownerPublic) ||
     path.startsWith("/vehicles/add") ||
     path.startsWith("/vehicles/self-drive") ||
     path.startsWith("/vehicles/driver");
@@ -151,8 +142,9 @@ export async function proxy(request: NextRequest) {
   // --- Booking routes — authenticated only (KYC checked on server) ---
   const bookingDetailMatch = path.match(/^\/booking\/([^/]+)$/);
   const bookingConfirmationMatch = path.match(/^\/booking\/confirmation\/([^/]+)$/);
+  const bookingInvoiceMatch = path.match(/^\/booking\/invoice\/([^/]+)$/);
 
-  if ((bookingDetailMatch || bookingConfirmationMatch) && !data.user) {
+  if ((bookingDetailMatch || bookingConfirmationMatch || bookingInvoiceMatch) && !data.user) {
     const returnPath = `${path}${request.nextUrl.search}`;
     return redirectToLoginWithReturnTo(returnPath);
   }

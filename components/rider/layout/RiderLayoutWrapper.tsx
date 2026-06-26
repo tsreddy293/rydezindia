@@ -22,7 +22,7 @@ export default async function RiderLayoutWrapper({ children }: { children: React
   const { user } = await requireRiderDashboard();
   const [notificationsRaw, kyc, showKycLinks] = await Promise.all([
     listNotifications({ recipientId: user.id, recipientRole: "rider", limit: 20 }),
-    getCustomerKycStatus(user.id),
+    getCustomerKycStatus(),
     shouldShowRiderKyc(user.id),
   ]);
 

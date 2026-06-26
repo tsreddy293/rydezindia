@@ -83,12 +83,18 @@ export async function listNotifications(input?: {
   return data ?? [];
 }
 
-export async function markNotificationRead(id: string) {
+export async function markNotificationRead(id: string, recipientId?: string) {
   const db = createAdminClient();
-  const { error } = await db
+  let query = db
     .from("notifications")
     .update({ read_at: new Date().toISOString() })
     .eq("id", id);
+
+  if (recipientId) {
+    query = query.eq("recipient_id", recipientId);
+  }
+
+  const { error } = await query;
   if (error && !isMissingTableError(error)) {
     console.warn("[markNotificationRead]", error.message);
   }

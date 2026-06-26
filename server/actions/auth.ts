@@ -20,7 +20,7 @@ import {
   homePathForRole,
   redirectPathForWrongAdminAccess,
 } from "@/lib/auth/rbac-paths";
-import { safePostLoginRedirect } from "@/lib/auth/safe-redirect";
+import { safeInternalPath, safeLoginPath, safePostLoginRedirect } from "@/lib/auth/safe-redirect";
 import { safeRiderRedirectPath, selfDriveKycPath } from "@/lib/kyc/self-drive-nav";
 import { resolveSelfDrivePostAuthRedirect } from "@/lib/kyc/self-drive-post-auth";
 import { assertRecentSignupOtp } from "@/lib/services/otp";
@@ -422,9 +422,10 @@ export async function signInWithRole(formData: FormData) {
   const email = String(formData.get("email") ?? "").toLowerCase().trim();
   const password = String(formData.get("password") ?? "");
   const expectedRole = normalizeRole(String(formData.get("role") ?? ""));
-  const loginPath =
-    String(formData.get("loginPath") ?? "") ||
-    (expectedRole ? ROLE_LOGIN_PATHS[expectedRole] : "/login/rider");
+  const loginPath = safeLoginPath(
+    String(formData.get("loginPath") ?? ""),
+    expectedRole ? ROLE_LOGIN_PATHS[expectedRole] : "/login/rider"
+  );
 
   const supabase = await createClient();
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
@@ -485,7 +486,7 @@ export async function signOutUser() {
 
 export async function requestPasswordReset(formData: FormData) {
   const email = String(formData.get("email") ?? "").toLowerCase().trim();
-  const loginPath = String(formData.get("loginPath") ?? "/forgot-password");
+  const loginPath = safeLoginPath(String(formData.get("loginPath") ?? ""), "/forgot-password");
   const supabase = await createClient();
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
     redirectTo: `${siteUrl()}/reset-password`,
@@ -496,7 +497,7 @@ export async function requestPasswordReset(formData: FormData) {
 
 export async function resendVerificationEmail(formData: FormData) {
   const email = String(formData.get("email") ?? "").toLowerCase().trim();
-  const loginPath = String(formData.get("loginPath") ?? "/login/rider");
+  const loginPath = safeLoginPath(String(formData.get("loginPath") ?? ""), "/login/rider");
   const supabase = await createClient();
   const { error } = await supabase.auth.resend({
     type: "signup",
@@ -511,7 +512,7 @@ export async function changePassword(formData: FormData) {
   const currentPassword = String(formData.get("current_password") ?? "");
   const newPassword = String(formData.get("new_password") ?? "");
   const confirmPassword = String(formData.get("confirm_password") ?? "");
-  const returnTo = String(formData.get("returnTo") ?? "/dashboard");
+  const returnTo = safeInternalPath(String(formData.get("returnTo") ?? ""), "/dashboard");
   const passwordError = validatePassword(newPassword);
   if (passwordError) redirect(`${returnTo}?passwordError=${encodeURIComponent(passwordError)}`);
   if (newPassword !== confirmPassword) {

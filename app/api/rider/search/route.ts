@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { getRoleForUser } from "@/lib/auth/get-role-for-user";
+import { postgrestOrIlike } from "@/lib/services/postgrest-filters";
 import { normalizeRole } from "@/lib/auth/roles";
 
 async function assertRiderApi() {
@@ -28,13 +29,12 @@ export async function GET(request: Request) {
   }
 
   const db = createAdminClient();
-  const pattern = `%${q}%`;
 
   const bookings = await db
     .from("bookings")
     .select("id, booking_reference, passenger_name, pickup_location, drop_location")
     .eq("user_id", userId)
-    .or(`booking_reference.ilike.${pattern},pickup_location.ilike.${pattern},drop_location.ilike.${pattern}`)
+    .or(postgrestOrIlike(["booking_reference", "pickup_location", "drop_location"], q))
     .limit(8);
 
   const results: Array<{ type: string; label: string; sublabel: string; href: string }> = [];

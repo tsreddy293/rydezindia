@@ -1,4 +1,5 @@
 import { PLATFORM_COMMISSION_RATE } from "@/lib/admin/admin-modules";
+import { isClosedBookingRow } from "@/lib/bookings/revenue-eligibility";
 import type {
   ActionCenterItem,
   ActionPriority,
@@ -183,7 +184,14 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
   const protectionRevenue = protection.protectionRevenue;
 
   const pendingPayments = bookingRows.filter(
-    (b) => String(b.payment_status ?? "").toLowerCase() === "pending"
+    (b) =>
+      String(b.payment_status ?? "").toLowerCase() === "pending" &&
+      !isClosedBookingRow({
+        booking_status: String(b.booking_status ?? ""),
+        payment_status: String(b.payment_status ?? ""),
+        cancellation_status: String(b.cancellation_status ?? ""),
+        refund_status: String(b.refund_status ?? ""),
+      })
   ).length;
 
   const summary = {

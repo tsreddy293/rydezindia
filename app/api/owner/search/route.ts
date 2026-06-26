@@ -2,8 +2,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { getRoleForUser } from "@/lib/auth/get-role-for-user";
 import { normalizeRole } from "@/lib/auth/roles";
+import { postgrestOrIlike } from "@/lib/services/postgrest-filters";
 
-async function assertOwnerApi(userId?: string) {
+async function assertOwnerApi() {
   const supabase = await createClient();
   const { data } = await supabase.auth.getUser();
   if (!data.user) return null;
@@ -24,13 +25,17 @@ export async function GET(request: Request) {
   if (q.length < 2) return Response.json({ results: [] });
 
   const db = createAdminClient();
-  const pattern = `%${q}%`;
 
   const { data } = await db
     .from("vehicles")
     .select("id, vehicle_make, vehicle_model, registration_number")
     .eq("owner_id", ownerId)
-    .or(`registration_number.ilike.${pattern},vehicle_make.ilike.${pattern},vehicle_model.ilike.${pattern}`)
+    .or(
+      postgrestOrIlike(
+        ["registration_number", "vehicle_make", "vehicle_model"],
+        q
+      )
+    )
     .limit(8);
 
   const results = (data ?? []).map((v) => {

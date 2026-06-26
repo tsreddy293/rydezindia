@@ -45,6 +45,8 @@ function mapBooking(b: UserBooking): OwnerDashboardBooking {
     amount: b.amount,
     bookingStatus: b.booking_status,
     paymentStatus: b.payment_status,
+    cancellationStatus: b.cancellation_status ?? undefined,
+    refundStatus: b.refund_status ?? undefined,
     pickupLocation: b.pickup_location,
     dropLocation: b.drop_location,
     pickupDate: b.pickup_date,

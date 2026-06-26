@@ -1,5 +1,6 @@
 import { createHmac } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isBookingCancelledStatus } from "@/lib/bookings/cancellation-eligibility";
 
 function getRazorpayConfig() {
   const keyId = process.env.RAZORPAY_KEY_ID;
@@ -78,9 +79,48 @@ export async function verifyRazorpayPayment(input: {
 
   const { data: paymentRow } = await db
     .from("payments")
-    .select("id, amount, owner_id, user_id, booking_id")
+    .select("id, amount, owner_id, user_id, booking_id, status")
     .eq("razorpay_order_id", input.razorpayOrderId)
     .maybeSingle();
+
+  if (!paymentRow) throw new Error("Payment record not found");
+
+  const paymentBookingId = String((paymentRow as { booking_id?: string }).booking_id ?? "").trim();
+  if (paymentBookingId && paymentBookingId !== input.bookingId) {
+    throw new Error("Booking does not match payment order");
+  }
+
+  const resolvedBookingId = paymentBookingId || input.bookingId;
+
+  const { data: existingBooking } = await db
+    .from("bookings")
+    .select("owner_id, amount, platform_fee, booking_status, payment_status, cancellation_status, user_id")
+    .eq("id", resolvedBookingId)
+    .maybeSingle();
+
+  if (!existingBooking) throw new Error("Booking not found");
+
+  const booking = existingBooking as {
+    owner_id?: string;
+    amount?: number;
+    platform_fee?: number;
+    booking_status?: string;
+    payment_status?: string;
+    cancellation_status?: string | null;
+    user_id?: string | null;
+  };
+
+  if (
+    isBookingCancelledStatus(booking.booking_status, booking.cancellation_status) ||
+    String(booking.booking_status ?? "").toLowerCase() === "refunded"
+  ) {
+    throw new Error("Cannot verify payment for a cancelled or refunded booking");
+  }
+
+  const currentPayment = String(booking.payment_status ?? "").toLowerCase();
+  if (currentPayment === "paid" || currentPayment === "partial") {
+    return { verified: true };
+  }
 
   await db
     .from("payments")
@@ -93,59 +133,58 @@ export async function verifyRazorpayPayment(input: {
     })
     .eq("razorpay_order_id", input.razorpayOrderId);
 
-  const paymentUserId = (paymentRow as { user_id?: string } | null)?.user_id;
+  const paymentUserId = (paymentRow as { user_id?: string }).user_id;
   const bookingUpdate: Record<string, unknown> = {
     payment_status: input.paymentType === "advance" ? "partial" : "paid",
     booking_status: "confirmed",
   };
-  if (paymentUserId) {
+  if (paymentUserId && !booking.user_id) {
     bookingUpdate.user_id = paymentUserId;
   }
 
-  await db.from("bookings").update(bookingUpdate).eq("id", input.bookingId);
+  await db.from("bookings").update(bookingUpdate).eq("id", resolvedBookingId);
 
-  // Record owner earnings
-  const { data: booking } = await db
-    .from("bookings")
-    .select("owner_id, amount, platform_fee")
-    .eq("id", input.bookingId)
-    .maybeSingle();
+  const gross = Number(booking.amount ?? (paymentRow as { amount?: number }).amount ?? 0);
+  const platformFee = Number(booking.platform_fee ?? Math.round(gross * 0.05));
+  const ownerId = booking.owner_id ?? (paymentRow as { owner_id?: string }).owner_id;
 
-  if (booking) {
-    const gross = Number((booking as { amount?: number }).amount ?? paymentRow?.amount ?? 0);
-    const platformFee = Number((booking as { platform_fee?: number }).platform_fee ?? Math.round(gross * 0.05));
-    const ownerId = (booking as { owner_id?: string }).owner_id ?? (paymentRow as { owner_id?: string } | null)?.owner_id;
+  if (ownerId) {
+    const { data: existingEarning } = await db
+      .from("owner_earnings")
+      .select("id")
+      .eq("booking_id", resolvedBookingId)
+      .maybeSingle();
 
-    if (ownerId) {
+    if (!existingEarning) {
       await db.from("owner_earnings").insert({
         owner_id: ownerId,
-        booking_id: input.bookingId,
-        payment_id: (paymentRow as { id?: string } | null)?.id ?? null,
+        booking_id: resolvedBookingId,
+        payment_id: (paymentRow as { id?: string }).id ?? null,
         gross_amount: gross,
         platform_fee: platformFee,
         net_amount: gross - platformFee,
         status: "settled",
       });
     }
+  }
 
-    const { data: fullBooking } = await db
-      .from("bookings")
-      .select("mobile, passenger_name, booking_reference, owner_id")
-      .eq("id", input.bookingId)
-      .maybeSingle();
+  const { data: fullBooking } = await db
+    .from("bookings")
+    .select("mobile, passenger_name, booking_reference, owner_id")
+    .eq("id", resolvedBookingId)
+    .maybeSingle();
 
-    const mobile = (fullBooking as { mobile?: string } | null)?.mobile;
-    if (mobile) {
-      const { dispatchBookingEvent } = await import("@/lib/services/messaging");
-      await dispatchBookingEvent({
-        event: "payment_success",
-        customerMobile: mobile,
-        payload: {
-          bookingReference: (fullBooking as { booking_reference?: string }).booking_reference,
-          amount: gross,
-        },
-      });
-    }
+  const mobile = (fullBooking as { mobile?: string } | null)?.mobile;
+  if (mobile) {
+    const { dispatchBookingEvent } = await import("@/lib/services/messaging");
+    await dispatchBookingEvent({
+      event: "payment_success",
+      customerMobile: mobile,
+      payload: {
+        bookingReference: (fullBooking as { booking_reference?: string }).booking_reference,
+        amount: gross,
+      },
+    });
   }
 
   return { verified: true };
@@ -182,7 +221,38 @@ export async function refundRazorpayPayment(input: {
     metadata: payload,
   });
   await db.from("payments").update({ status: "refunded" }).eq("id", input.paymentId);
-  await db.from("bookings").update({ payment_status: "refunded", booking_status: "refunded" }).eq("id", input.bookingId);
+
+  const { data: bookingRow } = await db
+    .from("bookings")
+    .select("booking_status, cancellation_status")
+    .eq("id", input.bookingId)
+    .maybeSingle();
+
+  const isCancelled =
+    isBookingCancelledStatus(
+      (bookingRow as { booking_status?: string } | null)?.booking_status,
+      (bookingRow as { cancellation_status?: string } | null)?.cancellation_status
+    ) ||
+    String((bookingRow as { booking_status?: string } | null)?.booking_status ?? "").toLowerCase() ===
+      "cancelled";
+
+  await db
+    .from("bookings")
+    .update({
+      payment_status: "refunded",
+      ...(isCancelled ? {} : { booking_status: "refunded" }),
+    })
+    .eq("id", input.bookingId);
+
+  await db
+    .from("owner_earnings")
+    .update({ status: "cancelled" })
+    .eq("booking_id", input.bookingId);
 
   return payload;
+}
+
+export async function cancelOwnerEarningsForBooking(bookingId: string) {
+  const db = createAdminClient();
+  await db.from("owner_earnings").update({ status: "cancelled" }).eq("booking_id", bookingId);
 }

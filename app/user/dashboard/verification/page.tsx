@@ -32,7 +32,7 @@ export default async function VerificationDashboardPage({ searchParams }: Props)
   let canSubmit = true;
 
   try {
-    const kyc = await getCustomerKycStatus(user.id);
+    const kyc = await getCustomerKycStatus();
     status = kyc.status;
     documents = kyc.documents;
     hasRequiredDocs = kyc.hasRequiredDocs;

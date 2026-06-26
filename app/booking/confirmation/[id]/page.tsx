@@ -6,6 +6,7 @@ import BookingInvoiceCard from "@/components/booking/BookingInvoiceCard";
 import CancellationDetailsCard from "@/components/booking/CancellationDetailsCard";
 import ReviewForm from "@/components/reviews/ReviewForm";
 import { getBookingConfirmationById } from "@/lib/supabase/queries";
+import { assertRiderBookingAccess } from "@/lib/auth/booking-access";
 import { requireRiderForBooking } from "@/lib/auth/customer-auth";
 import { isBookingCancelledStatus } from "@/lib/bookings/cancellation-eligibility";
 
@@ -19,11 +20,11 @@ export default async function BookingConfirmationPage({ params }: Props) {
   const { id } = await params;
   const returnPath = `/booking/confirmation/${id}`;
 
-  await requireRiderForBooking(returnPath);
+  const { user } = await requireRiderForBooking(returnPath);
 
   const booking = await getBookingConfirmationById(id);
 
-  if (!booking) notFound();
+  assertRiderBookingAccess(booking, user.id);
 
   const isCancelled = isBookingCancelledStatus(booking.booking_status, booking.cancellation_status);
   const showReview =

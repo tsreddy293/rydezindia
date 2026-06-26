@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { forbidden, notFound } from "next/navigation";
+import { assertRiderBookingAccess } from "@/lib/auth/booking-access";
 import { requireRiderForBooking } from "@/lib/auth/customer-auth";
 import { getBookingConfirmationById } from "@/lib/supabase/queries";
 import { FLEXIBLE_PROTECTION_NAME } from "@/lib/services/flexible-cancellation-protection";
@@ -19,9 +20,9 @@ interface Props {
 
 export default async function BookingInvoicePage({ params }: Props) {
   const { id } = await params;
-  await requireRiderForBooking(`/booking/invoice/${id}`);
+  const { user } = await requireRiderForBooking(`/booking/invoice/${id}`);
   const booking = await getBookingConfirmationById(id);
-  if (!booking) notFound();
+  assertRiderBookingAccess(booking, user.id);
 
   const paid = isPaymentCompleted(booking.payment_status);
   const cancelled = isCancelledStatus(

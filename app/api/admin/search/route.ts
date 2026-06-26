@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { getRoleForUser } from "@/lib/auth/get-role-for-user";
+import { postgrestOrIlike } from "@/lib/services/postgrest-filters";
 import { normalizeRole } from "@/lib/auth/roles";
 
 async function assertAdminApi() {
@@ -26,23 +27,22 @@ export async function GET(request: Request) {
   }
 
   const db = createAdminClient();
-  const pattern = `%${q}%`;
 
   const [bookings, vehicles, users] = await Promise.all([
     db
       .from("bookings")
       .select("id, booking_reference, passenger_name, mobile")
-      .or(`booking_reference.ilike.${pattern},passenger_name.ilike.${pattern},mobile.ilike.${pattern}`)
+      .or(postgrestOrIlike(["booking_reference", "passenger_name", "mobile"], q))
       .limit(8),
     db
       .from("vehicles")
       .select("id, vehicle_name, registration_number")
-      .or(`registration_number.ilike.${pattern},vehicle_name.ilike.${pattern}`)
+      .or(postgrestOrIlike(["registration_number", "vehicle_name"], q))
       .limit(8),
     db
       .from("users")
       .select("id, name, mobile, email, role")
-      .or(`name.ilike.${pattern},mobile.ilike.${pattern},email.ilike.${pattern}`)
+      .or(postgrestOrIlike(["name", "mobile", "email"], q))
       .limit(8),
   ]);
 

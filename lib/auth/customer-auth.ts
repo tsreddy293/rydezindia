@@ -38,7 +38,7 @@ export async function requireRiderForBooking(returnPath?: string): Promise<{
     "rider";
 
   if (currentRole !== "rider") {
-    redirectToCustomerLogin(returnPath);
+    redirect(homePathForRole(currentRole));
   }
 
   return { user: data.user, role: "rider" };

@@ -133,7 +133,7 @@ export function isActionableOwnerEarning(
   const bookingId = String(earning.booking_id ?? "").trim();
   if (!bookingId) return true;
   const booking = bookingsById.get(bookingId);
-  if (!booking) return true;
+  if (!booking) return false;
   return !isOwnerClosedBooking(booking);
 }
 

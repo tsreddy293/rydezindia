@@ -1578,6 +1578,7 @@ export async function getBookingConfirmationById(id: string): Promise<BookingCon
     trip_type: getString(row, "trip_type") || undefined,
     vehicle_id: getString(row, "vehicle_id") || undefined,
     owner_id: getString(row, "owner_id") || undefined,
+    user_id: getString(row, "user_id") || undefined,
     created_at: getString(row, "created_at"),
     ...protection,
     trip_fare_amount: getNumber(row, "trip_fare_amount") || undefined,
@@ -2546,26 +2547,35 @@ export async function getOwnerDashboardMetrics(ownerId: string): Promise<OwnerDa
 }
 
 export async function getOwnerBookings(ownerId: string): Promise<UserBooking[]> {
-  const rows = await selectRows(
-    "bookings",
-    "id, owner_id, booking_reference, booking_type, passenger_name, amount, booking_status, payment_status, pickup_location, drop_location, pickup_date, created_at",
-    100
-  );
-  return rows
-    .filter((r) => getString(r, "owner_id") === ownerId)
-    .map((row) => ({
-      id: getString(row, "id"),
-      booking_reference: getString(row, "booking_reference") || undefined,
-      booking_type: getString(row, "booking_type", "booking"),
-      passenger_name: getString(row, "passenger_name", "Passenger"),
-      amount: getNumber(row, "amount"),
-      booking_status: getString(row, "booking_status", "pending"),
-      payment_status: getString(row, "payment_status", "pending"),
-      pickup_location: getString(row, "pickup_location") || undefined,
-      drop_location: getString(row, "drop_location") || undefined,
-      pickup_date: getString(row, "pickup_date") || undefined,
-      created_at: getString(row, "created_at"),
-    }));
+  const { data, error } = await db()
+    .from("bookings")
+    .select(
+      "id, owner_id, booking_reference, booking_type, passenger_name, amount, booking_status, payment_status, pickup_location, drop_location, pickup_date, created_at, cancellation_status, refund_status"
+    )
+    .eq("owner_id", ownerId)
+    .order("created_at", { ascending: false })
+    .limit(200);
+
+  if (error) {
+    console.error("[getOwnerBookings]", error.message);
+    return [];
+  }
+
+  return (data ?? []).map((row) => ({
+    id: getString(row, "id"),
+    booking_reference: getString(row, "booking_reference") || undefined,
+    booking_type: getString(row, "booking_type", "booking"),
+    passenger_name: getString(row, "passenger_name", "Passenger"),
+    amount: getNumber(row, "amount"),
+    booking_status: getString(row, "booking_status", "pending"),
+    payment_status: getString(row, "payment_status", "pending"),
+    pickup_location: getString(row, "pickup_location") || undefined,
+    drop_location: getString(row, "drop_location") || undefined,
+    pickup_date: getString(row, "pickup_date") || undefined,
+    created_at: getString(row, "created_at"),
+    cancellation_status: getString(row, "cancellation_status") || undefined,
+    refund_status: getString(row, "refund_status") || undefined,
+  }));
 }
 
 export async function getUserBookings(userId: string): Promise<UserBooking[]> {
@@ -2683,8 +2693,18 @@ export async function getReturnJourneyMarketplace(filters?: {
 }
 
 export async function getOwnerEarnings(ownerId: string) {
-  const rows = await selectRows("owner_earnings", "*", 200);
-  return rows.filter((r) => getString(r, "owner_id") === ownerId);
+  const { data, error } = await db()
+    .from("owner_earnings")
+    .select("*")
+    .eq("owner_id", ownerId)
+    .order("earned_at", { ascending: false })
+    .limit(500);
+
+  if (error) {
+    console.error("[getOwnerEarnings]", error.message);
+    return [];
+  }
+  return data ?? [];
 }
 
 export async function getVehicleDocumentsForAdmin(vehicleId: string) {

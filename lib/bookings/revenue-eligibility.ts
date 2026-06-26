@@ -9,22 +9,37 @@ export type RevenueBookingRow = {
   created_at?: string | null;
 };
 
-const CANCELLED_BOOKING_STATUSES = new Set(["cancelled", "already_cancelled"]);
+const CLOSED_BOOKING_STATUSES = new Set([
+  "cancelled",
+  "already_cancelled",
+  "refunded",
+  "expired",
+  "rejected",
+  "failed",
+]);
 
 function normalize(value: string | null | undefined): string {
   return String(value ?? "").toLowerCase().trim();
 }
 
-export function isCancelledBookingRow(row: RevenueBookingRow): boolean {
+export function isClosedBookingRow(row: RevenueBookingRow): boolean {
   const bookingStatus = normalize(row.booking_status);
   const cancellationStatus = normalize(row.cancellation_status);
-  return CANCELLED_BOOKING_STATUSES.has(bookingStatus) || cancellationStatus === "cancelled";
+  if (CLOSED_BOOKING_STATUSES.has(bookingStatus)) return true;
+  if (cancellationStatus === "cancelled") return true;
+  if (normalize(row.payment_status) === "refunded" || normalize(row.payment_status) === "failed") return true;
+  if (normalize(row.refund_status) === "refunded" || normalize(row.refund_status) === "rejected") return true;
+  return false;
+}
+
+export function isCancelledBookingRow(row: RevenueBookingRow): boolean {
+  return isClosedBookingRow(row);
 }
 
 /** Include in revenue only: paid, not cancelled, not refunded. */
 export function countsTowardRevenue(row: RevenueBookingRow): boolean {
   if (normalize(row.payment_status) !== "paid") return false;
-  if (isCancelledBookingRow(row)) return false;
+  if (isClosedBookingRow(row)) return false;
   if (normalize(row.refund_status) === "refunded") return false;
   return true;
 }

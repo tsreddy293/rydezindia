@@ -18,6 +18,7 @@ import {
   validateKycUploadFile,
   type KycUploadField,
 } from "@/lib/kyc/upload-rules";
+import { resolveCustomerKycStatus } from "@/lib/kyc/resolve-customer-kyc-status";
 import { markSelfDriveInterest } from "@/lib/services/customer-profile";
 import {
   formatKycFailureForClient,
@@ -80,24 +81,10 @@ async function uploadIfPresent(userId: string, formData: FormData, name: string,
   return uploadCustomerKycFile(userId, key, file);
 }
 
-export async function getCustomerKycStatus(userId?: string): Promise<CustomerKycStatusResult> {
+export async function getCustomerKycStatus(): Promise<CustomerKycStatusResult> {
   try {
-    const resolvedUserId = userId ?? (await requireRole("user")).user.id;
-    const kyc = await getCustomerKyc(resolvedUserId);
-    const persisted = hasCustomerKycRecord(kyc);
-    const documents = readCustomerKycDocuments(persisted ? kyc : null);
-    const rawStatus = String(kyc.status ?? "not_submitted");
-    const status = customerKycDisplayStatus(rawStatus, documents);
-    const hasRequiredDocs = customerKycHasRequiredDocs(documents);
-
-    return {
-      status,
-      rawStatus,
-      kyc: persisted ? kyc : null,
-      documents,
-      hasRequiredDocs,
-      canSubmit: status !== "approved",
-    };
+    const { user } = await requireRole("user");
+    return resolveCustomerKycStatus(user.id);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to load KYC status";
     console.error("[getCustomerKycStatus]", error);
@@ -109,6 +96,10 @@ export async function getCustomerKycStatus(userId?: string): Promise<CustomerKyc
 }
 
 export async function submitCustomerKycForUser(userId: string, formData: FormData): Promise<ActionResult> {
+  const { user } = await requireRole("user");
+  if (user.id !== userId) {
+    return { success: false, error: "Unauthorized" };
+  }
   let step = "load_existing";
   try {
     const existing = await getCustomerKyc(userId);
