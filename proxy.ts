@@ -98,6 +98,8 @@ export async function proxy(request: NextRequest) {
 
   const ownerOnly =
     path.startsWith("/owner/dashboard") ||
+    path.startsWith("/owner/action-center") ||
+    path.startsWith("/owner/return-journeys") ||
     path.startsWith("/owner/kyc") ||
     path.startsWith("/owner/vehicles") ||
     path.startsWith("/owner/my-vehicles") ||
