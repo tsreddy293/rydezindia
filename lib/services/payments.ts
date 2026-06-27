@@ -94,7 +94,7 @@ export async function verifyRazorpayPayment(input: {
 
   const { data: existingBooking } = await db
     .from("bookings")
-    .select("owner_id, amount, platform_fee, booking_status, payment_status, cancellation_status, user_id")
+    .select("owner_id, amount, platform_fee, booking_status, payment_status, user_id")
     .eq("id", resolvedBookingId)
     .maybeSingle();
 
@@ -106,12 +106,11 @@ export async function verifyRazorpayPayment(input: {
     platform_fee?: number;
     booking_status?: string;
     payment_status?: string;
-    cancellation_status?: string | null;
     user_id?: string | null;
   };
 
   if (
-    isBookingCancelledStatus(booking.booking_status, booking.cancellation_status) ||
+    isBookingCancelledStatus(booking.booking_status) ||
     String(booking.booking_status ?? "").toLowerCase() === "refunded"
   ) {
     throw new Error("Cannot verify payment for a cancelled or refunded booking");
@@ -224,14 +223,13 @@ export async function refundRazorpayPayment(input: {
 
   const { data: bookingRow } = await db
     .from("bookings")
-    .select("booking_status, cancellation_status")
+    .select("booking_status")
     .eq("id", input.bookingId)
     .maybeSingle();
 
   const isCancelled =
     isBookingCancelledStatus(
-      (bookingRow as { booking_status?: string } | null)?.booking_status,
-      (bookingRow as { cancellation_status?: string } | null)?.cancellation_status
+      (bookingRow as { booking_status?: string } | null)?.booking_status
     ) ||
     String((bookingRow as { booking_status?: string } | null)?.booking_status ?? "").toLowerCase() ===
       "cancelled";

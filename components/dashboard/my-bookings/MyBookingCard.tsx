@@ -45,17 +45,13 @@ export default function MyBookingCard({ booking, onBookingCancelled }: Props) {
   const router = useRouter();
   const [expanded, setExpanded] = useState(false);
 
-  const isCancelled = isBookingCancelledStatus(
-    booking.booking_status,
-    booking.cancellation_status
-  );
+  const isCancelled = isBookingCancelledStatus(booking.booking_status);
 
   const showCancel =
     !isCancelled &&
     canCustomerCancelBooking({
       bookingStatus: booking.booking_status,
       paymentStatus: booking.payment_status,
-      cancellationStatus: booking.cancellation_status,
       pickupDate: booking.pickup_date,
       pickupTime: booking.pickup_time,
     });
@@ -65,7 +61,6 @@ export default function MyBookingCard({ booking, onBookingCancelled }: Props) {
   const canDownloadInvoice = canGenerateTaxInvoice({
     paymentStatus: booking.payment_status,
     bookingStatus: booking.booking_status,
-    cancellationStatus: booking.cancellation_status,
   });
 
   const rebookHref =
@@ -132,10 +127,10 @@ export default function MyBookingCard({ booking, onBookingCancelled }: Props) {
                 {booking.vehicle_type && (
                   <span className="text-xs text-gray-500 capitalize">{booking.vehicle_type}</span>
                 )}
-                {!isCancelled && (booking.protection_selected || booking.flexible_cancellation) && (
+                {!isCancelled && booking.protection_selected && (
                   <ProtectionStatusBadge
                     selected
-                    fee={booking.flexible_cancellation_fee ?? undefined}
+                    fee={booking.protection_fee ?? undefined}
                   />
                 )}
               </div>
@@ -186,7 +181,6 @@ export default function MyBookingCard({ booking, onBookingCancelled }: Props) {
             <PaymentStatusBadge
               status={booking.payment_status}
               bookingStatus={booking.booking_status}
-              cancellationStatus={booking.cancellation_status}
               refundStatus={booking.refund_status}
             />
             {isCancelled &&
@@ -276,7 +270,6 @@ export default function MyBookingCard({ booking, onBookingCancelled }: Props) {
             <BookingTimeline
               bookingStatus={booking.booking_status}
               paymentStatus={booking.payment_status}
-              cancellationStatus={booking.cancellation_status}
               cancelledByRole={booking.cancelled_by_role}
               refundStatus={booking.refund_status}
               createdAt={booking.created_at}

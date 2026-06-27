@@ -37,7 +37,6 @@ function mapBooking(b: MyBookingRecord): RiderDashboardBooking {
     vehicleName: b.vehicle_name,
     vehicleImage: b.vehicle_image,
     createdAt: b.created_at,
-    cancellationStatus: b.cancellation_status,
     cancelledAt: b.cancelled_at,
     cancelledByRole: b.cancelled_by_role,
     refundStatus: b.refund_status,
@@ -101,7 +100,6 @@ export async function getRiderDashboardData(user: User): Promise<RiderDashboardD
     requiresCustomerPaymentAction({
       bookingStatus: b.bookingStatus,
       paymentStatus: b.paymentStatus,
-      cancellationStatus: b.cancellationStatus,
     })
   ).length;
 

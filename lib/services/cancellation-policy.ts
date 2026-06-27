@@ -38,7 +38,6 @@ export interface RefundCalculationInput {
   pickupDate?: string | null;
   pickupTime?: string | null;
   cancelledAt?: Date;
-  flexibleCancellation?: boolean;
   protectionSelected?: boolean;
   paymentStatus?: string | null;
 }
@@ -175,7 +174,7 @@ export function calculateRefund(input: RefundCalculationInput): RefundCalculatio
   }
 
   let flexibleApplied = false;
-  const hasProtection = Boolean(input.flexibleCancellation || input.protectionSelected);
+  const hasProtection = Boolean(input.protectionSelected);
 
   if (bookingType === "self_drive" && hasProtection && hoursBefore !== null && !afterStart) {
     tripFareRefundPercent = flexibleProtectionTripFarePercent(hoursBefore, afterStart);

@@ -246,7 +246,6 @@ function mapRowToMyBookingRecord(
     pickup_date: getString(row, "pickup_date") || undefined,
     pickup_time: getString(row, "pickup_time") || undefined,
     created_at: getString(row, "created_at"),
-    cancellation_status: getString(row, "cancellation_status") || undefined,
     cancelled_at: getString(row, "cancelled_at") || undefined,
     refund_amount: getNumber(row, "refund_amount") || undefined,
     refund_status: getString(row, "refund_status") || undefined,

@@ -6,7 +6,6 @@ import { formatDate } from "@/lib/utils";
 interface Props {
   bookingStatus: string;
   paymentStatus?: string;
-  cancellationStatus?: string | null;
   cancelledByRole?: string | null;
   refundStatus?: string | null;
   createdAt?: string;
@@ -26,14 +25,12 @@ const CANCELLED_STEPS: { key: StepKey; label: string }[] = [
 
 export default function BookingTimeline({
   bookingStatus,
-  cancellationStatus,
   cancelledByRole,
   createdAt,
   cancelledAt,
   className = "",
 }: Props) {
-  const isCancelled =
-    cancellationStatus === "cancelled" || bookingStatus.toLowerCase() === "cancelled";
+  const isCancelled = bookingStatus.toLowerCase() === "cancelled";
 
   if (!isCancelled) {
     return (

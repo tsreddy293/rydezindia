@@ -9,7 +9,6 @@ interface RefundRow {
   booking_reference?: string | null;
   passenger_name?: string | null;
   protection_fee?: number | null;
-  flexible_cancellation_fee?: number | null;
   protection_plan_name?: string | null;
   protection_status?: string | null;
   refund_amount?: number | null;
@@ -139,7 +138,7 @@ export default function AdminProtectionClient({ analytics, refundReport }: Props
                     <td className="px-4 py-3 font-medium">{row.booking_reference ?? String(row.id).slice(0, 8)}</td>
                     <td className="px-4 py-3">{row.passenger_name ?? "—"}</td>
                     <td className="px-4 py-3">
-                      {formatINR(Number(row.protection_fee ?? row.flexible_cancellation_fee ?? 0))}
+                      {formatINR(Number(row.protection_fee ?? 0))}
                     </td>
                     <td className="px-4 py-3 font-semibold text-emerald-700">
                       {formatINR(Number(row.refund_amount ?? 0))}

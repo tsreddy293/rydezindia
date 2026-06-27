@@ -5,7 +5,6 @@ export type RevenueBookingRow = {
   booking_status?: string | null;
   payment_status?: string | null;
   refund_status?: string | null;
-  cancellation_status?: string | null;
   created_at?: string | null;
 };
 
@@ -24,9 +23,7 @@ function normalize(value: string | null | undefined): string {
 
 export function isClosedBookingRow(row: RevenueBookingRow): boolean {
   const bookingStatus = normalize(row.booking_status);
-  const cancellationStatus = normalize(row.cancellation_status);
   if (CLOSED_BOOKING_STATUSES.has(bookingStatus)) return true;
-  if (cancellationStatus === "cancelled") return true;
   if (normalize(row.payment_status) === "refunded" || normalize(row.payment_status) === "failed") return true;
   if (normalize(row.refund_status) === "refunded" || normalize(row.refund_status) === "rejected") return true;
   return false;

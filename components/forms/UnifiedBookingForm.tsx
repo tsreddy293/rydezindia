@@ -192,7 +192,6 @@ export default function UnifiedBookingForm(props: Props) {
       discount_amount: isSelfDrive ? 0 : driverPricing!.discountAmount,
       trip_fare_amount: totalFare,
       security_deposit_amount: isSelfDrive ? selfDrivePricing!.deposit.amount : 0,
-      flexible_cancellation: isSelfDrive ? flexibleCancellation : false,
       protection_selected: isSelfDrive ? flexibleCancellation : false,
       protection_fee: isSelfDrive && flexibleCancellation ? protectionFee : 0,
       vehicle_type: listing.vehicle_type,

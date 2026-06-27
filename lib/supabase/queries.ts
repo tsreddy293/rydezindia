@@ -86,13 +86,18 @@ import {
   buildVehicleDisplayName,
   maskRegistrationNumber,
   matchesCity,
-  matchesVehicleCategory,
   normalizeVehicleCategory,
   resolveDailyFare,
   resolveSecurityDeposit,
   resolveVehicleCity,
   SELF_DRIVE_SEARCH_SQL,
 } from "@/lib/vehicles/search";
+import {
+  applyVehicleCategoryDbFilter,
+  isAllVehicleTypesFilter,
+  resolveVehicleCategoryDbFilter,
+  vehicleRowMatchesTypeFilter,
+} from "@/lib/vehicles/vehicle-type-filter";
 import {
   isServiceEnabled,
   type VehicleServiceKey,
@@ -510,7 +515,10 @@ function ownerEligibilityDebug(
   };
 }
 
-async function mergeApprovedSelfDriveListings(primary: Row[]): Promise<Row[]> {
+async function mergeApprovedSelfDriveListings(
+  primary: Row[],
+  vehicleType?: string
+): Promise<Row[]> {
   const byId = new Map(primary.map((row) => [getString(row, "id"), row]));
 
   const { data, error } = await db()
@@ -540,10 +548,13 @@ async function mergeApprovedSelfDriveListings(primary: Row[]): Promise<Row[]> {
 
   if (missingIds.length === 0) return primary;
 
-  const { data: vehicles } = await db()
+  let vehicleQuery = db()
     .from("vehicles")
     .select("*")
     .in("id", [...new Set(missingIds)]);
+  vehicleQuery = applyVehicleCategoryDbFilter(vehicleQuery, vehicleType);
+
+  const { data: vehicles } = await vehicleQuery;
 
   for (const row of asRows(vehicles)) {
     if (!isVehicleSearchActive(row) || !passesSelfDriveService(row)) continue;
@@ -553,13 +564,18 @@ async function mergeApprovedSelfDriveListings(primary: Row[]): Promise<Row[]> {
   return [...byId.values()];
 }
 
-/** Self-drive search: approved vehicles only — no owner gate, no city/date/type filters. */
-async function fetchSelfDriveSearchVehicles(): Promise<{ rows: Row[]; error: string | null }> {
-  const { data, error } = await db()
+/** Self-drive search: approved vehicles with optional vehicle_category filter at query time. */
+async function fetchSelfDriveSearchVehicles(
+  vehicleType?: string
+): Promise<{ rows: Row[]; error: string | null }> {
+  let query = db()
     .from("vehicles")
     .select("*")
     .order("created_at", { ascending: false })
     .limit(500);
+  query = applyVehicleCategoryDbFilter(query, vehicleType);
+
+  const { data, error } = await query;
 
   if (error) {
     if (isMissingTableError(error)) return { rows: [], error: null };
@@ -571,7 +587,7 @@ async function fetchSelfDriveSearchVehicles(): Promise<{ rows: Row[]; error: str
       isVehicleMarketplaceApproved(row) && isVehicleSearchActive(row) && passesSelfDriveService(row)
   );
 
-  rows = await mergeApprovedSelfDriveListings(rows);
+  rows = await mergeApprovedSelfDriveListings(rows, vehicleType);
 
   const debugRow = await loadSelfDriveDebugVehicleRow(rows);
   if (debugRow) {
@@ -590,14 +606,18 @@ async function fetchSelfDriveSearchVehicles(): Promise<{ rows: Row[]; error: str
 }
 
 async function fetchApprovedMarketplaceVehicles(
-  service?: VehicleServiceKey
+  service?: VehicleServiceKey,
+  vehicleType?: string
 ): Promise<{ rows: Row[]; error: string | null }> {
   const usedIsActiveFilter = true;
-  const { data, error } = await db()
+  let query = db()
     .from("vehicles")
     .select("*")
     .order("created_at", { ascending: false })
     .limit(500);
+  query = applyVehicleCategoryDbFilter(query, vehicleType);
+
+  const { data, error } = await query;
 
   if (error) {
     if (isMissingTableError(error)) return { rows: [], error: null };
@@ -711,7 +731,10 @@ async function loadDriverDebugVehicleRow(fetchedRows: Row[]): Promise<Row | null
   return null;
 }
 
-async function mergeDriverVehicleListings(primary: Row[]): Promise<Row[]> {
+async function mergeDriverVehicleListings(
+  primary: Row[],
+  vehicleType?: string
+): Promise<Row[]> {
   const byId = new Map(primary.map((row) => [getString(row, "id"), row]));
 
   const { data, error } = await db()
@@ -741,10 +764,13 @@ async function mergeDriverVehicleListings(primary: Row[]): Promise<Row[]> {
 
   if (missingVehicleIds.length === 0) return primary;
 
-  const { data: vehicles } = await db()
+  let vehicleQuery = db()
     .from("vehicles")
     .select("*")
     .in("id", [...new Set(missingVehicleIds)]);
+  vehicleQuery = applyVehicleCategoryDbFilter(vehicleQuery, vehicleType);
+
+  const { data: vehicles } = await vehicleQuery;
 
   for (const row of asRows(vehicles)) {
     byId.set(getString(row, "id"), row);
@@ -753,27 +779,38 @@ async function mergeDriverVehicleListings(primary: Row[]): Promise<Row[]> {
   return [...byId.values()];
 }
 
-async function loadDriverSearchCandidates(): Promise<{ rows: Row[]; error: string | null }> {
-  const { data, error } = await db()
+async function loadDriverSearchCandidates(
+  vehicleType?: string
+): Promise<{ rows: Row[]; error: string | null }> {
+  let query = db()
     .from("vehicles")
     .select("*")
     .order("created_at", { ascending: false })
     .limit(500);
+  query = applyVehicleCategoryDbFilter(query, vehicleType);
+
+  const { data, error } = await query;
 
   if (error) {
     if (isMissingTableError(error)) return { rows: [], error: null };
     return { rows: [], error: error.message };
   }
 
-  const rows = await mergeDriverVehicleListings(asRows(data));
-  console.log(`[loadDriverSearchCandidates] loaded ${rows.length} vehicle candidate(s)`);
+  const rows = await mergeDriverVehicleListings(asRows(data), vehicleType);
+  console.log(
+    `[loadDriverSearchCandidates] loaded ${rows.length} vehicle candidate(s)` +
+      (vehicleType && !isAllVehicleTypesFilter(vehicleType)
+        ? ` (vehicle_category=${resolveVehicleCategoryDbFilter(vehicleType)})`
+        : "")
+  );
   return { rows, error: null };
 }
 
 async function fetchDriverSearchVehicles(
-  serviceKey: VehicleServiceKey
+  serviceKey: VehicleServiceKey,
+  vehicleType?: string
 ): Promise<{ rows: Row[]; error: string | null }> {
-  const { rows: allRows, error } = await loadDriverSearchCandidates();
+  const { rows: allRows, error } = await loadDriverSearchCandidates(vehicleType);
   if (error) return { rows: [], error };
 
   const ownerIds = [...new Set(allRows.map((row) => getString(row, "owner_id")).filter(Boolean))];
@@ -1020,7 +1057,7 @@ export async function getPlatformStats(): Promise<PlatformStats> {
     countTable("bookings", { createdAfter: `${today}T00:00:00.000Z` }),
     selectRows(
       "bookings",
-      "id, booking_type, amount, booking_status, payment_status, refund_status, cancellation_status, created_at",
+      "id, booking_type, amount, booking_status, payment_status, refund_status, created_at",
       500
     ),
     selectRows(
@@ -1284,6 +1321,8 @@ export async function searchReturnJourneys(filters: {
   if (filters.fromCity) query = query.ilike("from_city", `%${filters.fromCity}%`);
   if (filters.toCity) query = query.ilike("to_city", `%${filters.toCity}%`);
   if (filters.date) query = query.eq("journey_date", filters.date);
+  const vehicleCategoryFilter = resolveVehicleCategoryDbFilter(filters.vehicleType);
+  if (vehicleCategoryFilter) query = query.eq("vehicle_type", vehicleCategoryFilter);
 
   const { data, error } = await query;
   if (error) {
@@ -1293,8 +1332,15 @@ export async function searchReturnJourneys(filters: {
 
   const journeyRows = asRows(data).filter(isPublicListing);
   const journeyVehicleIds = journeyRows.map((row) => getString(row, "vehicle_id")).filter(Boolean);
-  const { data: journeyVehicles } = journeyVehicleIds.length
-    ? await db().from("vehicles").select("*").in("id", journeyVehicleIds)
+  let journeyVehicleQuery =
+    journeyVehicleIds.length > 0
+      ? db().from("vehicles").select("*").in("id", journeyVehicleIds)
+      : null;
+  if (journeyVehicleQuery) {
+    journeyVehicleQuery = applyVehicleCategoryDbFilter(journeyVehicleQuery, filters.vehicleType);
+  }
+  const { data: journeyVehicles } = journeyVehicleQuery
+    ? await journeyVehicleQuery
     : { data: [] };
   const journeyVehicleMap = new Map(
     asRows(journeyVehicles).map((row) => [String(row.id), row])
@@ -1304,9 +1350,20 @@ export async function searchReturnJourneys(filters: {
 
   const filteredJourneyRows = journeyRows.filter((row) => {
     const vehicleId = getString(row, "vehicle_id");
-    if (!vehicleId) return true;
+    if (!vehicleId) {
+      if (vehicleCategoryFilter) {
+        const journeyType = getString(row, "vehicle_type");
+        return journeyType.localeCompare(vehicleCategoryFilter, undefined, {
+          sensitivity: "accent",
+        }) === 0;
+      }
+      return true;
+    }
     const vehicle = journeyVehicleMap.get(vehicleId);
-    if (!vehicle) return true;
+    if (!vehicle) return false;
+    if (vehicleCategoryFilter && !vehicleRowMatchesTypeFilter(vehicle, filters.vehicleType)) {
+      return false;
+    }
     if (!isServiceEnabled(vehicle, "service_return_journey")) return false;
     return vehicleSupportsSearchTrip(vehicle, tripTypeKey);
   });
@@ -1347,7 +1404,8 @@ export async function searchReturnJourneys(filters: {
   });
 
   const { rows: vehicleRows, error: vehicleError } = await fetchApprovedMarketplaceVehicles(
-    "service_return_journey"
+    "service_return_journey",
+    filters.vehicleType
   );
   if (!vehicleError && vehicleRows.length > 0) {
     const vehicleOwnerIds = vehicleRows.map((row) => getString(row, "owner_id"));
@@ -1382,10 +1440,6 @@ export async function searchReturnJourneys(filters: {
     }
   }
 
-  if (filters.vehicleType) {
-    results = results.filter((r) => matchesVehicleCategory(r.vehicle_type, filters.vehicleType));
-  }
-
   console.log("[searchReturnJourneys] final results:", results.length);
   return { data: results, error: null };
 }
@@ -1404,7 +1458,7 @@ export async function searchSelfDriveVehicles(filters: {
   console.log("[searchSelfDriveVehicles] SQL equivalent:", SELF_DRIVE_SEARCH_SQL);
   console.log("[searchSelfDriveVehicles] filters:", JSON.stringify(filters));
 
-  const { rows, error } = await fetchSelfDriveSearchVehicles();
+  const { rows, error } = await fetchSelfDriveSearchVehicles(filters.vehicleType);
   if (error) {
     console.error("[searchSelfDriveVehicles] query error:", error);
     return { data: [], error };
@@ -1446,8 +1500,6 @@ export async function searchSelfDriveVehicles(filters: {
     ? results.find((result) => String(result.id) === String(debugSourceRow.id)) ?? null
     : null;
 
-  // Post-filters (city / type / date) disabled — show all marketplace-approved self-drive vehicles.
-  // Re-enable behind env when stricter search is needed again.
   const applySelfDrivePostFilters = process.env.SEARCH_SELF_DRIVE_STRICT_FILTERS === "1";
 
   if (applySelfDrivePostFilters && cityFilter) {
@@ -1462,22 +1514,6 @@ export async function searchSelfDriveVehicles(filters: {
       return match;
     });
     console.log(`[searchSelfDriveVehicles] city filter "${cityFilter}": ${before} → ${results.length}`);
-  }
-
-  if (applySelfDrivePostFilters && filters.vehicleType) {
-    const before = results.length;
-    results = results.filter((result) => {
-      const match = matchesVehicleCategory(result.vehicle_type, filters.vehicleType);
-      if (!match) {
-        debugExclusions.push(
-          `${result.vehicle_name}: category "${result.vehicle_type}" does not match "${filters.vehicleType}"`
-        );
-      }
-      return match;
-    });
-    console.log(
-      `[searchSelfDriveVehicles] category filter "${filters.vehicleType}": ${before} → ${results.length}`
-    );
   }
 
   if (applySelfDrivePostFilters && filters.date) {
@@ -1527,7 +1563,7 @@ export async function searchDriverVehicles(filters: {
 
   console.log("[searchDriverVehicles] service:", serviceKey, "filters:", JSON.stringify(filters));
 
-  const { rows, error } = await fetchDriverSearchVehicles(serviceKey);
+  const { rows, error } = await fetchDriverSearchVehicles(serviceKey, filters.vehicleType);
   if (error) {
     console.error("[searchDriverVehicles] query error:", error);
     return { data: [], error };
@@ -1806,9 +1842,7 @@ export async function getVehicleListingById(id: string): Promise<VehicleDetail |
 export async function getBookingConfirmationById(id: string): Promise<BookingConfirmation | null> {
   const row = await selectBookingById(id);
   if (!row) return null;
-  const cancelled =
-    getString(row, "booking_status").toLowerCase() === "cancelled" ||
-    getString(row, "cancellation_status").toLowerCase() === "cancelled";
+  const cancelled = getString(row, "booking_status").toLowerCase() === "cancelled";
 
   let refundTransactionId: string | undefined;
   if (cancelled) {
@@ -1845,12 +1879,12 @@ export async function getBookingConfirmationById(id: string): Promise<BookingCon
     ...protection,
     trip_fare_amount: getNumber(row, "trip_fare_amount") || undefined,
     security_deposit_amount: getNumber(row, "security_deposit_amount") || undefined,
-    cancellation_status: getString(row, "cancellation_status") || undefined,
     cancelled_at: getString(row, "cancelled_at") || undefined,
     refund_amount: getNumber(row, "refund_amount") || undefined,
     refund_status: getString(row, "refund_status") || undefined,
     refund_processed_at: getString(row, "refund_processed_at") || undefined,
-    cancellation_reason: getString(row, "cancellation_reason") || undefined,
+    cancellation_reason:
+      getString(row, "cancellation_reason") || getString(row, "cancel_reason") || undefined,
     cancellation_reason_category: getString(row, "cancellation_reason_category") || undefined,
     cancellation_charges: getNumber(row, "cancellation_charges") || undefined,
     cancelled_by_role: getString(row, "cancelled_by_role") || undefined,
@@ -2721,7 +2755,7 @@ export async function getOwnerStats(ownerId: string): Promise<OwnerStats> {
     selectRows("self_drive_vehicles", "id, owner_id, vehicle_name, vehicle_type, status, available_seats, created_at", 500),
     selectRows(
       "bookings",
-      "id, owner_id, amount, booking_status, payment_status, refund_status, cancellation_status, booking_type, created_at",
+      "id, owner_id, amount, booking_status, payment_status, refund_status, booking_type, created_at",
       500
     ),
   ]);
@@ -2854,7 +2888,6 @@ export async function getOwnerBookings(ownerId: string): Promise<UserBooking[]> 
     drop_location: getString(row, "drop_location") || undefined,
     pickup_date: getString(row, "pickup_date") || undefined,
     created_at: getString(row, "created_at"),
-    cancellation_status: getString(row, "cancellation_status") || undefined,
     refund_status: getString(row, "refund_status") || undefined,
   }));
 }
@@ -2880,7 +2913,7 @@ export async function getUserBookings(userId: string): Promise<UserBooking[]> {
 export async function getUserBookingsExtended(userId: string): Promise<UserBookingExtended[]> {
   const rows = await selectRows(
     "bookings",
-    "id, user_id, booking_reference, booking_type, passenger_name, amount, booking_status, payment_status, pickup_location, drop_location, pickup_date, pickup_time, created_at, cancellation_status, cancelled_at, refund_amount, refund_status, refund_processed_at, cancellation_reason, flexible_cancellation, protection_selected, flexible_cancellation_fee",
+    "id, user_id, booking_reference, booking_type, passenger_name, amount, booking_status, payment_status, pickup_location, drop_location, pickup_date, pickup_time, created_at, cancelled_at, refund_amount, refund_status, refund_processed_at, cancel_reason, protection_selected, protection_fee",
     100
   );
   return rows
@@ -2898,12 +2931,12 @@ export async function getUserBookingsExtended(userId: string): Promise<UserBooki
       pickup_date: getString(row, "pickup_date") || undefined,
       pickup_time: getString(row, "pickup_time") || undefined,
       created_at: getString(row, "created_at"),
-      cancellation_status: getString(row, "cancellation_status") || undefined,
       cancelled_at: getString(row, "cancelled_at") || undefined,
       refund_amount: getNumber(row, "refund_amount") || undefined,
       refund_status: getString(row, "refund_status") || undefined,
       refund_processed_at: getString(row, "refund_processed_at") || undefined,
-      cancellation_reason: getString(row, "cancellation_reason") || undefined,
+      cancellation_reason:
+        getString(row, "cancellation_reason") || getString(row, "cancel_reason") || undefined,
       ...deriveProtectionFields(row),
     }));
 }

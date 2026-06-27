@@ -26,7 +26,6 @@ export type OwnerBookingEligibilityInput = {
   id?: string;
   bookingStatus?: string | null;
   paymentStatus?: string | null;
-  cancellationStatus?: string | null;
   refundStatus?: string | null;
 };
 
@@ -47,7 +46,7 @@ function normalize(value: string | null | undefined): string {
 export function isOwnerClosedBooking(booking: OwnerBookingEligibilityInput): boolean {
   const bookingStatus = normalize(booking.bookingStatus);
   if (OWNER_CLOSED_BOOKING_STATUSES.has(bookingStatus)) return true;
-  if (isBookingCancelledStatus(booking.bookingStatus, booking.cancellationStatus)) return true;
+  if (isBookingCancelledStatus(booking.bookingStatus)) return true;
 
   const paymentStatus = normalize(booking.paymentStatus);
   if (paymentStatus === "refunded" || paymentStatus === "failed") return true;

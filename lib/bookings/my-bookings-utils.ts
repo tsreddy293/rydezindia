@@ -86,10 +86,9 @@ export {
 export function formatRiderPaymentBadgeLabel(input: {
   bookingStatus: string;
   paymentStatus?: string | null;
-  cancellationStatus?: string | null;
   refundStatus?: string | null;
 }): string {
-  const cancelled = isBookingCancelledStatus(input.bookingStatus, input.cancellationStatus);
+  const cancelled = isBookingCancelledStatus(input.bookingStatus);
   if (cancelled) {
     const refund = String(input.refundStatus ?? "").toLowerCase();
     if (refund === "refunded") return "Payment Refunded";
@@ -177,26 +176,19 @@ export function formatScheduleLine(date?: string, time?: string): string {
 
 export type BookingFilterTab = "all" | "active" | "completed" | "cancelled";
 
-export function filterBookingsByTab<T extends { booking_status: string; cancellation_status?: string | null }>(
+export function filterBookingsByTab<T extends { booking_status: string }>(
   bookings: T[],
   tab: BookingFilterTab
 ): T[] {
   if (tab === "all") return bookings;
   if (tab === "cancelled") {
-    return bookings.filter(
-      (b) =>
-        b.cancellation_status === "cancelled" || b.booking_status.toLowerCase() === "cancelled"
-    );
+    return bookings.filter((b) => b.booking_status.toLowerCase() === "cancelled");
   }
   if (tab === "completed") {
     return bookings.filter((b) => b.booking_status.toLowerCase() === "completed");
   }
   return bookings.filter((b) => {
     const status = b.booking_status.toLowerCase();
-    return (
-      status !== "cancelled" &&
-      status !== "completed" &&
-      b.cancellation_status !== "cancelled"
-    );
+    return status !== "cancelled" && status !== "completed";
   });
 }

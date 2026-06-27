@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 
 const ADMIN_BOOKING_COLUMNS = [
   ...BOOKING_ADMIN_LIST_COLUMN_SETS,
-  "id, booking_type, passenger_name, mobile, amount, booking_status, payment_status, refund_status, cancellation_status, created_at, booking_reference, cancellation_reason, cancelled_at, cancelled_by_role",
+  "id, booking_type, passenger_name, mobile, amount, booking_status, payment_status, refund_status, created_at, booking_reference, cancel_reason, cancelled_at, cancelled_by_role",
 ] as const;
 
 export default async function AdminBookingsPage() {

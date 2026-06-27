@@ -119,33 +119,18 @@ export async function getProtectionAnalytics(): Promise<ProtectionAnalytics> {
 }
 
 export async function getProtectionRefundReport(limit = 50) {
-  const rows = await selectBookingsWithFilter(BOOKING_PROTECTION_REFUND_COLUMN_SETS, async (columns) => {
+  const rows = await selectBookingsWithFilter(BOOKING_PROTECTION_REFUND_COLUMN_SETS, (columns) => {
     const db = createAdminClient();
-    const withProtectionFilter = await db
-      .from("bookings")
-      .select(columns)
-      .or("protection_selected.eq.true,flexible_cancellation.eq.true")
-      .order("cancelled_at", { ascending: false })
-      .limit(limit);
-
-    if (!withProtectionFilter.error) {
-      return withProtectionFilter;
-    }
-
     return db
       .from("bookings")
       .select(columns)
-      .eq("flexible_cancellation", true)
+      .eq("protection_selected", true)
       .order("cancelled_at", { ascending: false })
       .limit(limit);
   });
 
   return rows
-    .filter(
-      (row) =>
-        String(row.cancellation_status) === "cancelled" ||
-        String(row.booking_status) === "cancelled"
-    )
+    .filter((row) => String(row.booking_status) === "cancelled")
     .map((row) => {
       const protection = deriveProtectionFields(row);
       return {
@@ -153,7 +138,6 @@ export async function getProtectionRefundReport(limit = 50) {
         booking_reference: (row.booking_reference as string | null) ?? undefined,
         passenger_name: (row.passenger_name as string | null) ?? undefined,
         protection_fee: protection.protection_fee ?? null,
-        flexible_cancellation_fee: protection.flexible_cancellation_fee ?? null,
         protection_plan_name: protection.protection_plan_name ?? null,
         protection_status: protection.protection_status ?? null,
         refund_amount: Number(row.refund_amount ?? 0) || null,

@@ -14,7 +14,7 @@ export async function getAnalyticsReport() {
     db
       .from("bookings")
       .select(
-        "id, amount, booking_status, payment_status, refund_status, cancellation_status, pickup_location, drop_location, owner_id, vehicle_id, created_at"
+        "id, amount, booking_status, payment_status, refund_status, pickup_location, drop_location, owner_id, vehicle_id, created_at"
       ),
     db.from("vehicles").select("id, vehicle_name, vehicle_type, status"),
     db.from("owners").select("id, owner_name"),

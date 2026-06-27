@@ -62,7 +62,6 @@ const CANCELLATION_COLUMNS = [
   "cancelled_by",
   "cancellation_charges",
   "refund_amount",
-  "cancellation_status",
   "refund_status",
 ];
 

@@ -18,7 +18,6 @@ const STATUS_STYLES: Record<string, string> = {
 interface Props {
   status: string;
   bookingStatus?: string;
-  cancellationStatus?: string | null;
   refundStatus?: string | null;
   className?: string;
 }
@@ -26,7 +25,6 @@ interface Props {
 export default function PaymentStatusBadge({
   status,
   bookingStatus,
-  cancellationStatus,
   refundStatus,
   className = "",
 }: Props) {
@@ -35,7 +33,6 @@ export default function PaymentStatusBadge({
       ? formatRiderPaymentBadgeLabel({
           bookingStatus,
           paymentStatus: status,
-          cancellationStatus,
           refundStatus,
         })
       : formatPaymentStatusLabel(status);

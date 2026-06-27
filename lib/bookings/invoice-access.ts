@@ -8,21 +8,16 @@ export function isInvoiceEligibleStatus(bookingStatus?: string | null) {
   return value === "confirmed" || value === "active" || value === "completed";
 }
 
-export function isCancelledStatus(
-  bookingStatus?: string | null,
-  cancellationStatus?: string | null
-) {
+export function isCancelledStatus(bookingStatus?: string | null) {
   const booking = String(bookingStatus ?? "").toLowerCase();
-  const cancellation = String(cancellationStatus ?? "").toLowerCase();
-  return booking === "cancelled" || cancellation === "cancelled";
+  return booking === "cancelled" || booking === "already_cancelled";
 }
 
 export function canGenerateTaxInvoice(input: {
   paymentStatus?: string | null;
   bookingStatus?: string | null;
-  cancellationStatus?: string | null;
 }) {
-  if (isCancelledStatus(input.bookingStatus, input.cancellationStatus)) return false;
+  if (isCancelledStatus(input.bookingStatus)) return false;
   return (
     isPaymentCompleted(input.paymentStatus) &&
     isInvoiceEligibleStatus(input.bookingStatus)

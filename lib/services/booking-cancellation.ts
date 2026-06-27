@@ -34,13 +34,11 @@ export interface BookingCancellationRow {
   trip_type?: string | null;
   booking_status?: string | null;
   payment_status?: string | null;
-  cancellation_status?: string | null;
   amount?: number | null;
   trip_fare_amount?: number | null;
   security_deposit_amount?: number | null;
-  flexible_cancellation?: boolean | null;
   protection_selected?: boolean | null;
-  flexible_cancellation_fee?: number | null;
+  protection_fee?: number | null;
   pickup_date?: string | null;
   pickup_time?: string | null;
   refund_amount?: number | null;
@@ -97,8 +95,7 @@ export function computeBookingRefund(row: BookingCancellationRow, cancelledAt = 
     pickupDate: row.pickup_date,
     pickupTime: row.pickup_time,
     cancelledAt,
-    flexibleCancellation: Boolean(row.flexible_cancellation || row.protection_selected),
-    protectionSelected: Boolean(row.protection_selected || row.flexible_cancellation),
+    protectionSelected: Boolean(row.protection_selected),
     paymentStatus: row.payment_status,
   });
 }
@@ -290,7 +287,6 @@ export async function cancelBookingWithRefund(input: {
     }
     const blockReason = riderCancelIneligibilityReason({
       bookingStatus: String(row.booking_status ?? ""),
-      cancellationStatus: row.cancellation_status,
     });
     if (blockReason) {
       return { success: false as const, error: blockReason };
@@ -299,7 +295,6 @@ export async function cancelBookingWithRefund(input: {
       !canRiderCancelBeforeOwnerApproval({
         bookingStatus: String(row.booking_status ?? ""),
         paymentStatus: row.payment_status,
-        cancellationStatus: row.cancellation_status,
         pickupDate: row.pickup_date,
         pickupTime: row.pickup_time,
       })
@@ -308,9 +303,7 @@ export async function cancelBookingWithRefund(input: {
     }
   }
 
-  const alreadyCancelled =
-    row.cancellation_status === "cancelled" ||
-    String(row.booking_status ?? "").toLowerCase() === "cancelled";
+  const alreadyCancelled = String(row.booking_status ?? "").toLowerCase() === "cancelled";
   if (alreadyCancelled) {
     return { success: false as const, error: "Booking is already cancelled" };
   }
@@ -328,7 +321,7 @@ export async function cancelBookingWithRefund(input: {
 
   const updatePayload: Record<string, unknown> = {
     booking_status: "cancelled",
-    cancellation_status: "cancelled",
+    cancel_reason: reasonText,
     cancellation_reason: reasonText,
     cancelled_by: actorUserId,
     cancelled_by_role: normalizeCancelledByRole(input.cancelledByRole),
@@ -442,7 +435,7 @@ export async function updateRefundStatus(input: {
   const db = createAdminClient();
   const row = await fetchBookingForCancellation(input.bookingId);
   if (!row) return { success: false as const, error: "Booking not found" };
-  if (row.cancellation_status !== "cancelled" && String(row.booking_status) !== "cancelled") {
+  if (String(row.booking_status ?? "").toLowerCase() !== "cancelled") {
     return { success: false as const, error: "Booking is not cancelled" };
   }
 
@@ -551,12 +544,11 @@ export async function getRefundAnalytics(): Promise<RefundAnalytics> {
   const db = createAdminClient();
   const { data } = await db
     .from("bookings")
-    .select("cancellation_status, booking_status, refund_status, refund_amount")
-    .or("cancellation_status.eq.cancelled,booking_status.eq.cancelled")
+    .select("booking_status, refund_status, refund_amount")
+    .eq("booking_status", "cancelled")
     .limit(500);
 
   const rows = (data ?? []) as Array<{
-    cancellation_status?: string;
     booking_status?: string;
     refund_status?: string;
     refund_amount?: number;
@@ -605,7 +597,7 @@ export async function getCancelledBookings(limit = 100) {
     return db
       .from("bookings")
       .select(columns)
-      .or("cancellation_status.eq.cancelled,booking_status.eq.cancelled")
+      .eq("booking_status", "cancelled")
       .order("cancelled_at", { ascending: false })
       .limit(limit);
   });
@@ -626,8 +618,7 @@ export async function getCancelledBookings(limit = 100) {
       pickup_date: (row.pickup_date as string | null) ?? undefined,
       payment_status: (row.payment_status as string | null) ?? undefined,
       protection_selected: protection.protection_selected,
-      flexible_cancellation: protection.flexible_cancellation,
-      flexible_cancellation_fee: protection.flexible_cancellation_fee ?? null,
+      protection_fee: protection.protection_fee ?? null,
     };
   });
 }
@@ -637,16 +628,16 @@ export async function getUserRefundHistory(userId: string, limit = 50) {
   const { data, error } = await db
     .from("bookings")
     .select(
-      "id, booking_reference, booking_type, amount, refund_amount, refund_status, refund_trip_fare_amount, refund_deposit_amount, cancellation_reason, cancelled_at, refund_processed_at, pickup_date, pickup_time, cancellation_status, booking_status, passenger_name, payment_status, created_at"
+      "id, booking_reference, booking_type, amount, refund_amount, refund_status, refund_trip_fare_amount, refund_deposit_amount, cancel_reason, cancellation_reason, cancelled_at, refund_processed_at, pickup_date, pickup_time, booking_status, passenger_name, payment_status, created_at"
     )
     .eq("user_id", userId)
-    .or("cancellation_status.eq.cancelled,booking_status.eq.cancelled")
+    .eq("booking_status", "cancelled")
     .order("cancelled_at", { ascending: false })
     .limit(limit);
 
   if (error) return [];
   return (data ?? [])
-    .filter((row) => row.refund_status || String(row.cancellation_status) === "cancelled")
+    .filter((row) => row.refund_status || String(row.booking_status) === "cancelled")
     .map((row) => ({
       id: String(row.id),
       booking_reference: (row.booking_reference as string | null) ?? undefined,
@@ -658,7 +649,6 @@ export async function getUserRefundHistory(userId: string, limit = 50) {
       pickup_date: (row.pickup_date as string | null) ?? undefined,
       pickup_time: (row.pickup_time as string | null) ?? undefined,
       created_at: String(row.created_at ?? ""),
-      cancellation_status: String(row.cancellation_status ?? "cancelled"),
       cancelled_at: (row.cancelled_at as string | null) ?? undefined,
       refund_amount: Number(row.refund_amount ?? 0),
       refund_status: (row.refund_status as string | null) ?? undefined,

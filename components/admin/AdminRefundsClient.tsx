@@ -26,8 +26,7 @@ interface CancelledBookingRow {
   pickup_date?: string | null;
   payment_status?: string | null;
   protection_selected?: boolean | null;
-  flexible_cancellation?: boolean | null;
-  flexible_cancellation_fee?: number | null;
+  protection_fee?: number | null;
 }
 
 interface Props {
@@ -96,8 +95,8 @@ export default function AdminRefundsClient({ bookings, analytics }: Props) {
                   <td className="px-4 py-3">{formatINR(Number(b.amount ?? 0))}</td>
                   <td className="px-4 py-3">
                     <ProtectionStatusBadge
-                      selected={b.protection_selected === true || b.flexible_cancellation === true}
-                      fee={Number(b.flexible_cancellation_fee ?? 0) || undefined}
+                      selected={b.protection_selected === true}
+                      fee={Number(b.protection_fee ?? 0) || undefined}
                     />
                   </td>
                   <td className="px-4 py-3 font-semibold text-emerald-700">

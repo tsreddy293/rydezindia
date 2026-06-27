@@ -114,5 +114,6 @@ FROM public.vehicles v
 WHERE (v.approval_status = 'approved' OR v.vehicle_approval_status = 'approved')
   AND (v.is_active IS DISTINCT FROM false)
   AND (v.service_self_drive IS DISTINCT FROM false)
+  AND (:vehicle_type IS NULL OR v.vehicle_category = :vehicle_type)
 ORDER BY v.created_at DESC
 `.trim();

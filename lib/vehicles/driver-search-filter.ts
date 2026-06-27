@@ -15,7 +15,8 @@ import {
   resolveTripTypeKeyFromSearchLabel,
   type VehicleTripTypeKey,
 } from "@/lib/vehicles/trip-types";
-import { matchesCity, matchesVehicleCategory, resolveVehicleCity } from "@/lib/vehicles/search";
+import { matchesCity, resolveVehicleCity } from "@/lib/vehicles/search";
+import { vehicleRowMatchesTypeFilter } from "@/lib/vehicles/vehicle-type-filter";
 
 export const DRIVER_DEBUG_REGISTRATION = "AP05DD6116";
 
@@ -164,10 +165,7 @@ export function evaluateDriverVehicleSearchFilters(input: {
     reasons.push("city mismatch");
   }
 
-  if (
-    filters.vehicleType &&
-    !matchesVehicleCategory(String(row.vehicle_category ?? row.vehicle_type ?? ""), filters.vehicleType)
-  ) {
+  if (filters.vehicleType && !vehicleRowMatchesTypeFilter(row, filters.vehicleType)) {
     reasons.push("vehicle type mismatch");
   }
 

@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
     const db = createAdminClient();
     const { data: booking } = await db
       .from("bookings")
-      .select("user_id, owner_id, mobile, amount, booking_status, payment_status, cancellation_status")
+      .select("user_id, owner_id, mobile, amount, booking_status, payment_status")
       .eq("id", bookingId)
       .maybeSingle();
 
@@ -34,11 +34,10 @@ export async function POST(request: NextRequest) {
       amount?: number;
       booking_status?: string;
       payment_status?: string;
-      cancellation_status?: string | null;
     };
 
     if (
-      isBookingCancelledStatus(bookingRow.booking_status, bookingRow.cancellation_status) ||
+      isBookingCancelledStatus(bookingRow.booking_status) ||
       String(bookingRow.payment_status ?? "").toLowerCase() === "paid"
     ) {
       return NextResponse.json({ success: false, error: "Booking is not payable" }, { status: 400 });

@@ -104,7 +104,6 @@ export default function CancelBookingButton({ booking, onCancelled }: Props) {
   const paymentLabel = formatRiderPaymentBadgeLabel({
     bookingStatus: booking.booking_status,
     paymentStatus: booking.payment_status,
-    cancellationStatus: booking.cancellation_status,
   });
 
   const charges = estimate?.refund.cancellationCharges ?? 0;

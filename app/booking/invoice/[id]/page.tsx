@@ -25,14 +25,10 @@ export default async function BookingInvoicePage({ params }: Props) {
   assertRiderBookingAccess(booking, user.id);
 
   const paid = isPaymentCompleted(booking.payment_status);
-  const cancelled = isCancelledStatus(
-    booking.booking_status,
-    booking.cancellation_status
-  );
+  const cancelled = isCancelledStatus(booking.booking_status);
   const canGenerateInvoice = canGenerateTaxInvoice({
     paymentStatus: booking.payment_status,
     bookingStatus: booking.booking_status,
-    cancellationStatus: booking.cancellation_status,
   });
   const isCancelledAfterPayment = cancelled && paid;
   const isCancelledBeforePayment = cancelled && !paid;
@@ -41,10 +37,10 @@ export default async function BookingInvoicePage({ params }: Props) {
     forbidden();
   }
 
-  const protectionFee = booking.protection_fee ?? booking.flexible_cancellation_fee ?? 0;
+  const protectionFee = booking.protection_fee ?? 0;
   const tripFare = booking.trip_fare_amount ?? Math.max(0, booking.amount - protectionFee);
   const deposit = booking.security_deposit_amount ?? 0;
-  const protected_ = Boolean(booking.protection_selected || booking.flexible_cancellation);
+  const protected_ = Boolean(booking.protection_selected);
   const refundableDeposit = booking.refund_deposit_amount ?? 0;
   const refundAmount = booking.refund_amount ?? 0;
   const cancellationCharges = booking.cancellation_charges ?? 0;

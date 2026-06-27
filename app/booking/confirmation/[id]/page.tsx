@@ -26,7 +26,7 @@ export default async function BookingConfirmationPage({ params }: Props) {
 
   assertRiderBookingAccess(booking, user.id);
 
-  const isCancelled = isBookingCancelledStatus(booking.booking_status, booking.cancellation_status);
+  const isCancelled = isBookingCancelledStatus(booking.booking_status);
   const showReview =
     !isCancelled && (booking.booking_status === "completed" || booking.booking_status === "confirmed");
 

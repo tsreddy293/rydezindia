@@ -15,7 +15,6 @@ export interface OwnerBookingRow {
   pickupDate?: string;
   pickupTime?: string;
   createdAt: string;
-  cancellationStatus?: string;
   refundStatus?: string;
 }
 
@@ -33,7 +32,6 @@ export function mapOwnerBooking(b: UserBooking): OwnerBookingRow {
     pickupDate: b.pickup_date,
     pickupTime: b.pickup_time,
     createdAt: b.created_at,
-    cancellationStatus: b.cancellation_status ?? undefined,
     refundStatus: b.refund_status ?? undefined,
   };
 }

@@ -17,7 +17,6 @@ export default function BookingTimelineSection({
       <BookingTimeline
         bookingStatus={booking.bookingStatus}
         paymentStatus={booking.paymentStatus}
-        cancellationStatus={booking.cancellationStatus}
         cancelledByRole={booking.cancelledByRole}
         refundStatus={booking.refundStatus}
         createdAt={booking.createdAt}

@@ -41,7 +41,6 @@ export interface OwnerDashboardBooking {
   amount: number;
   bookingStatus: string;
   paymentStatus: string;
-  cancellationStatus?: string;
   refundStatus?: string;
   pickupLocation?: string;
   dropLocation?: string;

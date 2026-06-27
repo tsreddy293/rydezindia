@@ -47,7 +47,6 @@ export default function MyBookingsClient({ bookings: initialBookings }: Props) {
             ? {
                 ...b,
                 booking_status: "cancelled",
-                cancellation_status: "cancelled",
                 cancelled_at: new Date().toISOString(),
                 cancelled_by_role: "rider",
                 refund_status: b.payment_status === "paid" ? "pending" : "not_required",

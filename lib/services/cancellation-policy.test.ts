@@ -101,7 +101,7 @@ describe("cancellation-policy", () => {
       pickupDate,
       pickupTime,
       cancelledAt,
-      flexibleCancellation: true,
+      protectionSelected: true,
       paymentStatus: "paid",
     });
     expect(result.flexibleApplied).toBe(true);

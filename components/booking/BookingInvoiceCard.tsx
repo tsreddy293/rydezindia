@@ -15,17 +15,15 @@ interface Props {
 }
 
 export default function BookingInvoiceCard({ booking }: Props) {
-  const protectionFee =
-    booking.protection_fee ?? booking.flexible_cancellation_fee ?? 0;
+  const protectionFee = booking.protection_fee ?? 0;
   const tripFare = booking.trip_fare_amount ?? Math.max(0, booking.amount - protectionFee);
   const deposit = booking.security_deposit_amount ?? 0;
-  const protected_ = Boolean(booking.protection_selected || booking.flexible_cancellation);
+  const protected_ = Boolean(booking.protection_selected);
   const paid = isPaymentCompleted(booking.payment_status);
-  const cancelled = isCancelledStatus(booking.booking_status, booking.cancellation_status);
+  const cancelled = isCancelledStatus(booking.booking_status);
   const canDownloadInvoice = canGenerateTaxInvoice({
     paymentStatus: booking.payment_status,
     bookingStatus: booking.booking_status,
-    cancellationStatus: booking.cancellation_status,
   });
 
   return (

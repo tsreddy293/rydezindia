@@ -30,7 +30,6 @@ export interface RiderDashboardBooking {
   vehicleName?: string;
   vehicleImage?: string | null;
   createdAt: string;
-  cancellationStatus?: string | null;
   cancelledAt?: string | null;
   cancelledByRole?: string | null;
   refundStatus?: string | null;

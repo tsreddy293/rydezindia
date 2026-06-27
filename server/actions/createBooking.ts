@@ -99,7 +99,6 @@ export async function createBooking(
     platform_fee: Math.round(amount * 0.05),
     discount_amount: input.discount_amount ?? 0,
     trip_fare_amount: amount,
-    cancellation_status: "active",
   };
 
   const { data: booking, error: bookingError } = await db
@@ -197,7 +196,6 @@ export async function createUnifiedBooking(
     coupon_code?: string;
     wallet_amount_used?: number;
     rural_pickup_point_id?: string;
-    flexible_cancellation?: boolean;
     protection_selected?: boolean;
     protection_fee?: number;
     vehicle_type?: string;
@@ -289,7 +287,7 @@ export async function createUnifiedBooking(
     if (kycError) return { success: false, error: kycError };
   }
 
-  const protectionSelected = Boolean(input.flexible_cancellation || input.protection_selected);
+  const protectionSelected = Boolean(input.protection_selected);
   const protectionFee = protectionSelected
     ? input.protection_fee ?? getProtectionFeeForVehicle(input.vehicle_type)
     : 0;
@@ -357,14 +355,11 @@ export async function createUnifiedBooking(
     rural_pickup_point_id: input.rural_pickup_point_id ?? null,
     trip_fare_amount: tripFareBase,
     security_deposit_amount: input.security_deposit_amount ?? 0,
-    flexible_cancellation: protectionSelected,
-    flexible_cancellation_fee: protectionFee,
     protection_selected: protectionSelected,
     protection_fee: protectionFee,
     protection_plan_name: protectionPlanName,
     protection_purchase_date: protectionSelected ? now : null,
     protection_status: protectionSelected ? "active" : null,
-    cancellation_status: "active",
   };
 
   const { data: booking, error } = await db

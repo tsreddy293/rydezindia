@@ -172,7 +172,6 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
       platform_fee: pricing.platformFee,
       trip_fare_amount: totalFare,
       security_deposit_amount: pricing.deposit.amount,
-      flexible_cancellation: flexibleCancellation,
       protection_selected: flexibleCancellation,
       protection_fee: flexibleCancellation ? protectionFee : 0,
       vehicle_type: listing.vehicle_type,

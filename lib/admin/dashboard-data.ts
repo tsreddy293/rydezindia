@@ -74,7 +74,7 @@ function notificationActionLabel(type: string): string {
 
 const BOOKING_DASHBOARD_COLUMNS = [
   ...BOOKING_ADMIN_LIST_COLUMN_SETS,
-  "id, booking_reference, booking_type, passenger_name, mobile, amount, booking_status, payment_status, refund_status, cancellation_status, owner_id, vehicle_id, created_at",
+  "id, booking_reference, booking_type, passenger_name, mobile, amount, booking_status, payment_status, refund_status, owner_id, vehicle_id, created_at",
 ] as const;
 
 export async function getAdminDashboardData(): Promise<AdminDashboardData> {
@@ -189,7 +189,6 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
       !isClosedBookingRow({
         booking_status: String(b.booking_status ?? ""),
         payment_status: String(b.payment_status ?? ""),
-        cancellation_status: String(b.cancellation_status ?? ""),
         refund_status: String(b.refund_status ?? ""),
       })
   ).length;

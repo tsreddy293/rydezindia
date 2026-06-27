@@ -24,7 +24,6 @@ function assertRiderCanCancel(row: Awaited<ReturnType<typeof fetchBookingForCanc
   if (!row) return "Booking not found";
   return riderCancelIneligibilityReason({
     bookingStatus: String(row.booking_status ?? ""),
-    cancellationStatus: row.cancellation_status,
   });
 }
 
@@ -67,7 +66,7 @@ export async function getRefundEstimateAction(bookingId: string): Promise<
       paymentCompleted: isRiderPaymentCompleted(paymentStatus),
       tripFarePaid: Number(row.trip_fare_amount ?? row.amount ?? 0),
       refundableDeposit: Number(row.security_deposit_amount ?? 0),
-      protectionFee: Number(row.flexible_cancellation_fee ?? 0),
+      protectionFee: Number(row.protection_fee ?? 0),
       refund,
     },
   };

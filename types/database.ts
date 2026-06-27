@@ -141,15 +141,12 @@ export interface BookingConfirmation {
   user_id?: string;
   created_at: string;
   protection_selected?: boolean;
-  flexible_cancellation?: boolean;
-  flexible_cancellation_fee?: number;
   protection_fee?: number;
   protection_plan_name?: string;
   protection_purchase_date?: string;
   protection_status?: string;
   trip_fare_amount?: number;
   security_deposit_amount?: number;
-  cancellation_status?: string;
   cancelled_at?: string;
   refund_amount?: number;
   refund_status?: string;
@@ -164,10 +161,9 @@ export interface BookingConfirmation {
   refund_transaction_id?: string;
 }
 
-/** `public.bookings` cancellation & refund columns (migration 024). */
+/** `public.bookings` cancellation & refund columns. */
 export interface BookingsCancellationColumns {
   booking_status: string;
-  cancellation_status?: string;
   cancellation_reason?: string | null;
   cancel_reason?: string | null;
   cancelled_at?: string | null;
@@ -184,8 +180,8 @@ export interface BookingsCancellationColumns {
   cancellation_reason_category?: string | null;
   trip_fare_amount?: number | null;
   security_deposit_amount?: number | null;
-  flexible_cancellation?: boolean;
-  flexible_cancellation_fee?: number | null;
+  protection_selected?: boolean;
+  protection_fee?: number | null;
 }
 
 export interface BookingsTableRow extends BookingsCancellationColumns {
@@ -608,22 +604,18 @@ export interface UserBooking {
   pickup_date?: string;
   pickup_time?: string;
   created_at: string;
-  cancellation_status?: string | null;
   refund_status?: string | null;
 }
 
 export interface UserBookingExtended extends UserBooking {
-  cancellation_status?: string | null;
   cancelled_at?: string | null;
   refund_amount?: number | null;
-  refund_status?: string | null;
   refund_processed_at?: string | null;
   cancellation_reason?: string | null;
   cancellation_charges?: number | null;
   cancelled_by_role?: string | null;
-  flexible_cancellation?: boolean | null;
   protection_selected?: boolean | null;
-  flexible_cancellation_fee?: number | null;
+  protection_fee?: number | null;
 }
 
 export interface MyBookingRecord extends UserBookingExtended {

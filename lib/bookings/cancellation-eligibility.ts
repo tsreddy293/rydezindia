@@ -51,16 +51,9 @@ function isRiderTripStartedOrCompleted(status: string): boolean {
   );
 }
 
-export function isBookingCancelledStatus(
-  bookingStatus?: string | null,
-  cancellationStatus?: string | null
-): boolean {
+export function isBookingCancelledStatus(bookingStatus?: string | null): boolean {
   const status = String(bookingStatus ?? "").toLowerCase().trim();
-  return (
-    cancellationStatus === "cancelled" ||
-    status === "cancelled" ||
-    status === "already_cancelled"
-  );
+  return status === "cancelled" || status === "already_cancelled";
 }
 
 export function deriveOwnerApprovalStatus(bookingStatus: string): OwnerApprovalStatus {
@@ -79,12 +72,11 @@ export function deriveTripPhaseStatus(bookingStatus: string): TripPhaseStatus {
 export function canRiderCancelBeforeOwnerApproval(input: {
   bookingStatus: string;
   paymentStatus?: string | null;
-  cancellationStatus?: string | null;
   pickupDate?: string | null;
   pickupTime?: string | null;
 }): boolean {
   const status = String(input.bookingStatus ?? "").toLowerCase().trim();
-  if (isBookingCancelledStatus(status, input.cancellationStatus)) return false;
+  if (isBookingCancelledStatus(status)) return false;
   if (deriveOwnerApprovalStatus(status) === "approved") return false;
   if (deriveTripPhaseStatus(status) !== "not_started") return false;
   if (isRiderTripStartedOrCompleted(status)) return false;
@@ -93,10 +85,9 @@ export function canRiderCancelBeforeOwnerApproval(input: {
 
 export function riderCancelIneligibilityReason(input: {
   bookingStatus: string;
-  cancellationStatus?: string | null;
 }): string | null {
   const status = String(input.bookingStatus ?? "").toLowerCase().trim();
-  if (isBookingCancelledStatus(status, input.cancellationStatus)) {
+  if (isBookingCancelledStatus(status)) {
     return "Booking is already cancelled";
   }
   if (deriveOwnerApprovalStatus(status) === "approved") {

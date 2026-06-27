@@ -27,7 +27,9 @@ const VEHICLE_TYPES = [
   { value: "SUV", label: "SUV" },
   { value: "MUV", label: "MUV" },
   { value: "Luxury", label: "Luxury" },
+  { value: "Van", label: "Van" },
   { value: "Tempo Traveller", label: "Tempo Traveller" },
+  { value: "Mini Bus", label: "Mini Bus" },
 ];
 
 const TRIP_TYPES = ["", "One Way", "Round Trip", "Multi-City", "Local Rental"];
