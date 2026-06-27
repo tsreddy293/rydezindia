@@ -46,6 +46,7 @@ export default async function SearchReturnPage({ searchParams }: Props) {
     toCity: toCity || undefined,
     date: date || undefined,
     vehicleType: vehicleType || undefined,
+    tripType: "One Way",
   });
 
   return (

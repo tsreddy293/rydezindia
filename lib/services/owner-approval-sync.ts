@@ -241,12 +241,30 @@ export async function ensureOwnerApprovalSyncedForBooking(
   }
 }
 
+async function selectOwnerProfileApprovalRow(userId: string) {
+  const db = createAdminClient();
+  let result = await db
+    .from("owner_profiles")
+    .select("user_id, owner_status, kyc_status")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (result.error && isMissingColumnError(result.error)) {
+    result = await db.from("owner_profiles").select("user_id").eq("user_id", userId).maybeSingle();
+  }
+
+  return result;
+}
+
 async function selectUserApprovalRow(userId: string) {
   const db = createAdminClient();
   let result = await db.from("users").select("id, owner_status, kyc_status").eq("id", userId).maybeSingle();
 
-  if (result.error && isMissingColumnError(result.error, "owner_status", "kyc_status")) {
+  if (result.error && isMissingColumnError(result.error)) {
     result = await db.from("users").select("id, kyc_status").eq("id", userId).maybeSingle();
+  }
+  if (result.error && isMissingColumnError(result.error)) {
+    result = await db.from("users").select("id").eq("id", userId).maybeSingle();
   }
 
   return result;
@@ -279,11 +297,7 @@ export async function fetchOwnerApprovalState(ownerId: string): Promise<OwnerApp
   const db = createAdminClient();
 
   const [profileResult, userResult, legacyKycResult, legacyStatus] = await Promise.all([
-    db
-      .from("owner_profiles")
-      .select("user_id, owner_status, kyc_status, status")
-      .eq("user_id", canonicalUserId)
-      .maybeSingle(),
+    selectOwnerProfileApprovalRow(canonicalUserId),
     selectUserApprovalRow(canonicalUserId),
     db.from("owner_kyc").select("status").eq("owner_id", canonicalUserId).maybeSingle(),
     loadLegacyOwnerStatusRows(ownerId, canonicalUserId),
@@ -292,6 +306,13 @@ export async function fetchOwnerApprovalState(ownerId: string): Promise<OwnerApp
   const profile = asRecord(profileResult.data);
   const user = asRecord(userResult.data);
   const legacyKyc = asRecord(legacyKycResult.data);
+
+  if (profileResult.error && !isMissingTableError(profileResult.error)) {
+    console.warn("[fetchOwnerApprovalState] owner_profiles:", profileResult.error.message);
+  }
+  if (userResult.error && !isMissingTableError(userResult.error)) {
+    console.warn("[fetchOwnerApprovalState] users:", userResult.error.message);
+  }
 
   const ownerStatus = ownerStatusFromRow(profile, user, legacyStatus);
   const kycStatus = resolveOwnerKycAdminStatus({

@@ -6,7 +6,8 @@ import {
   approveOwnerVehicle,
   rejectOwnerVehicle,
 } from "@/server/actions/vehicles";
-import { VEHICLE_SERVICES, type VehicleServiceAvailability } from "@/lib/vehicles/services";
+import VehicleCapabilityBadges from "@/components/vehicles/VehicleCapabilityBadges";
+import type { VehicleServiceAvailability } from "@/lib/vehicles/services";
 import { KYC_APPROVAL_REQUIRED_MESSAGE } from "@/lib/admin/marketplace-gates";
 import { ownerStatusBadgeClasses } from "@/lib/admin/owner-status";
 import { approvalStatusClasses } from "@/lib/vehicles/format";
@@ -33,22 +34,7 @@ function DocLink({ url, label }: { url: string | null; label: string }) {
 }
 
 function ServiceBadges({ services }: { services: VehicleServiceAvailability }) {
-  const active = VEHICLE_SERVICES.filter((s) => services[s.key]);
-  if (active.length === 0) {
-    return <span className="text-xs text-gray-400">No services</span>;
-  }
-  return (
-    <div className="flex flex-wrap gap-1">
-      {active.map((service) => (
-        <span
-          key={service.key}
-          className="inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700"
-        >
-          {service.label}
-        </span>
-      ))}
-    </div>
-  );
+  return <VehicleCapabilityBadges services={services} size="md" />;
 }
 
 export default function AdminVehiclesClient({ vehicles }: Props) {

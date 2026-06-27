@@ -42,7 +42,7 @@ export default async function OwnerMyVehiclesPage() {
         </div>
         <Button href="/owner/add-vehicle" variant="primary">
           <Plus className="h-4 w-4" />
-          + Add Vehicle
+          Add Vehicle
         </Button>
       </div>
       <OwnerVehiclesHub vehicles={vehicles} completedTrips={completedTrips} lifetimeEarnings={lifetimeEarnings} />

@@ -496,6 +496,11 @@ export interface AdminVehicleRecord {
   service_with_driver: boolean;
   service_local_rental: boolean;
   service_return_journey: boolean;
+  trip_one_way: boolean;
+  trip_round_trip: boolean;
+  trip_multi_city: boolean;
+  trip_airport_transfer: boolean;
+  trip_local_rental: boolean;
   created_at?: string;
 }
 

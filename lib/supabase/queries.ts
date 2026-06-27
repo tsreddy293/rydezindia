@@ -12,6 +12,7 @@ import {
   ownerMarketplaceEligibilityFromRow,
   vehicleApprovalBlockedReason,
 } from "@/lib/admin/marketplace-gates";
+import { fetchOwnerApprovalState } from "@/lib/services/owner-approval-sync";
 import { ownerProfileDocumentsToSet } from "@/lib/services/owner-profile-kyc";
 import { ownerKycCanApprove } from "@/lib/admin/owner-kyc";
 import { normalizeProfileStatus } from "@/lib/admin/owner-profile-fields";
@@ -63,8 +64,23 @@ import { resolveUserName } from "@/lib/users/display-name";
 import {
   deriveProtectionFields,
   selectBookingById,
+  selectBookingsWithFilter,
   selectBookingsWithRequestedColumns,
+  BOOKING_OWNER_COLUMN_SETS,
 } from "@/lib/bookings/booking-select";
+import {
+  buildDriverVehicleAuditSnapshot,
+  evaluateDriverVehicleAllFilters,
+  evaluateDriverVehicleSearchFilters,
+  logDriverSearchResultsTable,
+  logDriverSearchSummary,
+  logDriverVehicleAudit,
+  logDriverVehicleExclusion,
+  sortDriverResultsByPickupProximity,
+  vehicleMatchesDriverDebug,
+  DRIVER_DEBUG_REGISTRATION,
+  type DriverOwnerEligibility,
+} from "@/lib/vehicles/driver-search-filter";
 import { mapVehicleRow } from "@/lib/vehicles/format";
 import {
   buildVehicleDisplayName,
@@ -81,6 +97,10 @@ import {
   isServiceEnabled,
   type VehicleServiceKey,
 } from "@/lib/vehicles/services";
+import {
+  resolveTripTypeKeyFromSearchLabel,
+  vehicleSupportsSearchTrip,
+} from "@/lib/vehicles/trip-types";
 import {
   logFetchApprovedMarketplaceVehicleChecks,
   logSearchSelfDrivePostFilters,
@@ -193,7 +213,16 @@ function isVehicleMarketplaceApproved(row: Row): boolean {
 }
 
 function isVehicleSearchActive(row: Row): boolean {
-  return row.is_active !== false;
+  if (row.is_active === false) return false;
+  const status = getString(row, "status", "").toLowerCase();
+  return status !== "inactive";
+}
+
+function isVehicleAvailableForSearch(row: Row): boolean {
+  if (row.available === false) return false;
+  const status = getString(row, "status", getString(row, "availability", "available")).toLowerCase();
+  if (status === "active" || status === "available") return true;
+  return !["unavailable", "inactive", "blocked", "booked"].includes(status);
 }
 
 function passesSelfDriveService(row: Row): boolean {
@@ -577,7 +606,10 @@ async function fetchApprovedMarketplaceVehicles(
 
   // Match either approval_status or vehicle_approval_status (admin may set only one).
   const rawRows = asRows(data).filter(
-    (row) => isVehicleSearchActive(row) && isVehicleMarketplaceApproved(row)
+    (row) =>
+      isVehicleSearchActive(row) &&
+      isVehicleMarketplaceApproved(row) &&
+      isVehicleAvailableForSearch(row)
   );
   const debugRow = await loadSelfDriveDebugVehicleRow(rawRows);
   const debugInApprovedBatch = debugRow
@@ -592,16 +624,44 @@ async function fetchApprovedMarketplaceVehicles(
     : ownerIds;
   const eligibilityMap = await getOwnerMarketplaceEligibilityMap(eligibilityOwnerIds);
 
-  const rowsAfterOwnerGate = rows.filter((row) =>
-    isVehicleCustomerVisible(row, getString(row, "owner_id"), eligibilityMap)
-  );
+  const rowsAfterOwnerGate: Row[] = [];
+  for (const row of rows) {
+    const ownerId = getString(row, "owner_id");
+    if (isVehicleCustomerVisible(row, ownerId, eligibilityMap)) {
+      rowsAfterOwnerGate.push(row);
+      continue;
+    }
+    if (service === "service_with_driver" || service === "service_local_rental") {
+      const eligibility = eligibilityMap.get(ownerId) ?? ownerMarketplaceEligibilityFromRow({});
+      const reasons: string[] = [];
+      if (!eligibility.ownerApproved) reasons.push("owner not approved");
+      if (!isOwnerKycApproved(eligibility.kycStatus)) reasons.push("owner kyc not approved");
+      if (getVehicleApprovalStatus(row) !== "approved") reasons.push("vehicle not approved");
+      if (!isVehicleSearchActive(row)) reasons.push("inactive");
+      if (!isVehicleAvailableForSearch(row)) reasons.push("unavailable");
+      if (reasons.length === 0) reasons.push("marketplace visibility gate failed");
+      logDriverVehicleExclusion(row, reasons);
+    }
+  }
 
   rows = rowsAfterOwnerGate;
 
-  let rowsAfterServiceGate = rows;
+  let rowsAfterServiceGate: Row[] = [];
   if (service) {
     const before = rows.length;
-    rowsAfterServiceGate = rows.filter((row) => isServiceEnabled(row, service));
+    for (const row of rows) {
+      if (isServiceEnabled(row, service)) {
+        rowsAfterServiceGate.push(row);
+        continue;
+      }
+      if (service === "service_with_driver" || service === "service_local_rental") {
+        logDriverVehicleExclusion(row, [
+          service === "service_local_rental"
+            ? "service type mismatch (local rental)"
+            : "service type mismatch (with driver)",
+        ]);
+      }
+    }
     rows = rowsAfterServiceGate;
     console.log(`[fetchApprovedMarketplaceVehicles] service "${service}": ${before} → ${rows.length}`);
   }
@@ -629,6 +689,159 @@ async function fetchApprovedMarketplaceVehicles(
   }
 
   return { rows, error: null };
+}
+
+async function loadDriverDebugVehicleRow(fetchedRows: Row[]): Promise<Row | null> {
+  const inBatch = fetchedRows.find(vehicleMatchesDriverDebug);
+  if (inBatch) return inBatch;
+
+  const client = db();
+  const { data, error } = await client
+    .from("vehicles")
+    .select("*")
+    .ilike("registration_number", `%${DRIVER_DEBUG_REGISTRATION}%`)
+    .limit(1)
+    .maybeSingle();
+
+  if (!error && data) {
+    return data as Row;
+  }
+
+  console.warn(`[searchDriverVehicles] Vehicle ${DRIVER_DEBUG_REGISTRATION} not found in public.vehicles`);
+  return null;
+}
+
+async function mergeDriverVehicleListings(primary: Row[]): Promise<Row[]> {
+  const byId = new Map(primary.map((row) => [getString(row, "id"), row]));
+
+  const { data, error } = await db()
+    .from("driver_vehicles")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(500);
+
+  if (error) {
+    if (!isMissingTableError(error)) {
+      console.warn("[fetchDriverSearchVehicles] driver_vehicles:", error.message);
+    }
+    return primary;
+  }
+
+  const missingVehicleIds: string[] = [];
+  for (const listing of asRows(data)) {
+    const listingApproved =
+      getString(listing, "vehicle_approval_status", "pending") === "approved" ||
+      getString(listing, "status", "available") === "available";
+    if (!listingApproved) continue;
+
+    const vehicleId = getString(listing, "vehicle_id");
+    if (!vehicleId || byId.has(vehicleId)) continue;
+    missingVehicleIds.push(vehicleId);
+  }
+
+  if (missingVehicleIds.length === 0) return primary;
+
+  const { data: vehicles } = await db()
+    .from("vehicles")
+    .select("*")
+    .in("id", [...new Set(missingVehicleIds)]);
+
+  for (const row of asRows(vehicles)) {
+    byId.set(getString(row, "id"), row);
+  }
+
+  return [...byId.values()];
+}
+
+async function loadDriverSearchCandidates(): Promise<{ rows: Row[]; error: string | null }> {
+  const { data, error } = await db()
+    .from("vehicles")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(500);
+
+  if (error) {
+    if (isMissingTableError(error)) return { rows: [], error: null };
+    return { rows: [], error: error.message };
+  }
+
+  const rows = await mergeDriverVehicleListings(asRows(data));
+  console.log(`[loadDriverSearchCandidates] loaded ${rows.length} vehicle candidate(s)`);
+  return { rows, error: null };
+}
+
+async function fetchDriverSearchVehicles(
+  serviceKey: VehicleServiceKey
+): Promise<{ rows: Row[]; error: string | null }> {
+  const { rows: allRows, error } = await loadDriverSearchCandidates();
+  if (error) return { rows: [], error };
+
+  const ownerIds = [...new Set(allRows.map((row) => getString(row, "owner_id")).filter(Boolean))];
+  const eligibilityByOwner = new Map<string, DriverOwnerEligibility>();
+  await Promise.all(
+    ownerIds.map(async (ownerId) => {
+      const state = await fetchOwnerApprovalState(ownerId);
+      eligibilityByOwner.set(ownerId, {
+        ownerStatus: state.ownerStatus,
+        kycStatus: state.kycStatus,
+        ownerApproved: state.ownerApproved,
+        kycApproved: state.kycApproved,
+      });
+    })
+  );
+
+  const included: Row[] = [];
+  const rejections: { registration: string; reasons: string[] }[] = [];
+
+  for (const row of allRows) {
+    const ownerId = getString(row, "owner_id");
+    const eligibility = eligibilityByOwner.get(ownerId) ?? ownerMarketplaceEligibilityFromRow({});
+    const snapshot = buildDriverVehicleAuditSnapshot({ row, eligibility });
+    const reasons = evaluateDriverVehicleAllFilters({
+      row,
+      ownerId,
+      ownerCity: "",
+      eligibility,
+      serviceKey,
+      filters: {},
+    });
+
+    logDriverVehicleAudit({ row, snapshot, reasons });
+
+    if (reasons.length > 0) {
+      rejections.push({
+        registration: String(row.registration_number ?? row.id),
+        reasons,
+      });
+      continue;
+    }
+
+    included.push(row);
+  }
+
+  logDriverSearchSummary({
+    matched: included.length,
+    rejected: rejections.length,
+    rejections,
+  });
+
+  const debugRow = await loadDriverDebugVehicleRow(allRows);
+  if (debugRow && !included.some((row) => String(row.id) === String(debugRow.id))) {
+    const ownerId = getString(debugRow, "owner_id");
+    const state = await fetchOwnerApprovalState(ownerId);
+    console.warn(`[fetchDriverSearchVehicles] ${DRIVER_DEBUG_REGISTRATION} audit:`, {
+      ownerStatus: state.ownerStatus,
+      kycStatus: state.kycStatus,
+      ownerApproved: state.ownerApproved,
+      kycApproved: state.kycApproved,
+      profileFound: state.profileFound,
+      profileOwnerStatus: state.profileOwnerStatus,
+      profileKycStatus: state.profileKycStatus,
+    });
+  }
+
+  console.log(`[fetchDriverSearchVehicles] ${allRows.length} candidates → ${included.length} eligible`);
+  return { rows: included, error: null };
 }
 
 function mapVehicleRowToSelfDriveResult(
@@ -678,7 +891,7 @@ function mapVehicleRowToDriverResult(
   const vehicle = mapVehicleRow(row);
   const category = normalizeVehicleCategory(vehicle.vehicle_category);
   const pickupCity = resolveVehicleCity(row, ownerCity);
-  const ratePerKm = getNumber(row, "rate_per_km") || 15;
+  const ratePerKm = getNumber(row, "rate_per_km") || getNumber(row, "price_per_km") || 15;
   const photos = vehicle.vehicle_photo_url ? [vehicle.vehicle_photo_url] : [];
 
   return {
@@ -1052,6 +1265,7 @@ export async function searchReturnJourneys(filters: {
   toCity?: string;
   date?: string;
   vehicleType?: string;
+  tripType?: string;
 }): Promise<QueryResult<SearchResult[]>> {
   const configError = getSupabaseConfigError();
   if (configError) {
@@ -1086,12 +1300,15 @@ export async function searchReturnJourneys(filters: {
     asRows(journeyVehicles).map((row) => [String(row.id), row])
   );
 
+  const tripTypeKey = resolveTripTypeKeyFromSearchLabel(filters.tripType ?? "One Way");
+
   const filteredJourneyRows = journeyRows.filter((row) => {
     const vehicleId = getString(row, "vehicle_id");
     if (!vehicleId) return true;
     const vehicle = journeyVehicleMap.get(vehicleId);
     if (!vehicle) return true;
-    return isServiceEnabled(vehicle, "service_return_journey");
+    if (!isServiceEnabled(vehicle, "service_return_journey")) return false;
+    return vehicleSupportsSearchTrip(vehicle, tripTypeKey);
   });
 
   const ownerIds = filteredJourneyRows.map((row) => getString(row, "owner_id")).filter(Boolean);
@@ -1146,6 +1363,7 @@ export async function searchReturnJourneys(filters: {
     for (const row of vehicleRows) {
       const vehicleId = getString(row, "id");
       if (listedVehicleIds.has(vehicleId)) continue;
+      if (!vehicleSupportsSearchTrip(row, tripTypeKey)) continue;
 
       const ownerId = getString(row, "owner_id");
       const ownerCity = ownerCityMap.get(ownerId) ?? "";
@@ -1178,6 +1396,7 @@ export async function searchSelfDriveVehicles(filters: {
   dropCity?: string;
   date?: string;
   vehicleType?: string;
+  tripType?: string;
 }): Promise<QueryResult<SelfDriveResult[]>> {
   const configError = getSupabaseConfigError();
   if (configError) return { data: [], error: configError };
@@ -1201,15 +1420,28 @@ export async function searchSelfDriveVehicles(filters: {
 
   const cityFilter = filters.pickupCity ?? filters.city;
   const debugExclusions: string[] = [];
+  const tripTypeKey = resolveTripTypeKeyFromSearchLabel(filters.tripType);
 
-  let results = rows.map((row) => {
+  const eligibleRows = rows.filter((row) => {
+    if (!isServiceEnabled(row, "service_self_drive")) {
+      debugExclusions.push(`${getString(row, "registration_number")}: service_self_drive disabled`);
+      return false;
+    }
+    if (!vehicleSupportsSearchTrip(row, tripTypeKey)) {
+      debugExclusions.push(`${getString(row, "registration_number")}: trip type mismatch`);
+      return false;
+    }
+    return true;
+  });
+
+  let results = eligibleRows.map((row) => {
     const ownerId = getString(row, "owner_id");
     const ownerCity = ownerCityMap.get(ownerId) ?? "";
     const ownerName = ownerNameMap.get(ownerId) ?? "Owner";
     return mapVehicleRowToSelfDriveResult(row, ownerCity, ownerName);
   });
 
-  const debugSourceRow = rows.find(vehicleMatchesSelfDriveDebug) ?? null;
+  const debugSourceRow = eligibleRows.find(vehicleMatchesSelfDriveDebug) ?? null;
   const debugMapped = debugSourceRow
     ? results.find((result) => String(result.id) === String(debugSourceRow.id)) ?? null
     : null;
@@ -1295,7 +1527,7 @@ export async function searchDriverVehicles(filters: {
 
   console.log("[searchDriverVehicles] service:", serviceKey, "filters:", JSON.stringify(filters));
 
-  const { rows, error } = await fetchApprovedMarketplaceVehicles(serviceKey);
+  const { rows, error } = await fetchDriverSearchVehicles(serviceKey);
   if (error) {
     console.error("[searchDriverVehicles] query error:", error);
     return { data: [], error };
@@ -1308,34 +1540,64 @@ export async function searchDriverVehicles(filters: {
     resolveOwnerMobiles(ownerIds),
   ]);
 
-  let results = rows.map((row) => {
+  const pickupCity = filters.pickupCity ?? filters.city;
+  const tripTypeKey = resolveTripTypeKeyFromSearchLabel(filters.tripType);
+  const searchFilters = {
+    pickupCity,
+    dropCity: filters.dropCity,
+    date: filters.date,
+    vehicleType: filters.vehicleType,
+    tripType: filters.tripType,
+    tripTypeKey,
+  };
+
+  const results: DriverVehicleResult[] = [];
+  const postRejections: { registration: string; reasons: string[] }[] = [];
+
+  for (const row of rows) {
     const ownerId = getString(row, "owner_id");
-    return mapVehicleRowToDriverResult(
+    const ownerCity = ownerCityMap.get(ownerId) ?? "";
+
+    const postReasons = evaluateDriverVehicleSearchFilters({
       row,
-      ownerCityMap.get(ownerId) ?? "",
-      ownerNameMap.get(ownerId) ?? "Owner",
-      ownerMobileMap.get(ownerId) ?? ""
+      ownerCity,
+      filters: searchFilters,
+    });
+
+    if (postReasons.length > 0) {
+      logDriverVehicleExclusion(row, postReasons);
+      postRejections.push({
+        registration: String(row.registration_number ?? row.id),
+        reasons: postReasons,
+      });
+      continue;
+    }
+
+    results.push(
+      mapVehicleRowToDriverResult(
+        row,
+        ownerCity,
+        ownerNameMap.get(ownerId) ?? "Owner",
+        ownerMobileMap.get(ownerId) ?? ""
+      )
     );
-  });
-
-  const cityFilter = filters.pickupCity ?? filters.city;
-  if (cityFilter) {
-    const before = results.length;
-    results = results.filter((r) => matchesCity(r.pickup_city, cityFilter));
-    console.log(`[searchDriverVehicles] city filter "${cityFilter}": ${before} → ${results.length}`);
-  }
-  if (filters.dropCity) {
-    results = results.filter((r) => !r.drop_city || matchesCity(r.drop_city, filters.dropCity!));
-  }
-  if (filters.date) {
-    results = results.filter((r) => !r.journey_date || r.journey_date === filters.date);
-  }
-  if (filters.vehicleType) {
-    results = results.filter((r) => matchesVehicleCategory(r.vehicle_type, filters.vehicleType));
   }
 
-  console.log("[searchDriverVehicles] final results:", results.length);
-  return { data: results, error: null };
+  if (postRejections.length > 0) {
+    console.log("[searchDriverVehicles] post-filter rejections:", postRejections);
+    logDriverSearchSummary({
+      matched: results.length,
+      rejected: postRejections.length,
+      rejections: postRejections,
+    });
+  }
+
+  const sorted = sortDriverResultsByPickupProximity(results, pickupCity);
+
+  console.log("[searchDriverVehicles] final results:", sorted.length);
+  logDriverSearchResultsTable(sorted);
+
+  return { data: sorted, error: null };
 }
 
 export async function getJourneyById(id: string): Promise<Record<string, unknown> | null> {
@@ -1707,7 +1969,7 @@ async function getOwnerMarketplaceEligibilityMap(ownerIds: string[]) {
   const [profileResult, userResult] = await Promise.all([
     db()
       .from("owner_profiles")
-      .select("user_id, owner_status, kyc_status, status")
+      .select("user_id, owner_status, kyc_status")
       .in("user_id", canonicalIds),
     db()
       .from("users")
@@ -1716,14 +1978,28 @@ async function getOwnerMarketplaceEligibilityMap(ownerIds: string[]) {
   ]);
 
   let profileRows = asRows(profileResult.data);
-  if (profileResult.error && isMissingColumnError(profileResult.error, "owner_status", "kyc_status")) {
-    profileRows = [];
+  if (profileResult.error) {
+    if (isMissingColumnError(profileResult.error)) {
+      const retry = await db().from("owner_profiles").select("user_id").in("user_id", canonicalIds);
+      profileRows = asRows(retry.data);
+    } else if (!isMissingTableError(profileResult.error)) {
+      console.warn("[getOwnerMarketplaceEligibilityMap] owner_profiles:", profileResult.error.message);
+    }
   }
 
   let userRows = asRows(userResult.data);
-  if (userResult.error && isMissingColumnError(userResult.error, "owner_status", "kyc_status")) {
-    const fallback = await db().from("users").select("id, kyc_status").in("id", canonicalIds);
-    userRows = asRows(fallback.data);
+  if (userResult.error) {
+    if (isMissingColumnError(userResult.error)) {
+      const kycRetry = await db().from("users").select("id, kyc_status").in("id", canonicalIds);
+      if (!kycRetry.error) {
+        userRows = asRows(kycRetry.data);
+      } else {
+        const idRetry = await db().from("users").select("id").in("id", canonicalIds);
+        userRows = asRows(idRetry.data);
+      }
+    } else if (!isMissingTableError(userResult.error)) {
+      console.warn("[getOwnerMarketplaceEligibilityMap] users:", userResult.error.message);
+    }
   }
 
   const profileMap = new Map(profileRows.map((row) => [getString(row, "user_id"), row]));
@@ -2001,6 +2277,11 @@ export async function getAdminVehicleList(limit = 200): Promise<AdminVehicleReco
       service_with_driver: mapped.service_with_driver ?? true,
       service_local_rental: mapped.service_local_rental ?? true,
       service_return_journey: mapped.service_return_journey ?? false,
+      trip_one_way: mapped.trip_one_way ?? true,
+      trip_round_trip: mapped.trip_round_trip ?? true,
+      trip_multi_city: mapped.trip_multi_city ?? false,
+      trip_airport_transfer: mapped.trip_airport_transfer ?? false,
+      trip_local_rental: mapped.trip_local_rental ?? true,
       created_at: getString(row, "created_at"),
     };
   });
@@ -2090,6 +2371,11 @@ export async function getAdminVehicleDetail(
     service_with_driver: mapped.service_with_driver ?? true,
     service_local_rental: mapped.service_local_rental ?? true,
     service_return_journey: mapped.service_return_journey ?? false,
+    trip_one_way: mapped.trip_one_way ?? true,
+    trip_round_trip: mapped.trip_round_trip ?? true,
+    trip_multi_city: mapped.trip_multi_city ?? false,
+    trip_airport_transfer: mapped.trip_airport_transfer ?? false,
+    trip_local_rental: mapped.trip_local_rental ?? true,
     vehicle_make: mapped.vehicle_make,
     vehicle_model: mapped.vehicle_model,
     vehicle_year: mapped.vehicle_year,
@@ -2547,21 +2833,16 @@ export async function getOwnerDashboardMetrics(ownerId: string): Promise<OwnerDa
 }
 
 export async function getOwnerBookings(ownerId: string): Promise<UserBooking[]> {
-  const { data, error } = await db()
-    .from("bookings")
-    .select(
-      "id, owner_id, booking_reference, booking_type, passenger_name, amount, booking_status, payment_status, pickup_location, drop_location, pickup_date, created_at, cancellation_status, refund_status"
-    )
-    .eq("owner_id", ownerId)
-    .order("created_at", { ascending: false })
-    .limit(200);
+  const rows = await selectBookingsWithFilter(BOOKING_OWNER_COLUMN_SETS, (columns) =>
+    db()
+      .from("bookings")
+      .select(columns)
+      .eq("owner_id", ownerId)
+      .order("created_at", { ascending: false })
+      .limit(200)
+  );
 
-  if (error) {
-    console.error("[getOwnerBookings]", error.message);
-    return [];
-  }
-
-  return (data ?? []).map((row) => ({
+  return rows.map((row) => ({
     id: getString(row, "id"),
     booking_reference: getString(row, "booking_reference") || undefined,
     booking_type: getString(row, "booking_type", "booking"),
@@ -2701,6 +2982,7 @@ export async function getOwnerEarnings(ownerId: string) {
     .limit(500);
 
   if (error) {
+    if (isMissingTableError(error)) return [];
     console.error("[getOwnerEarnings]", error.message);
     return [];
   }

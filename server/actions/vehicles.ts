@@ -23,6 +23,12 @@ import {
   serviceAvailabilityPayload,
   type VehicleServiceAvailability,
 } from "@/lib/vehicles/services";
+import {
+  DEFAULT_VEHICLE_TRIP_TYPES,
+  parseTripTypesFromFormData,
+  tripTypesPayload,
+  type VehicleTripTypeAvailability,
+} from "@/lib/vehicles/trip-types";
 import { assertOwnerCanCreateVehicle } from "@/server/actions/ownerKyc";
 import { requireRole } from "@/server/actions/auth";
 import type { ActionResult } from "@/types/database";
@@ -128,7 +134,8 @@ async function upsertVehicleRecord(
   ownerId: string,
   input: VehicleFormInput,
   vehicleId: string | null,
-  services: VehicleServiceAvailability = DEFAULT_VEHICLE_SERVICES
+  services: VehicleServiceAvailability = DEFAULT_VEHICLE_SERVICES,
+  tripTypes: VehicleTripTypeAvailability = DEFAULT_VEHICLE_TRIP_TYPES
 ): Promise<string> {
   const db = createAdminClient();
   const payload: Record<string, unknown> = {
@@ -142,16 +149,26 @@ async function upsertVehicleRecord(
     documents_status: "pending",
     updated_at: new Date().toISOString(),
     ...serviceAvailabilityPayload(services),
+    ...tripTypesPayload(tripTypes),
   };
+
+  function stripAvailabilityColumns(target: Record<string, unknown>) {
+    delete target.service_self_drive;
+    delete target.service_with_driver;
+    delete target.service_local_rental;
+    delete target.service_return_journey;
+    delete target.trip_one_way;
+    delete target.trip_round_trip;
+    delete target.trip_multi_city;
+    delete target.trip_airport_transfer;
+    delete target.trip_local_rental;
+  }
 
   if (vehicleId) {
     let { error } = await db.from("vehicles").update(payload).eq("id", vehicleId).eq("owner_id", ownerId);
-    if (error?.message?.includes("service_")) {
+    if (error?.message?.includes("service_") || error?.message?.includes("trip_")) {
       const fallback = { ...payload };
-      delete fallback.service_self_drive;
-      delete fallback.service_with_driver;
-      delete fallback.service_local_rental;
-      delete fallback.service_return_journey;
+      stripAvailabilityColumns(fallback);
       ({ error } = await db.from("vehicles").update(fallback).eq("id", vehicleId).eq("owner_id", ownerId));
     }
     if (error) throw new Error(error.message);
@@ -163,17 +180,98 @@ async function upsertVehicleRecord(
     delete payload.documents_status;
     ({ data, error } = await db.from("vehicles").insert(payload).select("id").single());
   }
-  if (error?.message?.includes("service_")) {
+  if (error?.message?.includes("service_") || error?.message?.includes("trip_")) {
     const fallback = { ...payload };
-    delete fallback.service_self_drive;
-    delete fallback.service_with_driver;
-    delete fallback.service_local_rental;
-    delete fallback.service_return_journey;
+    stripAvailabilityColumns(fallback);
     ({ data, error } = await db.from("vehicles").insert(fallback).select("id").single());
   }
   if (error) throw new Error(error.message);
   if (!data) throw new Error("Failed to create vehicle");
   return data.id as string;
+}
+
+function validateAvailabilitySelection(
+  services: VehicleServiceAvailability,
+  tripTypes: VehicleTripTypeAvailability
+): string | null {
+  if (!Object.values(services).some(Boolean)) {
+    return "Select at least one service type";
+  }
+  if (!Object.values(tripTypes).some(Boolean)) {
+    return "Select at least one trip type";
+  }
+  return null;
+}
+
+async function persistVehicleAvailability(
+  ownerId: string,
+  vehicleId: string,
+  services: VehicleServiceAvailability,
+  tripTypes: VehicleTripTypeAvailability
+): Promise<void> {
+  const db = createAdminClient();
+  const payload: Record<string, unknown> = {
+    ...serviceAvailabilityPayload(services),
+    ...tripTypesPayload(tripTypes),
+    updated_at: new Date().toISOString(),
+  };
+
+  let { error } = await db
+    .from("vehicles")
+    .update(payload)
+    .eq("id", vehicleId)
+    .eq("owner_id", ownerId);
+
+  if (error?.message?.includes("service_") || error?.message?.includes("trip_")) {
+    const fallback = { ...payload };
+    delete fallback.service_self_drive;
+    delete fallback.service_with_driver;
+    delete fallback.service_local_rental;
+    delete fallback.service_return_journey;
+    delete fallback.trip_one_way;
+    delete fallback.trip_round_trip;
+    delete fallback.trip_multi_city;
+    delete fallback.trip_airport_transfer;
+    delete fallback.trip_local_rental;
+    ({ error } = await db
+      .from("vehicles")
+      .update(fallback)
+      .eq("id", vehicleId)
+      .eq("owner_id", ownerId));
+  }
+
+  if (error) throw new Error(error.message);
+}
+
+export async function updateOwnerVehicleAvailability(
+  formData: FormData
+): Promise<ActionResult> {
+  const configError = getSupabaseConfigError();
+  if (configError) return { success: false, error: configError };
+
+  const { user } = await requireRole("owner");
+  const vehicleId = String(formData.get("vehicle_id") ?? "").trim();
+  if (!vehicleId) return { success: false, error: "Vehicle ID required" };
+
+  const existing = await getOwnerVehicleById(vehicleId, user.id);
+  if (!existing) return { success: false, error: "Vehicle not found" };
+
+  const services = parseServiceAvailability(formData);
+  const tripTypes = parseTripTypesFromFormData(formData);
+  const availabilityError = validateAvailabilitySelection(services, tripTypes);
+  if (availabilityError) return { success: false, error: availabilityError };
+
+  try {
+    await persistVehicleAvailability(user.id, vehicleId, services, tripTypes);
+    revalidateVehiclePaths();
+    return {
+      success: true,
+      message: "Service and trip types updated successfully.",
+    };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Failed to update availability";
+    return { success: false, error: message };
+  }
 }
 
 export async function getOwnerVehiclesList(ownerId: string): Promise<OwnerVehicleRow[]> {
@@ -221,9 +319,13 @@ export async function saveOwnerVehicle(
   const vehicleId = String(formData.get("vehicle_id") ?? "").trim() || null;
   const input = parseVehicleInput(formData);
   const services = parseServiceAvailability(formData);
+  const tripTypes = parseTripTypesFromFormData(formData);
 
   const validationError = validateFormInput(input);
   if (validationError) return { success: false, error: validationError };
+
+  const availabilityError = validateAvailabilitySelection(services, tripTypes);
+  if (availabilityError) return { success: false, error: availabilityError };
 
   if (
     input.vehicle_category &&
@@ -242,7 +344,7 @@ export async function saveOwnerVehicle(
   }
 
   try {
-    const id = await upsertVehicleRecord(user.id, input, vehicleId, services);
+    const id = await upsertVehicleRecord(user.id, input, vehicleId, services, tripTypes);
     await processUploads(user.id, id, formData, existing ?? undefined);
 
     const submissionCheck = await validateVehicleForSubmission(id);

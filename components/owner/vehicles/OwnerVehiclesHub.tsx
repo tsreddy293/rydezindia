@@ -25,6 +25,7 @@ import OwnerEmptyState from "@/components/owner/dashboard/ui/OwnerEmptyState";
 import { useOwnerToast } from "@/components/owner/shared/useOwnerToast";
 import { downloadCsv } from "@/lib/owner/export-utils";
 import { OWNER_STATUS_STYLES, resolveVehicleStatusKind } from "@/lib/owner/owner-status-styles";
+import VehicleCapabilityBadges from "@/components/vehicles/VehicleCapabilityBadges";
 import { deleteOwnerVehicle } from "@/server/actions/vehicles";
 import { vehicleDisplayName, type OwnerVehicleRow } from "@/lib/vehicles/format";
 import { formatINR } from "@/lib/utils";
@@ -216,7 +217,8 @@ export default function OwnerVehiclesHub({ vehicles, completedTrips, lifetimeEar
           const name = vehicleDisplayName(v);
           const kind = resolveVehicleStatusKind(v.approval_status, v.is_active);
           const canDelete = v.approval_status !== "approved";
-          const canEdit = v.approval_status !== "approved";
+          const canEditFull = v.approval_status !== "approved";
+          const canEditServices = v.approval_status === "approved";
           const fuel = CATEGORY_FUEL[v.vehicle_category] ?? "Petrol";
           const seats = v.vehicle_category.includes("Bus") ? 12 : v.vehicle_category === "Van" ? 7 : 5;
 
@@ -261,6 +263,17 @@ export default function OwnerVehiclesHub({ vehicles, completedTrips, lifetimeEar
                   </p>
                 )}
 
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  <VehicleCapabilityBadges
+                    services={{
+                      service_self_drive: v.service_self_drive,
+                      service_with_driver: v.service_with_driver,
+                      service_local_rental: v.service_local_rental,
+                      service_return_journey: v.service_return_journey,
+                    }}
+                  />
+                </div>
+
                 <div className="mt-3 flex flex-wrap gap-2 text-xs">
                   <span className="rounded-lg bg-blue-50 px-2 py-1 text-blue-700">Available</span>
                   <span className="rounded-lg bg-gray-100 px-2 py-1 text-gray-600">{tripsPerVehicle} trips</span>
@@ -277,9 +290,14 @@ export default function OwnerVehiclesHub({ vehicles, completedTrips, lifetimeEar
                     <Link href={`/owner/view-vehicle/${v.id}`} className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2.5 py-1.5 text-xs font-semibold text-secondary transition hover:bg-primary hover:text-white">
                       <Eye className="h-3.5 w-3.5" /> View
                     </Link>
-                    {canEdit && (
+                    {canEditFull && (
                       <Link href={`/owner/edit-vehicle/${v.id}`} className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2.5 py-1.5 text-xs font-semibold text-secondary transition hover:bg-primary hover:text-white">
                         <Edit className="h-3.5 w-3.5" /> Edit
+                      </Link>
+                    )}
+                    {canEditServices && (
+                      <Link href={`/owner/edit-vehicle/${v.id}`} className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2.5 py-1.5 text-xs font-semibold text-secondary transition hover:bg-primary hover:text-white">
+                        <Edit className="h-3.5 w-3.5" /> Services
                       </Link>
                     )}
                     <button

@@ -50,6 +50,7 @@ export default async function SearchSelfDrivePage({ searchParams }: Props) {
     dropCity: dropCity || undefined,
     date: date || undefined,
     vehicleType: vehicleType || undefined,
+    tripType: returnDate ? "Round Trip" : undefined,
   });
 
   return (

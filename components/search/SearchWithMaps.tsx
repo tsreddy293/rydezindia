@@ -526,8 +526,14 @@ function SearchWithMapsInner(props: SearchWithMapsProps) {
 
       {!props.connectionError && props.results.length === 0 ? (
         <div className="rounded-2xl border border-gray-100 bg-gray-50 py-20 text-center">
-          <p className="text-lg text-gray-500">No vehicles available</p>
-          <p className="mt-2 text-sm text-gray-400">Try adjusting your search filters.</p>
+          <p className="text-lg text-gray-500">
+            {props.mode === "with_driver"
+              ? "No eligible driver vehicles matched the search filters."
+              : "No vehicles available"}
+          </p>
+          {props.mode !== "with_driver" ? (
+            <p className="mt-2 text-sm text-gray-400">Try adjusting your search filters.</p>
+          ) : null}
         </div>
       ) : !props.connectionError ? (
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">

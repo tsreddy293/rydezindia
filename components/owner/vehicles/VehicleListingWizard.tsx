@@ -7,7 +7,7 @@ import FormField from "@/components/forms/FormField";
 import Button from "@/components/ui/Button";
 import VehicleServiceAvailabilityFields from "@/components/owner/VehicleServiceAvailabilityFields";
 import VehicleStatusBadge from "@/components/owner/VehicleStatusBadge";
-import { saveOwnerVehicle } from "@/server/actions/vehicles";
+import { saveOwnerVehicle, updateOwnerVehicleAvailability } from "@/server/actions/vehicles";
 import type { OwnerVehicleRow } from "@/lib/vehicles/format";
 
 const VEHICLE_CATEGORIES = [
@@ -44,6 +44,13 @@ export default function VehicleListingWizard({ vehicle, disabled }: Props) {
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const isEdit = Boolean(vehicle);
+  const isApproved = vehicle?.approval_status === "approved";
+
+  useEffect(() => {
+    if (vehicle?.approval_status === "approved") {
+      setStep(4);
+    }
+  }, [vehicle?.approval_status]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -63,18 +70,23 @@ export default function VehicleListingWizard({ vehicle, disabled }: Props) {
     }
   }, [isEdit, step]);
 
-  const progress = Math.round(((step + 1) / STEPS.length) * 100);
+  const progress = isApproved ? 100 : Math.round(((step + 1) / STEPS.length) * 100);
 
   async function handleSubmit(form: HTMLFormElement) {
     setLoading(true);
     setError("");
     const formData = new FormData(form);
-    formData.set("form_action", "submit");
     if (vehicle?.id) formData.set("vehicle_id", vehicle.id);
 
-    const result = await saveOwnerVehicle(formData);
+    const result = isApproved
+      ? await updateOwnerVehicleAvailability(formData)
+      : await (() => {
+          formData.set("form_action", "submit");
+          return saveOwnerVehicle(formData);
+        })();
+
     if (result.success) {
-      setSuccessMessage(result.message ?? "Vehicle submitted successfully.");
+      setSuccessMessage(result.message ?? (isApproved ? "Availability updated." : "Vehicle submitted successfully."));
       setTimeout(() => {
         router.push("/owner/my-vehicles");
         router.refresh();
@@ -96,26 +108,38 @@ export default function VehicleListingWizard({ vehicle, disabled }: Props) {
     <div className="space-y-6">
       {isEdit && vehicle && <VehicleStatusBadge status={vehicle.approval_status} />}
 
+      {isApproved && (
+        <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+          This vehicle is approved. You can update service types and trip types below without re-submitting for approval.
+        </div>
+      )}
+
       <div className="rounded-2xl border bg-white p-6 shadow-sm dark:bg-gray-900">
         <div className="mb-2 flex justify-between text-sm font-medium text-gray-600">
-          <span>Step {step + 1} of {STEPS.length}: {STEPS[step]}</span>
+          <span>
+            {isApproved ? "Service & Trip Types" : `Step ${step + 1} of ${STEPS.length}: ${STEPS[step]}`}
+          </span>
           <span className="text-primary">{progress}%</span>
         </div>
-        <div className="h-2 overflow-hidden rounded-full bg-gray-100">
-          <div className="h-full rounded-full bg-gradient-to-r from-secondary to-primary transition-all duration-300" style={{ width: `${progress}%` }} />
-        </div>
-        <div className="mt-4 hidden gap-1 sm:flex">
-          {STEPS.map((label, i) => (
-            <button
-              key={label}
-              type="button"
-              onClick={() => setStep(i)}
-              className={`flex-1 truncate rounded-lg py-1.5 text-[10px] font-semibold uppercase ${i === step ? "bg-primary/10 text-primary" : i < step ? "text-emerald-600" : "text-gray-400"}`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        {!isApproved ? (
+          <>
+            <div className="h-2 overflow-hidden rounded-full bg-gray-100">
+              <div className="h-full rounded-full bg-gradient-to-r from-secondary to-primary transition-all duration-300" style={{ width: `${progress}%` }} />
+            </div>
+            <div className="mt-4 hidden gap-1 sm:flex">
+              {STEPS.map((label, i) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => setStep(i)}
+                  className={`flex-1 truncate rounded-lg py-1.5 text-[10px] font-semibold uppercase ${i === step ? "bg-primary/10 text-primary" : i < step ? "text-emerald-600" : "text-gray-400"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </>
+        ) : null}
       </div>
 
       {successMessage && (
@@ -131,14 +155,38 @@ export default function VehicleListingWizard({ vehicle, disabled }: Props) {
         id="vehicle-wizard-form"
         onSubmit={(e) => {
           e.preventDefault();
-          if (disabled || step < STEPS.length - 1) return;
+          if (disabled) return;
+          if (isApproved) {
+            handleSubmit(e.currentTarget);
+            return;
+          }
+          if (step < STEPS.length - 1) return;
           handleSubmit(e.currentTarget);
         }}
         className="space-y-6 rounded-2xl border bg-white p-6 shadow-sm md:p-8 dark:bg-gray-900"
       >
         {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>}
 
-        {step === 0 && (
+        {(isApproved || step === 4) && (
+          <VehicleServiceAvailabilityFields
+            services={{
+              service_self_drive: vehicle?.service_self_drive,
+              service_with_driver: vehicle?.service_with_driver,
+              service_local_rental: vehicle?.service_local_rental,
+              service_return_journey: vehicle?.service_return_journey,
+            }}
+            tripTypes={{
+              trip_one_way: vehicle?.trip_one_way,
+              trip_round_trip: vehicle?.trip_round_trip,
+              trip_multi_city: vehicle?.trip_multi_city,
+              trip_airport_transfer: vehicle?.trip_airport_transfer,
+              trip_local_rental: vehicle?.trip_local_rental,
+            }}
+            disabled={disabled}
+          />
+        )}
+
+        {!isApproved && step === 0 && (
           <section className="grid gap-5 sm:grid-cols-2">
             <FormField label="Vehicle Make" name="vehicle_make" required defaultValue={vehicle?.vehicle_make} placeholder="Toyota" />
             <FormField label="Vehicle Model" name="vehicle_model" required defaultValue={vehicle?.vehicle_model} placeholder="Innova Crysta" />
@@ -156,7 +204,7 @@ export default function VehicleListingWizard({ vehicle, disabled }: Props) {
           </section>
         )}
 
-        {step === 1 && (
+        {!isApproved && step === 1 && (
           <section className="space-y-4">
             <p className="text-sm text-gray-500">Upload at least one clear exterior photo. Additional angles help approval.</p>
             {PHOTO_SLOTS.map((slot, i) => (
@@ -179,7 +227,7 @@ export default function VehicleListingWizard({ vehicle, disabled }: Props) {
           </section>
         )}
 
-        {step === 2 && (
+        {!isApproved && step === 2 && (
           <section className="grid gap-5 sm:grid-cols-2">
             {[
               { name: "rc", label: "RC Certificate", url: vehicle?.rc_document_url },
@@ -202,7 +250,7 @@ export default function VehicleListingWizard({ vehicle, disabled }: Props) {
           </section>
         )}
 
-        {step === 3 && (
+        {!isApproved && step === 3 && (
           <section className="grid gap-4 sm:grid-cols-2">
             {[
               { label: "Daily Rate (₹)", placeholder: "2500" },
@@ -229,19 +277,7 @@ export default function VehicleListingWizard({ vehicle, disabled }: Props) {
           </section>
         )}
 
-        {step === 4 && (
-          <VehicleServiceAvailabilityFields
-            services={{
-              service_self_drive: vehicle?.service_self_drive,
-              service_with_driver: vehicle?.service_with_driver,
-              service_local_rental: vehicle?.service_local_rental,
-              service_return_journey: vehicle?.service_return_journey,
-            }}
-            disabled={disabled}
-          />
-        )}
-
-        {step === 5 && (
+        {!isApproved && step === 5 && (
           <section className="space-y-4 rounded-xl bg-gray-50 p-6 dark:bg-gray-800">
             <h3 className="font-bold text-secondary">Preview</h3>
             <p className="text-sm text-gray-600">Review your vehicle details before submitting for admin approval.</p>
@@ -254,7 +290,7 @@ export default function VehicleListingWizard({ vehicle, disabled }: Props) {
           </section>
         )}
 
-        {step === 6 && (
+        {!isApproved && step === 6 && (
           <section className="text-center py-8">
             <CheckCircle className="mx-auto h-12 w-12 text-emerald-500" />
             <h3 className="mt-4 text-xl font-bold">Ready to Submit</h3>
@@ -263,15 +299,21 @@ export default function VehicleListingWizard({ vehicle, disabled }: Props) {
         )}
 
         <div className="flex flex-wrap justify-between gap-3 border-t pt-6">
-          <Button type="button" variant="ghost" onClick={back} disabled={step === 0 || loading}>
-            <ChevronLeft className="h-4 w-4" /> Back
-          </Button>
-          {step < STEPS.length - 1 ? (
-            <Button type="button" variant="primary" onClick={next} disabled={disabled}>
+          {!isApproved && (
+            <Button type="button" variant="ghost" onClick={back} disabled={step === 0 || loading}>
+              <ChevronLeft className="h-4 w-4" /> Back
+            </Button>
+          )}
+          {isApproved ? (
+            <Button type="submit" variant="primary" disabled={loading || Boolean(successMessage) || disabled} className="ml-auto">
+              {loading ? <><Loader2 className="h-5 w-5 animate-spin" /> Saving…</> : "Save Service & Trip Types"}
+            </Button>
+          ) : step < STEPS.length - 1 ? (
+            <Button type="button" variant="primary" onClick={next} disabled={disabled} className="ml-auto">
               Next <ChevronRight className="h-4 w-4" />
             </Button>
           ) : (
-            <Button type="submit" variant="primary" disabled={loading || Boolean(successMessage) || disabled}>
+            <Button type="submit" variant="primary" disabled={loading || Boolean(successMessage) || disabled} className="ml-auto">
               {loading ? <><Loader2 className="h-5 w-5 animate-spin" /> Submitting…</> : "Submit for Approval"}
             </Button>
           )}

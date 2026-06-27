@@ -45,6 +45,16 @@ export const BOOKING_RIDER_COLUMN_SETS = [
   ),
 ] as const;
 
+/** Owner hub bookings list */
+export const BOOKING_OWNER_COLUMN_SETS = [
+  joinColumns(
+    "id, owner_id, booking_reference, booking_type, passenger_name, amount, booking_status, payment_status, pickup_location, drop_location, pickup_date, created_at",
+    "cancellation_status, refund_status"
+  ),
+  "id, owner_id, booking_reference, booking_type, passenger_name, amount, booking_status, payment_status, pickup_location, drop_location, pickup_date, created_at",
+  "id, owner_id, booking_type, passenger_name, amount, booking_status, payment_status, pickup_location, drop_location, pickup_date, created_at",
+] as const;
+
 /** Admin bookings list */
 export const BOOKING_ADMIN_LIST_COLUMN_SETS = [
   joinColumns(

@@ -55,7 +55,7 @@ export default function OwnerShell({
           >
             {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
-          <p className="font-bold text-secondary dark:text-white">Rydez Host</p>
+          <p className="font-bold text-secondary dark:text-white">Rydez India</p>
         </div>
         <OwnerHeader
           displayName={displayName}

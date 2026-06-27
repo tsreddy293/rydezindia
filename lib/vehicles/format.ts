@@ -1,5 +1,7 @@
 import type { VehicleServiceAvailability } from "@/lib/vehicles/services";
 import { parseServiceAvailabilityFromRow } from "@/lib/vehicles/services";
+import type { VehicleTripTypeAvailability } from "@/lib/vehicles/trip-types";
+import { parseTripTypesFromRow } from "@/lib/vehicles/trip-types";
 import { normalizeDocumentsStatus } from "@/lib/admin/marketplace-gates";
 
 export type VehicleApprovalStatus = "pending" | "approved" | "rejected";
@@ -25,11 +27,18 @@ export interface OwnerVehicleRow {
   service_with_driver?: boolean;
   service_local_rental?: boolean;
   service_return_journey?: boolean;
+  trip_one_way?: boolean;
+  trip_round_trip?: boolean;
+  trip_multi_city?: boolean;
+  trip_airport_transfer?: boolean;
+  trip_local_rental?: boolean;
   created_at?: string;
   updated_at?: string;
 }
 
-export type OwnerVehicleRowWithServices = OwnerVehicleRow & VehicleServiceAvailability;
+export type OwnerVehicleRowWithServices = OwnerVehicleRow &
+  VehicleServiceAvailability &
+  VehicleTripTypeAvailability;
 
 export function vehicleDisplayName(
   vehicle: Pick<OwnerVehicleRow, "vehicle_make" | "vehicle_model" | "vehicle_year">
@@ -78,6 +87,7 @@ export function mapVehicleRow(row: Record<string, unknown>): OwnerVehicleRow {
     daily_fare: Number(row.daily_fare ?? row.daily_rent ?? 0) || 0,
     security_deposit: Number(row.security_deposit ?? 0) || 0,
     ...parseServiceAvailabilityFromRow(row),
+    ...parseTripTypesFromRow(row),
     created_at: row.created_at ? String(row.created_at) : undefined,
     updated_at: row.updated_at ? String(row.updated_at) : undefined,
   };

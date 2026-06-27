@@ -9,6 +9,7 @@ import {
   updateVehicleServiceAvailability,
 } from "@/server/actions/vehicles";
 import { approveVehicleDocument } from "@/server/actions/phase2Admin";
+import VehicleCapabilityBadges from "@/components/vehicles/VehicleCapabilityBadges";
 import { VEHICLE_SERVICES, type VehicleServiceAvailability } from "@/lib/vehicles/services";
 import { KYC_APPROVAL_REQUIRED_MESSAGE } from "@/lib/admin/marketplace-gates";
 import { ownerStatusBadgeClasses } from "@/lib/admin/owner-status";
@@ -32,22 +33,7 @@ function DocLink({ url, label }: { url: string | null; label: string }) {
 }
 
 function ServiceBadges({ services }: { services: VehicleServiceAvailability }) {
-  const active = VEHICLE_SERVICES.filter((s) => services[s.key]);
-  if (active.length === 0) {
-    return <span className="text-sm text-gray-400">No services enabled</span>;
-  }
-  return (
-    <div className="flex flex-wrap gap-2">
-      {active.map((service) => (
-        <span
-          key={service.key}
-          className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700"
-        >
-          {service.label}
-        </span>
-      ))}
-    </div>
-  );
+  return <VehicleCapabilityBadges services={services} size="md" />;
 }
 
 function entityTypeLabel(type: string): string {

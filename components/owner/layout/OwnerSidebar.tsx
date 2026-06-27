@@ -63,9 +63,9 @@ export default function OwnerSidebar({ onNavigate }: { onNavigate?: () => void }
         {!collapsed && (
           <div>
             <p className="bg-gradient-to-r from-secondary to-primary bg-clip-text text-sm font-bold text-transparent">
-              Rydez Host
+              Rydez India
             </p>
-            <p className="text-[10px] uppercase tracking-wider text-gray-400">Enterprise Fleet</p>
+            <p className="text-[10px] tracking-wider text-gray-400">Owner Portal</p>
           </div>
         )}
         <button

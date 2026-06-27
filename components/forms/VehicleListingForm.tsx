@@ -130,6 +130,13 @@ export default function VehicleListingForm({ vehicle, disabled }: Props) {
             service_local_rental: vehicle?.service_local_rental,
             service_return_journey: vehicle?.service_return_journey,
           }}
+          tripTypes={{
+            trip_one_way: vehicle?.trip_one_way,
+            trip_round_trip: vehicle?.trip_round_trip,
+            trip_multi_city: vehicle?.trip_multi_city,
+            trip_airport_transfer: vehicle?.trip_airport_transfer,
+            trip_local_rental: vehicle?.trip_local_rental,
+          }}
           disabled={disabled}
         />
 
