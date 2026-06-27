@@ -2,10 +2,14 @@ import type { User } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveUserName } from "@/lib/users/display-name";
 
+import { resolveCustomerKycStatus } from "@/lib/kyc/resolve-customer-kyc-status";
+
 export interface RiderBookingProfile {
   name: string;
   email: string;
   mobile: string;
+  kycApproved: boolean;
+  mobileVerified: boolean;
 }
 
 export interface RiderWelcomeProfile {
@@ -114,30 +118,56 @@ export async function getRiderBookingProfile(
 ): Promise<RiderBookingProfile> {
   try {
     const db = createAdminClient();
-    const [{ data: userRow }, { data: profileRow }] = await Promise.all([
-      db.from("users").select("name, full_name, mobile, email").eq("id", userId).maybeSingle(),
+    let userResult = await db
+      .from("users")
+      .select("name, full_name, mobile, email, mobile_verified")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (userResult.error?.message?.toLowerCase().includes("mobile_verified")) {
+      userResult = await db
+        .from("users")
+        .select("name, full_name, mobile, email")
+        .eq("id", userId)
+        .maybeSingle();
+    }
+
+    const [{ data: profileRow }, kyc] = await Promise.all([
       db.from("customer_profiles").select("full_name, mobile, email").eq("user_id", userId).maybeSingle(),
+      resolveCustomerKycStatus(userId),
     ]);
 
-    const user = userRow as { name?: string; full_name?: string; mobile?: string; email?: string } | null;
+    const user = userResult.data as {
+      name?: string;
+      full_name?: string;
+      mobile?: string;
+      email?: string;
+      mobile_verified?: boolean;
+    } | null;
     const profile = profileRow as { full_name?: string; mobile?: string; email?: string } | null;
+
+    const mobile =
+      profile?.mobile?.trim() ||
+      user?.mobile?.trim() ||
+      authMeta?.mobile?.trim() ||
+      "";
 
     return {
       name:
         profile?.full_name?.trim() ||
         resolveUserName(user, authMeta?.name?.trim() || "Rider"),
       email: profile?.email?.trim() || user?.email?.trim() || authMeta?.email?.trim() || "",
-      mobile:
-        profile?.mobile?.trim() ||
-        user?.mobile?.trim() ||
-        authMeta?.mobile?.trim() ||
-        "",
+      mobile,
+      kycApproved: kyc.status === "approved",
+      mobileVerified: user?.mobile_verified === true,
     };
   } catch {
     return {
       name: authMeta?.name?.trim() || "Rider",
       email: authMeta?.email?.trim() || "",
       mobile: authMeta?.mobile?.trim() || "",
+      kycApproved: false,
+      mobileVerified: false,
     };
   }
 }

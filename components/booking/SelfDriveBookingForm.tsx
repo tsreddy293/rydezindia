@@ -7,6 +7,7 @@ import Button from "@/components/ui/Button";
 import FormField from "@/components/forms/FormField";
 import RazorpayCheckout from "@/components/payments/RazorpayCheckout";
 import KycVerifiedNotice from "@/components/booking/KycVerifiedNotice";
+import MobileVerifiedNotice from "@/components/booking/MobileVerifiedNotice";
 import SelfDriveFareSummary from "@/components/booking/SelfDriveFareSummary";
 import CancellationPolicyAccordion from "@/components/booking/CancellationPolicyAccordion";
 import FlexibleCancellationAddon from "@/components/booking/FlexibleCancellationAddon";
@@ -282,6 +283,7 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
   return (
     <div className="grid gap-8 lg:grid-cols-5">
       <div className="lg:col-span-2 rounded-2xl bg-secondary text-white p-6 space-y-4 h-fit">
+        <p className="text-xs font-semibold uppercase tracking-wide text-white/60">Vehicle Summary</p>
         <h2 className="text-xl font-bold">{listing.vehicle_name}</h2>
         <p className="text-white/70 text-sm">{listing.vehicle_type}</p>
         <div className="space-y-3 text-sm">
@@ -307,7 +309,7 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
           </div>
         </div>
         <div className="border-t border-white/20 pt-4">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-white/60">Booking Summary</p>
+          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-white/60">Fare Summary</p>
           <SelfDriveFareSummary
             pricing={pricing}
             paymentType="full"
@@ -318,7 +320,7 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
       </div>
 
       <form onSubmit={handleSubmit} className="lg:col-span-3 rounded-2xl bg-white border shadow-sm p-6 md:p-8 space-y-5">
-        <h2 className="text-xl font-bold text-secondary">Confirm Your Self Drive Booking</h2>
+        <h2 className="text-xl font-bold text-secondary">Customer Details</h2>
         <p className="text-sm text-gray-500">
           Trip details from your search are pre-filled below. Edit dates or times if needed.
         </p>
@@ -336,6 +338,9 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
         </div>
 
         <KycVerifiedNotice />
+        {customer.mobileVerified && customer.mobile ? (
+          <MobileVerifiedNotice mobile={customer.mobile} />
+        ) : null}
 
         <FormField
           label="Pickup City"
@@ -390,29 +395,31 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
           rows={4}
         />
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Coupon Code</label>
-            <input
-              type="text"
-              value={couponCode}
-              onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
-              placeholder="WELCOME100"
-              className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm uppercase"
-            />
+        <section className="space-y-4 rounded-xl border border-gray-100 bg-gray-50/80 p-4">
+          <h3 className="text-sm font-semibold text-secondary">Payment Summary</h3>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Coupon Code</label>
+              <input
+                type="text"
+                value={couponCode}
+                onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                placeholder="WELCOME100"
+                className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm uppercase"
+              />
+            </div>
+            <FormField label="Use Wallet (₹)" name="wallet_amount" type="number" placeholder="0" />
           </div>
-          <FormField label="Use Wallet (₹)" name="wallet_amount" type="number" placeholder="0" />
-        </div>
 
-        <FlexibleCancellationAddon
-          vehicleType={listing.vehicle_type}
-          checked={flexibleCancellation}
-          onChange={setFlexibleCancellation}
-        />
+          <FlexibleCancellationAddon
+            vehicleType={listing.vehicle_type}
+            checked={flexibleCancellation}
+            onChange={setFlexibleCancellation}
+          />
+        </section>
 
-        <p className="text-xs leading-relaxed text-gray-500 sm:text-sm">
-          By proceeding to payment, you agree to Rydez India Cancellation &amp; Refund Policy.
-        </p>
+        <CancellationPolicyAccordion bookingType="self_drive" />
+
         <label
           htmlFor={policyCheckboxId}
           className="flex cursor-pointer items-start gap-3 rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-3"
@@ -425,7 +432,7 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
             className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-primary focus:ring-primary"
           />
           <span className="text-sm text-gray-700">
-            I have read and agree to the Cancellation Policy.
+            I agree to the Terms &amp; Conditions and Cancellation Policy.
           </span>
         </label>
 
@@ -438,8 +445,6 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
             "Continue to Payment"
           )}
         </Button>
-
-        <CancellationPolicyAccordion bookingType="self_drive" />
       </form>
     </div>
   );

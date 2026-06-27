@@ -1,0 +1,40 @@
+---
+description: Phase-1 frozen modules; Phase-2 booking workflow only
+alwaysApply: true
+---
+
+# Phase-1 freeze (stable — do not redesign)
+
+These modules are **complete and production-stable**. Do not redesign, refactor, or change behavior unless fixing a **verified bug**.
+
+| Module | Scope (avoid unless bugfix) |
+|--------|-----------------------------|
+| Vehicle Registration | `components/owner/vehicles/`, `VehicleListingWizard`, `VehicleServiceAvailabilityFields`, `server/actions/vehicles.ts` (create/edit/KYC gates) |
+| Owner / Customer Approval | Admin approval flows, `marketplace-gates`, owner KYC approval |
+| Search | `lib/supabase/queries.ts` (`searchDriverVehicles`, `searchSelfDriveVehicles`, `searchReturnJourneys`, `fetchDriverSearchVehicles`), `lib/vehicles/driver-search-filter.ts`, `components/search/`, `app/search-*`, `app/api/search-*` |
+| Vehicle Rendering | Search result cards, vehicle display on search pages |
+| Service Types | `lib/vehicles/services.ts`, `service_*` columns, service badges |
+| Trip Types | `lib/vehicles/trip-types.ts`, `trip_*` columns |
+
+**Before editing any file**, check whether it touches search or vehicle registration. If yes, stop unless the task is an explicit bugfix for that module.
+
+**Shared files** (e.g. `queries.ts`, `types/database.ts`): change only what booking needs; do not alter search filter logic or vehicle listing behavior.
+
+---
+
+# Phase-2: Booking workflow (active development)
+
+Work **one module at a time**, in this order. Keep the app production-ready (build passes, no regressions in frozen modules).
+
+1. Booking Review
+2. Rider Authentication
+3. Payment
+4. Booking Confirmation
+5. My Bookings
+6. Cancellation
+7. Refund
+8. Owner Earnings
+9. Wallet
+10. Notifications
+
+Prefer minimal, focused diffs. Reuse existing booking/payment/auth code. Do not re-open search or vehicle registration unless a booking bug requires a surgical fix.
