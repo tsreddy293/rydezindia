@@ -14,7 +14,9 @@ import { markSelfDriveInterest } from "@/lib/services/customer-profile";
 import { bookReturnJourneySeats, initializeReturnJourneySeats } from "@/lib/services/return-journey-seats";
 import { dispatchBookingEvent } from "@/lib/services/messaging";
 import { findOrCreateGuestUserByMobile } from "@/lib/users/guest-user";
-import { getProtectionFeeForVehicle, getProtectionPlanName } from "@/lib/services/flexible-cancellation-protection";
+import { getProtectionFeeForVehicle } from "@/lib/services/flexible-cancellation-protection";
+import { applyBookingInsertWithColumnFallback } from "@/lib/bookings/apply-booking-insert";
+import { appendProtectionToInstructions } from "@/lib/bookings/protection-instructions";
 import type { ActionResult, CreateBookingInput, CreateMarketplaceBookingInput } from "@/types/database";
 
 const MOBILE_REGEX = /^[6-9]\d{9}$/;
@@ -323,10 +325,9 @@ export async function createUnifiedBooking(
 
   finalAmount += protectionFee;
 
-  const now = new Date().toISOString();
-  const protectionPlanName = protectionSelected
-    ? getProtectionPlanName(input.vehicle_type)
-    : null;
+  const instructionsWithProtection = protectionSelected
+    ? appendProtectionToInstructions(input.special_instructions ?? null, protectionFee)
+    : input.special_instructions ?? null;
 
   const bookingInsert: Record<string, unknown> = {
     booking_type: input.booking_type,
@@ -346,7 +347,7 @@ export async function createUnifiedBooking(
     pickup_time: input.pickup_time ?? null,
     trip_type: input.trip_type ?? null,
     driver_required: input.driver_required ?? true,
-    special_instructions: input.special_instructions ?? null,
+    special_instructions: instructionsWithProtection,
     base_fare: input.base_fare ?? input.amount,
     platform_fee: input.platform_fee ?? Math.round(input.amount * 0.05),
     discount_amount: (input.discount_amount ?? 0) + couponDiscount,
@@ -355,20 +356,11 @@ export async function createUnifiedBooking(
     rural_pickup_point_id: input.rural_pickup_point_id ?? null,
     trip_fare_amount: tripFareBase,
     security_deposit_amount: input.security_deposit_amount ?? 0,
-    protection_selected: protectionSelected,
-    protection_fee: protectionFee,
-    protection_plan_name: protectionPlanName,
-    protection_purchase_date: protectionSelected ? now : null,
-    protection_status: protectionSelected ? "active" : null,
   };
 
-  const { data: booking, error } = await db
-    .from("bookings")
-    .insert(bookingInsert)
-    .select("id")
-    .single();
+  const { data: booking, error } = await applyBookingInsertWithColumnFallback(db, bookingInsert);
 
-  if (error) return { success: false, error: error.message };
+  if (error || !booking) return { success: false, error: error ?? "Booking insert failed" };
 
   if (couponId && couponDiscount > 0) {
     const { redeemCoupon } = await import("@/lib/services/coupons");

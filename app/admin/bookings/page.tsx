@@ -103,7 +103,11 @@ export default async function AdminBookingsPage() {
             ) : (
               "—"
             ),
-            String(booking.cancellation_reason ?? "—"),
+            String(
+              (booking as { cancel_reason?: string; cancellation_reason?: string }).cancel_reason ??
+                (booking as { cancellation_reason?: string }).cancellation_reason ??
+                "—"
+            ),
             !isCancelled ? (
               <form
                 key="cancel"

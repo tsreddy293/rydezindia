@@ -5,6 +5,7 @@ type DbClient = ReturnType<typeof createAdminClient>;
 
 const COLUMN_ALIASES: Record<string, string> = {
   cancellation_reason: "cancel_reason",
+  cancellation_reason_category: "cancel_reason",
 };
 
 function missingColumnFromError(message: string): string | null {

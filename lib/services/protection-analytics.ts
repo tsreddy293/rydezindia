@@ -124,13 +124,13 @@ export async function getProtectionRefundReport(limit = 50) {
     return db
       .from("bookings")
       .select(columns)
-      .eq("protection_selected", true)
+      .eq("booking_status", "cancelled")
       .order("cancelled_at", { ascending: false })
       .limit(limit);
   });
 
   return rows
-    .filter((row) => String(row.booking_status) === "cancelled")
+    .filter((row) => deriveProtectionFields(row).protection_selected)
     .map((row) => {
       const protection = deriveProtectionFields(row);
       return {

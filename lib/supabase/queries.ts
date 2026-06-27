@@ -2911,9 +2911,8 @@ export async function getUserBookings(userId: string): Promise<UserBooking[]> {
 }
 
 export async function getUserBookingsExtended(userId: string): Promise<UserBookingExtended[]> {
-  const rows = await selectRows(
-    "bookings",
-    "id, user_id, booking_reference, booking_type, passenger_name, amount, booking_status, payment_status, pickup_location, drop_location, pickup_date, pickup_time, created_at, cancelled_at, refund_amount, refund_status, refund_processed_at, cancel_reason, protection_selected, protection_fee",
+  const rows = await selectBookingsWithRequestedColumns(
+    "id, user_id, booking_reference, booking_type, passenger_name, amount, booking_status, payment_status, pickup_location, drop_location, pickup_date, pickup_time, created_at, cancelled_at, cancel_reason, special_instructions",
     100
   );
   return rows

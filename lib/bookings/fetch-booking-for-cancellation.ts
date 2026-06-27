@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   BOOKING_CANCELLATION_COLUMN_SETS,
+  deriveProtectionFields,
   selectBookingById,
 } from "@/lib/bookings/booking-select";
 import type { BookingCancellationRow } from "@/lib/services/booking-cancellation";
@@ -13,6 +14,7 @@ function getString(row: Row | null | undefined, key: string, fallback = ""): str
 }
 
 function mapRowToCancellationRow(row: Row): BookingCancellationRow {
+  const protection = deriveProtectionFields(row);
   return {
     id: getString(row, "id"),
     user_id: getString(row, "user_id") || undefined,
@@ -24,8 +26,8 @@ function mapRowToCancellationRow(row: Row): BookingCancellationRow {
     amount: Number(row.amount ?? 0) || undefined,
     trip_fare_amount: Number(row.trip_fare_amount ?? 0) || undefined,
     security_deposit_amount: Number(row.security_deposit_amount ?? 0) || undefined,
-    protection_selected: row.protection_selected === true,
-    protection_fee: Number(row.protection_fee ?? 0) || undefined,
+    protection_selected: protection.protection_selected,
+    protection_fee: protection.protection_fee,
     pickup_date: getString(row, "pickup_date") || undefined,
     pickup_time: getString(row, "pickup_time") || undefined,
     refund_amount: Number(row.refund_amount ?? 0) || undefined,

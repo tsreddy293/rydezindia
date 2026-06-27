@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
+  BOOKING_CANCELLATION_COLUMN_SETS,
   BOOKING_CANCELLED_LIST_COLUMN_SETS,
   deriveProtectionFields,
   selectBookingsWithFilter,
@@ -541,18 +542,21 @@ export interface RefundAnalytics {
 }
 
 export async function getRefundAnalytics(): Promise<RefundAnalytics> {
-  const db = createAdminClient();
-  const { data } = await db
-    .from("bookings")
-    .select("booking_status, refund_status, refund_amount")
-    .eq("booking_status", "cancelled")
-    .limit(500);
-
-  const rows = (data ?? []) as Array<{
-    booking_status?: string;
-    refund_status?: string;
-    refund_amount?: number;
-  }>;
+  const rows = await selectBookingsWithFilter(
+    [
+      "booking_status, refund_status, refund_amount",
+      "booking_status, cancel_reason",
+      "booking_status",
+    ],
+    (columns) => {
+      const db = createAdminClient();
+      return db
+        .from("bookings")
+        .select(columns)
+        .eq("booking_status", "cancelled")
+        .limit(500);
+    }
+  );
 
   const analytics: RefundAnalytics = {
     totalCancelled: rows.length,
@@ -613,7 +617,10 @@ export async function getCancelledBookings(limit = 100) {
       amount: Number(row.amount ?? 0) || null,
       refund_amount: Number(row.refund_amount ?? 0) || null,
       refund_status: (row.refund_status as string | null) ?? undefined,
-      cancellation_reason: (row.cancellation_reason as string | null) ?? undefined,
+      cancellation_reason:
+        (row.cancel_reason as string | null) ??
+        (row.cancellation_reason as string | null) ??
+        undefined,
       cancelled_at: (row.cancelled_at as string | null) ?? undefined,
       pickup_date: (row.pickup_date as string | null) ?? undefined,
       payment_status: (row.payment_status as string | null) ?? undefined,
@@ -624,19 +631,24 @@ export async function getCancelledBookings(limit = 100) {
 }
 
 export async function getUserRefundHistory(userId: string, limit = 50) {
-  const db = createAdminClient();
-  const { data, error } = await db
-    .from("bookings")
-    .select(
-      "id, booking_reference, booking_type, amount, refund_amount, refund_status, refund_trip_fare_amount, refund_deposit_amount, cancel_reason, cancellation_reason, cancelled_at, refund_processed_at, pickup_date, pickup_time, booking_status, passenger_name, payment_status, created_at"
-    )
-    .eq("user_id", userId)
-    .eq("booking_status", "cancelled")
-    .order("cancelled_at", { ascending: false })
-    .limit(limit);
+  const rows = await selectBookingsWithFilter(
+    [
+      "id, booking_reference, booking_type, amount, refund_amount, refund_status, cancel_reason, cancelled_at, pickup_date, pickup_time, booking_status, passenger_name, payment_status, created_at, special_instructions",
+      "id, booking_reference, booking_type, amount, cancel_reason, cancelled_at, booking_status, passenger_name, payment_status, created_at",
+    ],
+    (columns) => {
+      const db = createAdminClient();
+      return db
+        .from("bookings")
+        .select(columns)
+        .eq("user_id", userId)
+        .eq("booking_status", "cancelled")
+        .order("cancelled_at", { ascending: false })
+        .limit(limit);
+    }
+  );
 
-  if (error) return [];
-  return (data ?? [])
+  return rows
     .filter((row) => row.refund_status || String(row.booking_status) === "cancelled")
     .map((row) => ({
       id: String(row.id),
@@ -653,6 +665,9 @@ export async function getUserRefundHistory(userId: string, limit = 50) {
       refund_amount: Number(row.refund_amount ?? 0),
       refund_status: (row.refund_status as string | null) ?? undefined,
       refund_processed_at: (row.refund_processed_at as string | null) ?? undefined,
-      cancellation_reason: (row.cancellation_reason as string | null) ?? undefined,
+      cancellation_reason:
+        (row.cancel_reason as string | null) ??
+        (row.cancellation_reason as string | null) ??
+        undefined,
     }));
 }
