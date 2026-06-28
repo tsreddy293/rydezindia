@@ -596,6 +596,7 @@ export interface UserBooking {
   booking_reference?: string;
   booking_type: string;
   passenger_name: string;
+  mobile?: string;
   amount: number;
   booking_status: string;
   payment_status: string;

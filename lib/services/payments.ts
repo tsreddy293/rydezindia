@@ -42,6 +42,33 @@ export async function createRazorpayOrder(input: {
   if (!response.ok) throw new Error(payload?.error?.description || "Failed to create Razorpay order");
 
   const db = createAdminClient();
+
+  const { data: existingOpen } = await db
+    .from("payments")
+    .select("id, razorpay_order_id, amount, metadata, status")
+    .eq("booking_id", input.bookingId)
+    .eq("status", "created")
+    .eq("amount", input.amount)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existingOpen) {
+    const row = existingOpen as {
+      id: string;
+      razorpay_order_id?: string;
+      metadata?: unknown;
+    };
+    if (row.razorpay_order_id) {
+      const { keyId } = getRazorpayConfig();
+      return {
+        paymentRecordId: row.id,
+        order: (row.metadata as Record<string, unknown>) ?? { id: row.razorpay_order_id },
+        keyId,
+      };
+    }
+  }
+
   const { data, error } = await db
     .from("payments")
     .insert({
@@ -143,7 +170,9 @@ export async function verifyRazorpayPayment(input: {
 
   await db.from("bookings").update(bookingUpdate).eq("id", resolvedBookingId);
 
-  const gross = Number(booking.amount ?? (paymentRow as { amount?: number }).amount ?? 0);
+  const gross = Number(
+    (paymentRow as { amount?: number }).amount ?? booking.amount ?? 0
+  );
   const platformFee = Number(booking.platform_fee ?? Math.round(gross * 0.05));
   const ownerId = booking.owner_id ?? (paymentRow as { owner_id?: string }).owner_id;
 
@@ -162,7 +191,7 @@ export async function verifyRazorpayPayment(input: {
         gross_amount: gross,
         platform_fee: platformFee,
         net_amount: gross - platformFee,
-        status: "settled",
+        status: "pending",
       });
     }
   }

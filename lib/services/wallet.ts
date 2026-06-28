@@ -7,6 +7,34 @@ function offlineWallet(userId: string): WalletRow {
   return { id: "offline", user_id: userId, balance: 0 };
 }
 
+async function rpcWalletOp(
+  fn: "wallet_debit_atomic" | "wallet_credit_atomic",
+  input: {
+    userId: string;
+    amount: number;
+    source: string;
+    referenceId?: string;
+    description?: string;
+  }
+): Promise<number | null> {
+  const db = createAdminClient();
+  const { data, error } = await db.rpc(fn, {
+    p_user_id: input.userId,
+    p_amount: input.amount,
+    p_source: input.source,
+    p_reference_id: input.referenceId ?? null,
+    p_description: input.description ?? null,
+  });
+
+  if (!error) return Number(data);
+
+  const msg = error.message ?? "";
+  if (msg.includes("Could not find the function") || msg.includes("schema cache")) {
+    return null;
+  }
+  throw new Error(msg);
+}
+
 export async function getOrCreateWallet(userId: string): Promise<WalletRow> {
   const db = createAdminClient();
   const { data: existing, error: selectError } = await db
@@ -38,7 +66,7 @@ export async function getOrCreateWallet(userId: string): Promise<WalletRow> {
   return data as WalletRow;
 }
 
-export async function creditWallet(input: {
+async function legacyCreditWallet(input: {
   userId: string;
   amount: number;
   source: string;
@@ -65,23 +93,18 @@ export async function creditWallet(input: {
     reference_id: input.referenceId ?? null,
     description: input.description ?? null,
   });
-  if (txError) {
-    if (isMissingTableError(txError)) {
-      console.warn("[creditWallet] wallet_transactions table missing — skipping credit");
-      return currentBalance;
-    }
-    throw new Error(txError.message);
-  }
+  if (txError) throw new Error(txError.message);
 
-  await db
+  const { error: updateError } = await db
     .from("wallets")
     .update({ balance: newBalance, updated_at: new Date().toISOString() })
     .eq("id", walletId);
+  if (updateError) throw new Error(updateError.message);
 
   return newBalance;
 }
 
-export async function debitWallet(input: {
+async function legacyDebitWallet(input: {
   userId: string;
   amount: number;
   source: string;
@@ -96,7 +119,6 @@ export async function debitWallet(input: {
 
   const walletId = wallet.id;
   const currentBalance = Number(wallet.balance);
-
   if (currentBalance < input.amount) {
     throw new Error("Insufficient wallet balance");
   }
@@ -112,19 +134,39 @@ export async function debitWallet(input: {
     reference_id: input.referenceId ?? null,
     description: input.description ?? null,
   });
-  if (txError) {
-    if (isMissingTableError(txError)) {
-      throw new Error("Wallet is not available yet. Please try again later.");
-    }
-    throw new Error(txError.message);
-  }
+  if (txError) throw new Error(txError.message);
 
-  await db
+  const { error: updateError } = await db
     .from("wallets")
     .update({ balance: newBalance, updated_at: new Date().toISOString() })
     .eq("id", walletId);
+  if (updateError) throw new Error(updateError.message);
 
   return newBalance;
+}
+
+export async function creditWallet(input: {
+  userId: string;
+  amount: number;
+  source: string;
+  referenceId?: string;
+  description?: string;
+}) {
+  const atomic = await rpcWalletOp("wallet_credit_atomic", input);
+  if (atomic !== null) return atomic;
+  return legacyCreditWallet(input);
+}
+
+export async function debitWallet(input: {
+  userId: string;
+  amount: number;
+  source: string;
+  referenceId?: string;
+  description?: string;
+}) {
+  const atomic = await rpcWalletOp("wallet_debit_atomic", input);
+  if (atomic !== null) return atomic;
+  return legacyDebitWallet(input);
 }
 
 export async function getWalletTransactions(userId: string, limit = 50) {

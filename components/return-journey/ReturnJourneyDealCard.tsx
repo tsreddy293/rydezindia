@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Calendar, MapPin, Users } from "lucide-react";
 import VehicleSearchResultCard from "@/components/vehicles/VehicleSearchResultCard";
-import { calculateAiPricing } from "@/lib/pricing/ai-pricing-engine";
+import { resolveReturnJourneyPricePerSeat } from "@/lib/pricing/return-journey-pricing";
 import { formatDate } from "@/lib/utils";
 import type { SearchResult } from "@/types/database";
 
@@ -25,12 +25,8 @@ interface Props {
 }
 
 export default function ReturnJourneyDealCard({ journey, distanceKm = 0 }: Props) {
-  const discountPercent = journey.discount_percent ?? 30;
-  const pricing = calculateAiPricing({
-    distanceKm: distanceKm || 100,
-    tripType: "return_journey",
-    returnJourneyDiscountPercent: discountPercent,
-  });
+  const discountPercent = journey.discount_percent ?? 0;
+  const pricePerSeat = resolveReturnJourneyPricePerSeat(journey);
 
   const cardData = {
     id: journey.id,
@@ -43,7 +39,7 @@ export default function ReturnJourneyDealCard({ journey, distanceKm = 0 }: Props
     rating: journey.rating,
     available_seats: journey.available_seats,
     photos: journey.photos,
-    price: pricing.finalFare,
+    price: pricePerSeat,
     from_city: journey.from_city,
     to_city: journey.to_city,
   };
@@ -53,9 +49,9 @@ export default function ReturnJourneyDealCard({ journey, distanceKm = 0 }: Props
       <VehicleSearchResultCard
         result={cardData}
         distanceKm={distanceKm}
-        estimatedFare={pricing.finalFare}
+        estimatedFare={pricePerSeat}
         showReturnDeal
-        discountPercent={discountPercent}
+        discountPercent={discountPercent > 0 ? discountPercent : undefined}
       />
       <div className="rounded-xl bg-orange-50 border border-orange-100 p-4 text-sm space-y-2">
         <p className="font-semibold text-orange-800">

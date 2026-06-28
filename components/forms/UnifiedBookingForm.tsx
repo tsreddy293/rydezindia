@@ -8,6 +8,7 @@ import FormField from "@/components/forms/FormField";
 import RazorpayCheckout from "@/components/payments/RazorpayCheckout";
 import { createUnifiedBooking } from "@/server/actions/createBooking";
 import { calculateAiPricing, getAdvancePaymentAmount } from "@/lib/pricing/ai-pricing-engine";
+import { calculateLocalRentalPricing } from "@/lib/pricing/local-rental-pricing";
 import {
   calculateSelfDriveCheckoutAmount,
   calculateSelfDrivePricingForSchedule,
@@ -40,6 +41,9 @@ type Props =
       listing: DriverVehicleResult;
       distanceKm?: number;
       tripType?: string;
+      localRentalPackage?: string;
+      extraHours?: number;
+      extraKm?: number;
       customerPrefill?: RiderBookingProfile | null;
     };
 
@@ -62,6 +66,10 @@ export default function UnifiedBookingForm(props: Props) {
   const profileMobileVerified = customerPrefill?.mobileVerified ?? false;
   const fullyVerified = profileKycApproved && profileMobileVerified;
   const tripType = type === "with_driver" ? props.tripType : undefined;
+  const isLocalRental = String(tripType ?? "").toLowerCase() === "local rental";
+  const localRentalPackage = type === "with_driver" ? props.localRentalPackage : undefined;
+  const [extraHours, setExtraHours] = useState(type === "with_driver" ? props.extraHours ?? 0 : 0);
+  const [extraKm, setExtraKm] = useState(type === "with_driver" ? props.extraKm ?? 0 : 0);
   const router = useRouter();
   const policyCheckboxId = useId();
   const [step, setStep] = useState<"form" | "payment" | "done">("form");
@@ -134,22 +142,40 @@ export default function UnifiedBookingForm(props: Props) {
     [isSelfDrive, selfDriveListing, pickupDate, pickupTime, returnDate, returnTime]
   );
 
-  const driverPricing = useMemo(
-    () =>
-      !isSelfDrive
-        ? calculateAiPricing({
-            distanceKm: distanceKm || 100,
-            tripType: pricingTripType,
-            vehicleType: listing.vehicle_type,
-            fuelType: (listing as DriverVehicleResult).fuel_type,
-            driverRequired: true,
-            ratePerKm: (listing as DriverVehicleResult).rate_per_km,
-          })
-        : null,
-    [distanceKm, isSelfDrive, listing, pricingTripType]
-  );
+  const driverPricing = useMemo(() => {
+    if (isSelfDrive) return null;
+    if (isLocalRental && localRentalPackage) {
+      return calculateLocalRentalPricing({
+        packageKey: localRentalPackage,
+        extraHours,
+        extraKm,
+        vehicleType: listing.vehicle_type,
+      });
+    }
+    return calculateAiPricing({
+      distanceKm: distanceKm || 100,
+      tripType: pricingTripType,
+      vehicleType: listing.vehicle_type,
+      fuelType: (listing as DriverVehicleResult).fuel_type,
+      driverRequired: true,
+      ratePerKm: (listing as DriverVehicleResult).rate_per_km,
+    });
+  }, [
+    distanceKm,
+    extraHours,
+    extraKm,
+    isLocalRental,
+    isSelfDrive,
+    listing,
+    localRentalPackage,
+    pricingTripType,
+  ]);
 
-  const totalFare = isSelfDrive ? selfDrivePricing!.payableAmount : driverPricing!.finalFare;
+  const totalFare = isSelfDrive
+    ? selfDrivePricing!.payableAmount
+    : isLocalRental && driverPricing && "totalFare" in driverPricing
+      ? driverPricing.totalFare
+      : (driverPricing as ReturnType<typeof calculateAiPricing>).finalFare;
   const protectionFee = isSelfDrive ? getProtectionFeeForVehicle(listing.vehicle_type) : 0;
   const payAmount =
     isSelfDrive && selfDrivePricing
@@ -187,10 +213,21 @@ export default function UnifiedBookingForm(props: Props) {
       trip_type: tripType ?? "One Way",
       driver_required: !isSelfDrive,
       special_instructions: String(new FormData(e.currentTarget).get("special_instructions") ?? ""),
-      base_fare: isSelfDrive ? selfDrivePricing!.discountedVehicleRentTotal : driverPricing!.baseFare,
-      platform_fee: isSelfDrive ? selfDrivePricing!.platformFee : driverPricing!.platformFee,
-      discount_amount: isSelfDrive ? 0 : driverPricing!.discountAmount,
+      base_fare: isSelfDrive
+        ? selfDrivePricing!.discountedVehicleRentTotal
+        : isLocalRental && driverPricing && "adjustedBasePrice" in driverPricing
+          ? driverPricing.adjustedBasePrice + driverPricing.extraHourCharge + driverPricing.extraKmCharge
+          : (driverPricing as ReturnType<typeof calculateAiPricing>).baseFare,
+      platform_fee: isSelfDrive
+        ? selfDrivePricing!.platformFee
+        : isLocalRental && driverPricing && "platformFee" in driverPricing
+          ? driverPricing.platformFee
+          : (driverPricing as ReturnType<typeof calculateAiPricing>).platformFee,
+      discount_amount: isSelfDrive ? 0 : (driverPricing as ReturnType<typeof calculateAiPricing>).discountAmount ?? 0,
       trip_fare_amount: totalFare,
+      local_rental_package: isLocalRental ? localRentalPackage : undefined,
+      extra_hours: isLocalRental ? extraHours : undefined,
+      extra_km: isLocalRental ? extraKm : undefined,
       security_deposit_amount: isSelfDrive ? selfDrivePricing!.deposit.amount : 0,
       protection_selected: isSelfDrive ? flexibleCancellation : false,
       protection_fee: isSelfDrive && flexibleCancellation ? protectionFee : 0,
@@ -364,18 +401,48 @@ export default function UnifiedBookingForm(props: Props) {
             />
           ) : driverPricing ? (
             <div className="space-y-1 text-sm">
+              {isLocalRental && "packageLabel" in driverPricing && (
+                <div className="flex justify-between">
+                  <span>Package</span>
+                  <span>{driverPricing.packageLabel}</span>
+                </div>
+              )}
               <div className="flex justify-between">
-                <span>Base Fare</span>
-                <span>{formatINR(driverPricing.baseFare)}</span>
+                <span>{isLocalRental ? "Package fare" : "Base Fare"}</span>
+                <span>
+                  {formatINR(
+                    isLocalRental && "adjustedBasePrice" in driverPricing
+                      ? driverPricing.adjustedBasePrice
+                      : (driverPricing as ReturnType<typeof calculateAiPricing>).baseFare
+                  )}
+                </span>
               </div>
+              {isLocalRental && "extraHourCharge" in driverPricing && driverPricing.extraHourCharge > 0 && (
+                <div className="flex justify-between">
+                  <span>Extra hours ({driverPricing.extraHours})</span>
+                  <span>{formatINR(driverPricing.extraHourCharge)}</span>
+                </div>
+              )}
+              {isLocalRental && "extraKmCharge" in driverPricing && driverPricing.extraKmCharge > 0 && (
+                <div className="flex justify-between">
+                  <span>Extra km ({driverPricing.extraKm})</span>
+                  <span>{formatINR(driverPricing.extraKmCharge)}</span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span>Platform Fee</span>
-                <span>{formatINR(driverPricing.platformFee)}</span>
+                <span>
+                  {formatINR(
+                    isLocalRental && "platformFee" in driverPricing
+                      ? driverPricing.platformFee
+                      : (driverPricing as ReturnType<typeof calculateAiPricing>).platformFee
+                  )}
+                </span>
               </div>
-              {driverPricing.discountAmount > 0 && (
+              {!isLocalRental && (driverPricing as ReturnType<typeof calculateAiPricing>).discountAmount > 0 && (
                 <div className="flex justify-between text-green-300">
                   <span>Discount</span>
-                  <span>-{formatINR(driverPricing.discountAmount)}</span>
+                  <span>-{formatINR((driverPricing as ReturnType<typeof calculateAiPricing>).discountAmount)}</span>
                 </div>
               )}
               <div className="flex justify-between font-bold text-accent text-lg pt-2">
@@ -484,14 +551,34 @@ export default function UnifiedBookingForm(props: Props) {
         )}
         {!isSelfDrive && (
           <>
-            <label className="block">
-              <span className="mb-1.5 block text-sm font-medium text-gray-700">Trip Type</span>
-              <select name="trip_type" defaultValue={tripType ?? "One Way"} className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm">
-                <option>One Way</option>
-                <option>Round Trip</option>
-                <option>Multi-City</option>
-              </select>
-            </label>
+            {!isLocalRental && (
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-medium text-gray-700">Trip Type</span>
+                <select name="trip_type" defaultValue={tripType ?? "One Way"} className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm">
+                  <option>One Way</option>
+                  <option>Round Trip</option>
+                  <option>Multi-City</option>
+                </select>
+              </label>
+            )}
+            {isLocalRental && (
+              <div className="grid gap-5 sm:grid-cols-2">
+                <FormField
+                  label="Extra Hours (beyond package)"
+                  name="extra_hours"
+                  type="number"
+                  value={String(extraHours)}
+                  onChange={(e) => setExtraHours(Number(e.target.value) || 0)}
+                />
+                <FormField
+                  label="Extra KM (beyond package)"
+                  name="extra_km"
+                  type="number"
+                  value={String(extraKm)}
+                  onChange={(e) => setExtraKm(Number(e.target.value) || 0)}
+                />
+              </div>
+            )}
             <label className="flex items-center gap-3">
               <input type="checkbox" name="driver_required" defaultChecked className="h-4 w-4" />
               <span className="text-sm font-medium text-gray-700">Driver Required</span>

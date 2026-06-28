@@ -8,9 +8,15 @@ import ReviewForm from "@/components/reviews/ReviewForm";
 import { getBookingConfirmationById } from "@/lib/supabase/queries";
 import { assertRiderBookingAccess } from "@/lib/auth/booking-access";
 import { requireRiderForBooking } from "@/lib/auth/customer-auth";
+import ConfirmationPendingPayment from "@/components/booking/ConfirmationPendingPayment";
 import { isBookingCancelledStatus } from "@/lib/bookings/cancellation-eligibility";
 
 export const dynamic = "force-dynamic";
+
+function isPendingPayment(paymentStatus?: string | null): boolean {
+  const status = String(paymentStatus ?? "").toLowerCase();
+  return !status || status === "pending";
+}
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -27,8 +33,13 @@ export default async function BookingConfirmationPage({ params }: Props) {
   assertRiderBookingAccess(booking, user.id);
 
   const isCancelled = isBookingCancelledStatus(booking.booking_status);
+  const paymentPending = !isCancelled && isPendingPayment(booking.payment_status);
   const showReview =
-    !isCancelled && (booking.booking_status === "completed" || booking.booking_status === "confirmed");
+    !isCancelled &&
+    !paymentPending &&
+    (booking.booking_status === "completed" || booking.booking_status === "confirmed");
+
+  const totalFare = Number(booking.trip_fare_amount ?? booking.amount ?? 0);
 
   return (
     <PageLayout>
@@ -51,6 +62,18 @@ export default async function BookingConfirmationPage({ params }: Props) {
           <div className="mt-8">
             <BookingInvoiceCard booking={booking} />
           </div>
+
+          {paymentPending && (
+            <div className="mt-8 text-left">
+              <ConfirmationPendingPayment
+                bookingId={booking.id}
+                totalFare={totalFare}
+                customerName={booking.passenger_name}
+                customerMobile={booking.mobile ?? ""}
+                fullPaymentOnly={booking.booking_type === "return_journey"}
+              />
+            </div>
+          )}
 
           {isCancelled && (
             <div className="mt-6 text-left">

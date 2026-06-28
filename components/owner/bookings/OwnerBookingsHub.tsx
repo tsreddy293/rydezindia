@@ -27,6 +27,12 @@ import { downloadCsv } from "@/lib/owner/export-utils";
 import { OWNER_STATUS_STYLES, resolveBookingStatusKind } from "@/lib/owner/owner-status-styles";
 import { formatDate, formatINR } from "@/lib/utils";
 import { Calendar } from "lucide-react";
+import {
+  ownerApproveBooking,
+  ownerCompleteTrip,
+  ownerRejectBooking,
+  ownerStartTrip,
+} from "@/server/actions/ownerBookings";
 
 const TABS: Array<{ id: BookingTab; label: string }> = [
   { id: "upcoming", label: "Upcoming" },
@@ -77,9 +83,41 @@ export default function OwnerBookingsHub({ bookings, approvedVehicles }: Props) 
   const paginated = filtered.slice((page - 1) * perPage, page * perPage);
   const totalPages = Math.max(1, Math.ceil(filtered.length / perPage));
 
-  function handleCompleteTrip(b: OwnerBookingRow) {
+  async function runOwnerAction(action: () => Promise<{ success: boolean; error?: string }>, successMsg: string) {
+    const result = await action();
+    if (result.success) {
+      show(successMsg, "success");
+      router.refresh();
+    } else {
+      show(result.error ?? "Action failed", "error");
+    }
+  }
+
+  function handleStartTrip(b: OwnerBookingRow) {
+    void runOwnerAction(() => ownerStartTrip(b.id), "Trip started");
+  }
+
+  function handleCompleteTripAction(b: OwnerBookingRow) {
+    void runOwnerAction(() => ownerCompleteTrip(b.id), "Trip marked complete");
     setReturnJourneyBooking(b);
-    show("Trip marked complete — create return journey?", "success");
+  }
+
+  function handleApprove(b: OwnerBookingRow) {
+    void runOwnerAction(() => ownerApproveBooking(b.id), "Booking approved");
+  }
+
+  function handleReject(b: OwnerBookingRow) {
+    void runOwnerAction(() => ownerRejectBooking(b.id), "Booking rejected");
+  }
+
+  function passengerTel(mobile?: string) {
+    const digits = String(mobile ?? "").replace(/\D/g, "");
+    return digits.length >= 10 ? `tel:+91${digits.slice(-10)}` : undefined;
+  }
+
+  function passengerWhatsApp(mobile?: string) {
+    const digits = String(mobile ?? "").replace(/\D/g, "");
+    return digits.length >= 10 ? `https://wa.me/91${digits.slice(-10)}` : undefined;
   }
 
   function handleExport() {
@@ -171,21 +209,33 @@ export default function OwnerBookingsHub({ bookings, approvedVehicles }: Props) 
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap gap-1">
                           <button type="button" className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gray-100 text-gray-600 transition hover:bg-primary hover:text-white" title="View"><Eye className="h-3 w-3" /></button>
-                          <a href="tel:" className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gray-100 text-gray-600 transition hover:bg-primary hover:text-white" title="Call"><Phone className="h-3 w-3" /></a>
-                          <a href="https://wa.me/" target="_blank" rel="noopener noreferrer" className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gray-100 text-gray-600 transition hover:bg-primary hover:text-white" title="WhatsApp"><MessageCircle className="h-3 w-3" /></a>
+                          <a href={passengerTel(b.passengerMobile) ?? "#"} className={`inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gray-100 text-gray-600 transition hover:bg-primary hover:text-white ${passengerTel(b.passengerMobile) ? "" : "pointer-events-none opacity-40"}`} title="Call"><Phone className="h-3 w-3" /></a>
+                          <a href={passengerWhatsApp(b.passengerMobile) ?? "#"} target="_blank" rel="noopener noreferrer" className={`inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gray-100 text-gray-600 transition hover:bg-primary hover:text-white ${passengerWhatsApp(b.passengerMobile) ? "" : "pointer-events-none opacity-40"}`} title="WhatsApp"><MessageCircle className="h-3 w-3" /></a>
+                          {tab === "upcoming" && b.bookingStatus.toLowerCase() === "pending" && (
+                            <button type="button" className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gray-100 text-emerald-600 transition hover:bg-emerald-600 hover:text-white" title="Approve" onClick={() => handleApprove(b)}>
+                              <Play className="h-3 w-3" />
+                            </button>
+                          )}
                           {tab === "active" && (
-                            <button type="button" className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gray-100 text-emerald-600 transition hover:bg-emerald-600 hover:text-white" title="Start" onClick={() => show("Trip started", "info")}>
+                            <button type="button" className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gray-100 text-emerald-600 transition hover:bg-emerald-600 hover:text-white" title="Start" onClick={() => handleStartTrip(b)}>
                               <Play className="h-3 w-3" />
                             </button>
                           )}
                           {(tab === "active" || tab === "upcoming") && (
-                            <button type="button" className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gray-100 text-blue-600 transition hover:bg-blue-600 hover:text-white" title="Complete" onClick={() => handleCompleteTrip(b)}>
+                            <button type="button" className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gray-100 text-blue-600 transition hover:bg-blue-600 hover:text-white" title="Complete" onClick={() => handleCompleteTripAction(b)}>
                               <Square className="h-3 w-3" />
                             </button>
                           )}
-                          <button type="button" className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gray-100 text-red-500 transition hover:bg-red-600 hover:text-white" title="Cancel" onClick={() => show("Contact support to cancel", "info")}>
-                            <X className="h-3 w-3" />
-                          </button>
+                          {(tab === "upcoming" && b.bookingStatus.toLowerCase() === "pending") && (
+                            <button type="button" className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gray-100 text-red-500 transition hover:bg-red-600 hover:text-white" title="Reject" onClick={() => handleReject(b)}>
+                              <X className="h-3 w-3" />
+                            </button>
+                          )}
+                          {tab !== "upcoming" && (
+                            <button type="button" className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gray-100 text-red-500 transition hover:bg-red-600 hover:text-white" title="Cancel" onClick={() => show("Contact support to cancel paid bookings", "info")}>
+                              <X className="h-3 w-3" />
+                            </button>
+                          )}
                           <Link href={`/booking/invoice/${b.id}`} className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gray-100 text-gray-600 transition hover:bg-primary hover:text-white" title="Invoice"><FileText className="h-3 w-3" /></Link>
                         </div>
                       </td>

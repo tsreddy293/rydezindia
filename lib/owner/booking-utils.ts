@@ -6,6 +6,7 @@ export interface OwnerBookingRow {
   id: string;
   bookingReference: string;
   passengerName: string;
+  passengerMobile?: string;
   bookingType: string;
   amount: number;
   bookingStatus: string;
@@ -23,6 +24,7 @@ export function mapOwnerBooking(b: UserBooking): OwnerBookingRow {
     id: b.id,
     bookingReference: b.booking_reference ?? b.id.slice(0, 8).toUpperCase(),
     passengerName: b.passenger_name,
+    passengerMobile: b.mobile,
     bookingType: b.booking_type,
     amount: b.amount,
     bookingStatus: b.booking_status,

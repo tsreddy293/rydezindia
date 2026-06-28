@@ -98,8 +98,20 @@ export default function RazorpayCheckout({
           onSuccess(response.razorpay_payment_id);
         },
         modal: {
-          ondismiss: () => setLoading(false),
+          ondismiss: () => {
+            setLoading(false);
+            onError("Payment was cancelled. You can retry when ready.");
+          },
         },
+      });
+
+      const rzpWithEvents = rzp as unknown as {
+        on: (event: string, cb: (payload: { error?: { description?: string } }) => void) => void;
+        open: () => void;
+      };
+      rzpWithEvents.on("payment.failed", (response) => {
+        setLoading(false);
+        onError(response.error?.description ?? "Payment failed. Please retry.");
       });
 
       rzp.open();

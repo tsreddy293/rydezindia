@@ -1500,9 +1500,9 @@ export async function searchSelfDriveVehicles(filters: {
     ? results.find((result) => String(result.id) === String(debugSourceRow.id)) ?? null
     : null;
 
-  const applySelfDrivePostFilters = process.env.SEARCH_SELF_DRIVE_STRICT_FILTERS === "1";
+  const strictEnvOnly = process.env.SEARCH_SELF_DRIVE_STRICT_FILTERS === "0";
 
-  if (applySelfDrivePostFilters && cityFilter) {
+  if (!strictEnvOnly && cityFilter) {
     const before = results.length;
     results = results.filter((result) => {
       const match = matchesCity(result.pickup_city, cityFilter);
@@ -1516,7 +1516,7 @@ export async function searchSelfDriveVehicles(filters: {
     console.log(`[searchSelfDriveVehicles] city filter "${cityFilter}": ${before} → ${results.length}`);
   }
 
-  if (applySelfDrivePostFilters && filters.date) {
+  if (!strictEnvOnly && filters.date) {
     results = results.filter((r) => !r.journey_date || r.journey_date === filters.date);
   }
 

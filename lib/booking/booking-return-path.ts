@@ -2,6 +2,10 @@
 
 export interface BookingPageSearchParams {
   type?: string;
+  tripType?: string;
+  package?: string;
+  extraHours?: string;
+  extraKm?: string;
   pickupCity?: string;
   date?: string;
   time?: string;
@@ -12,6 +16,10 @@ export interface BookingPageSearchParams {
 export function buildBookingReturnPath(id: string, params: BookingPageSearchParams): string {
   const qs = new URLSearchParams();
   if (params.type?.trim()) qs.set("type", params.type.trim());
+  if (params.tripType?.trim()) qs.set("tripType", params.tripType.trim());
+  if (params.package?.trim()) qs.set("package", params.package.trim());
+  if (params.extraHours?.trim()) qs.set("extraHours", params.extraHours.trim());
+  if (params.extraKm?.trim()) qs.set("extraKm", params.extraKm.trim());
   if (params.pickupCity?.trim()) qs.set("pickupCity", params.pickupCity.trim());
   if (params.date?.trim()) qs.set("date", params.date.trim());
   if (params.time?.trim()) qs.set("time", params.time.trim());

@@ -11,6 +11,13 @@ import type { UserRole } from "@/types/database";
 
 type ListingTable = "vehicles" | "return_journeys" | "driver_vehicles" | "self_drive_vehicles";
 
+async function resolveListingOwnerId(table: ListingTable, id: string): Promise<string | null> {
+  const db = createAdminClient();
+  const { data } = await db.from(table).select("owner_id").eq("id", id).maybeSingle();
+  const ownerId = (data as { owner_id?: string } | null)?.owner_id;
+  return ownerId ? String(ownerId) : null;
+}
+
 export async function approveVehicle(table: ListingTable, id: string) {
   const { user } = await requireRole("admin");
   const db = createAdminClient();
@@ -35,7 +42,10 @@ export async function approveVehicle(table: ListingTable, id: string) {
     }
   }
 
+  const ownerId = await resolveListingOwnerId(table, id);
+
   await createNotification({
+    recipientId: ownerId ?? undefined,
     recipientRole: "owner",
     actorId: user.id,
     actorRole: "admin",
@@ -68,7 +78,9 @@ export async function rejectVehicle(table: ListingTable, id: string, reason: str
   }
 
   revalidatePath("/admin");
+  const ownerId = await resolveListingOwnerId(table, id);
   await createNotification({
+    recipientId: ownerId ?? undefined,
     recipientRole: "owner",
     actorId: user.id,
     actorRole: "admin",

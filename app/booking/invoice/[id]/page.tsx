@@ -78,7 +78,7 @@ export default async function BookingInvoicePage({ params }: Props) {
               Invoice will be available after successful payment.
             </p>
             <Link
-              href={`/booking/confirmation/${booking.id}`}
+              href={`/booking/pay/${booking.id}`}
               className="mt-3 inline-flex rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90"
             >
               Continue to Payment

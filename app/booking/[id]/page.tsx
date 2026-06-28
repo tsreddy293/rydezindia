@@ -23,6 +23,7 @@ import {
   fetchBookingOwnerProfileState,
   resolveBookingOwnerContext,
 } from "@/lib/services/owner-approval-sync";
+import { resolveReturnJourneyPricePerSeat } from "@/lib/pricing/return-journey-pricing";
 
 export const dynamic = "force-dynamic";
 
@@ -130,12 +131,29 @@ export default async function BookingPage({ params, searchParams }: Props) {
       mobile: String(user.user_metadata?.mobile ?? ""),
     });
 
+    const tripTypeParam = sp.tripType?.trim() || undefined;
+    const packageParam = sp.package?.trim() || undefined;
+    const extraHours = Number(sp.extraHours ?? 0) || 0;
+    const extraKm = Number(sp.extraKm ?? 0) || 0;
+
     return (
       <PageLayout>
         <div className="mx-auto max-w-5xl px-4 py-12 md:px-6">
-          <h1 className="text-3xl font-bold text-secondary mb-2">Book Vehicle With Driver</h1>
+          <h1 className="text-3xl font-bold text-secondary mb-2">
+            {tripTypeParam?.toLowerCase() === "local rental"
+              ? "Book Local Rental"
+              : "Book Vehicle With Driver"}
+          </h1>
           <p className="text-gray-600 mb-8">Submit your trip request below</p>
-          <UnifiedBookingForm type="with_driver" listing={listing} customerPrefill={customerPrefill} />
+          <UnifiedBookingForm
+            type="with_driver"
+            listing={listing}
+            customerPrefill={customerPrefill}
+            tripType={tripTypeParam}
+            localRentalPackage={packageParam}
+            extraHours={extraHours}
+            extraKm={extraKm}
+          />
         </div>
       </PageLayout>
     );
@@ -171,7 +189,10 @@ export default async function BookingPage({ params, searchParams }: Props) {
             to_city: String(journey.to_city),
             journey_date: String(journey.journey_date),
             available_seats: Number(journey.available_seats),
-            price_per_seat: Number(journey.price_per_seat),
+            price_per_seat: resolveReturnJourneyPricePerSeat(journey),
+            listing_discount_percent: Number(
+              (journey as { discount_percent?: number }).discount_percent ?? 0
+            ),
             vehicle: vehicle
               ? {
                   vehicle_name: vehicle.vehicle_model ?? vehicle.vehicle_number ?? "Vehicle",

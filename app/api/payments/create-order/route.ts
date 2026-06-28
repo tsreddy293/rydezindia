@@ -4,6 +4,7 @@ import { assertSameOrigin, requireAmount, requireString } from "@/lib/services/v
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { isBookingCancelledStatus } from "@/lib/bookings/cancellation-eligibility";
+import { getAdvancePaymentAmount } from "@/lib/pricing/ai-pricing-engine";
 
 export async function POST(request: NextRequest) {
   try {
@@ -20,7 +21,7 @@ export async function POST(request: NextRequest) {
     const db = createAdminClient();
     const { data: booking } = await db
       .from("bookings")
-      .select("user_id, owner_id, mobile, amount, booking_status, payment_status")
+      .select("user_id, owner_id, mobile, amount, booking_status, payment_status, booking_type")
       .eq("id", bookingId)
       .maybeSingle();
 
@@ -43,24 +44,57 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Booking is not payable" }, { status: 400 });
     }
 
+    const paymentType = body.paymentType === "advance" ? "advance" : "full";
+    const totalAmount = Number(bookingRow.amount ?? 0);
+    const amount = requireAmount(body.amount);
+
     const bookingUserId = String(bookingRow.user_id ?? "").trim();
     if (bookingUserId && bookingUserId !== authData.user.id) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 403 });
-    }
-
-    const expectedAmount = Number(bookingRow.amount ?? 0);
-    const amount = requireAmount(body.amount);
-    if (expectedAmount > 0 && Math.abs(amount - expectedAmount) > 0.01) {
-      return NextResponse.json({ success: false, error: "Amount does not match booking" }, { status: 400 });
-    }
-
-    if (!bookingUserId) {
+      const bookingMobile = String((booking as { mobile?: string }).mobile ?? "").replace(/\s/g, "");
+      const { data: authProfile } = await db
+        .from("users")
+        .select("mobile")
+        .eq("id", authData.user.id)
+        .maybeSingle();
+      const authMobile = String((authProfile as { mobile?: string } | null)?.mobile ?? "").replace(
+        /\s/g,
+        ""
+      );
+      if (bookingMobile && authMobile && bookingMobile === authMobile) {
+        await db.from("bookings").update({ user_id: authData.user.id }).eq("id", bookingId);
+      } else {
+        return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 403 });
+      }
+    } else if (!bookingUserId) {
       await db.from("bookings").update({ user_id: authData.user.id }).eq("id", bookingId);
+    }
+
+    if (totalAmount > 0) {
+      const advanceMinimum = getAdvancePaymentAmount(totalAmount, "advance");
+      if (paymentType === "advance") {
+        if (amount < advanceMinimum - 1) {
+          return NextResponse.json(
+            { success: false, error: "Advance amount is below the minimum due" },
+            { status: 400 }
+          );
+        }
+        if (amount > totalAmount * 1.5) {
+          return NextResponse.json(
+            { success: false, error: "Payment amount exceeds booking total" },
+            { status: 400 }
+          );
+        }
+      } else if (Math.abs(amount - totalAmount) > 1 && amount > totalAmount * 1.5) {
+        return NextResponse.json(
+          { success: false, error: "Amount does not match booking" },
+          { status: 400 }
+        );
+      }
     }
 
     const result = await createRazorpayOrder({
       bookingId,
-      amount: expectedAmount > 0 ? expectedAmount : amount,
+      amount,
       currency: body.currency,
       userId: authData.user.id,
       ownerId: bookingRow.owner_id ?? undefined,

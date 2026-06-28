@@ -1,7 +1,15 @@
 /** Search UI values mapped to canonical `vehicles.vehicle_category` stored in the database. */
 const SEARCH_FILTER_TO_DB_CATEGORY: Record<string, string> = {
+  sedan: "Sedan",
+  suv: "SUV",
+  hatchback: "Hatchback",
+  luxury: "Luxury",
   "luxury car": "Luxury",
+  van: "Van",
   muv: "SUV",
+  bus: "Van",
+  "tempo traveller": "Van",
+  "mini bus": "Van",
 };
 
 export function isAllVehicleTypesFilter(vehicleType?: string | null): boolean {

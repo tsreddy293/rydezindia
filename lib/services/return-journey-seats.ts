@@ -35,9 +35,12 @@ export async function bookReturnJourneySeats(input: {
   returnJourneyId: string;
   seatNumbers: number[];
   bookingId: string;
+  /** When false, caller already decremented return_journeys.available_seats. */
+  updateJourneyInventory?: boolean;
 }) {
   const db = createAdminClient();
   const seats = await getReturnJourneySeats(input.returnJourneyId);
+  const updateInventory = input.updateJourneyInventory !== false;
 
   for (const seatNum of input.seatNumbers) {
     const seat = seats.find((s) => Number((s as { seat_number: number }).seat_number) === seatNum);
@@ -52,6 +55,10 @@ export async function bookReturnJourneySeats(input: {
       .update({ status: "booked", booking_id: input.bookingId })
       .eq("return_journey_id", input.returnJourneyId)
       .eq("seat_number", seatNum);
+  }
+
+  if (!updateInventory) {
+    return { bookedSeats: input.seatNumbers, remainingSeats: null };
   }
 
   const availableCount = seats.filter(

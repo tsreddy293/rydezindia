@@ -495,6 +495,41 @@ export async function executeApprovedRefund(bookingId: string) {
 
   await updateRefundStatus({ bookingId, status: "processing" });
 
+  let remainingRefund = refundAmount;
+
+  const { data: bookingWalletRow } = await db
+    .from("bookings")
+    .select("wallet_amount_used, user_id")
+    .eq("id", bookingId)
+    .maybeSingle();
+
+  const walletUsed = Number(
+    (bookingWalletRow as { wallet_amount_used?: number } | null)?.wallet_amount_used ?? 0
+  );
+  const riderUserId = String(
+    row.user_id ?? (bookingWalletRow as { user_id?: string } | null)?.user_id ?? ""
+  ).trim();
+
+  if (walletUsed > 0 && riderUserId) {
+    const walletRefund = Math.min(walletUsed, remainingRefund);
+    if (walletRefund > 0) {
+      const { creditWallet } = await import("@/lib/services/wallet");
+      await creditWallet({
+        userId: riderUserId,
+        amount: walletRefund,
+        source: "refund",
+        referenceId: bookingId,
+        description: "Booking cancellation refund (wallet portion)",
+      });
+      remainingRefund -= walletRefund;
+    }
+  }
+
+  if (remainingRefund <= 0) {
+    await updateRefundStatus({ bookingId, status: "refunded" });
+    return { success: true as const, message: "Refund completed (wallet credit)" };
+  }
+
   const { data: payment } = await db
     .from("payments")
     .select("id, razorpay_payment_id, amount, status")
@@ -506,12 +541,19 @@ export async function executeApprovedRefund(bookingId: string) {
 
   const paymentRow = payment as { id?: string; razorpay_payment_id?: string; amount?: number } | null;
   if (!paymentRow?.razorpay_payment_id) {
+    if (remainingRefund < refundAmount) {
+      await updateRefundStatus({ bookingId, status: "refunded" });
+      return {
+        success: true as const,
+        message: "Partial refund completed (wallet credit; no online payment record)",
+      };
+    }
     await updateRefundStatus({ bookingId, status: "refunded" });
     return { success: true as const, message: "Refund marked complete (no online payment record)" };
   }
 
   try {
-    const refundPayAmount = Math.min(refundAmount, Number(paymentRow.amount ?? refundAmount));
+    const refundPayAmount = Math.min(remainingRefund, Number(paymentRow.amount ?? remainingRefund));
     await refundRazorpayPayment({
       bookingId,
       paymentId: paymentRow.id!,

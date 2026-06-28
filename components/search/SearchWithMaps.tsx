@@ -11,6 +11,7 @@ import VehicleSearchResultCard from "@/components/vehicles/VehicleSearchResultCa
 import ReturnJourneyDealCard from "@/components/return-journey/ReturnJourneyDealCard";
 import RouteMatchBanner from "@/components/return-journey/RouteMatchBanner";
 import { calculateAiPricing } from "@/lib/pricing/ai-pricing-engine";
+import { calculateLocalRentalPricing } from "@/lib/pricing/local-rental-pricing";
 import { scoreRouteMatch } from "@/lib/services/route-matching";
 import { mapDriverTripTypeLabel } from "@/lib/pricing/trip-pricing";
 import { LOCAL_RENTAL_PACKAGES } from "@/lib/maps/constants";
@@ -197,6 +198,20 @@ function SearchWithMapsInner(props: SearchWithMapsProps) {
       returnDate,
       returnTime,
     });
+
+  const driverBookingHref = (listingId: string) => {
+    const qs = new URLSearchParams({ type: "with_driver" });
+    if (props.mode === "local_rental") {
+      qs.set("tripType", "Local Rental");
+      qs.set("package", packageKey);
+    } else if (tripType) {
+      qs.set("tripType", tripType);
+    }
+    if (pickup?.label) qs.set("pickupCity", pickup.label);
+    if (date) qs.set("date", date);
+    if (time) qs.set("time", time);
+    return `/booking/${listingId}?${qs.toString()}`;
+  };
 
   const routePath =
     props.mode === "return_journey"
@@ -543,6 +558,36 @@ function SearchWithMapsInner(props: SearchWithMapsProps) {
             ? props.results.map((result) => (
                 <ReturnJourneyDealCard key={result.id} journey={result} distanceKm={distanceKm} />
               ))
+            : props.mode === "local_rental"
+              ? props.results.map((result) => {
+                  const pricing = calculateLocalRentalPricing({
+                    packageKey,
+                    vehicleType: result.vehicle_type,
+                  });
+                  return (
+                    <VehicleSearchResultCard
+                      key={result.id}
+                      bookingHref={driverBookingHref(result.id)}
+                      result={{
+                        id: result.id,
+                        vehicle_id: result.vehicle_id,
+                        vehicle_name: result.vehicle_name,
+                        vehicle_number: result.vehicle_number,
+                        vehicle_type: result.vehicle_type,
+                        fuel_type: result.fuel_type,
+                        has_ac: result.has_ac,
+                        rating: result.rating,
+                        seats: result.seats,
+                        photos: result.photos,
+                        price: pricing.totalFare,
+                        priceLabel: selectedPackage?.label ?? "Package",
+                        bookingType: "with_driver",
+                        pickup_city: result.pickup_city,
+                      }}
+                      estimatedFare={pricing.totalFare}
+                    />
+                  );
+                })
             : props.mode === "self_drive"
               ? props.results.map((result) => (
                   <VehicleSearchResultCard
@@ -577,6 +622,7 @@ function SearchWithMapsInner(props: SearchWithMapsProps) {
                   return (
                     <VehicleSearchResultCard
                       key={result.id}
+                      bookingHref={driverBookingHref(result.id)}
                       result={{
                         id: result.id,
                         vehicle_id: result.vehicle_id,
