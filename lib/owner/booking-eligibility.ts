@@ -59,12 +59,20 @@ export function isOwnerClosedBooking(booking: OwnerBookingEligibilityInput): boo
 
 export function isCustomerPaymentPending(paymentStatus?: string | null): boolean {
   const payment = normalize(paymentStatus);
-  return payment === "pending" || payment === "payment_pending";
+  return (
+    payment === "pending" ||
+    payment === "payment_pending" ||
+    payment === "partial"
+  );
 }
 
 /** Customer payment still needs verification before the trip can proceed. */
 export function requiresCustomerPaymentAction(booking: OwnerBookingEligibilityInput): boolean {
   if (isOwnerClosedBooking(booking)) return false;
+
+  const payment = normalize(booking.paymentStatus);
+  if (payment === "partial") return true;
+
   if (!isCustomerPaymentPending(booking.paymentStatus)) return false;
   return CUSTOMER_PAYMENT_ACTIONABLE_STATUSES.has(normalize(booking.bookingStatus));
 }

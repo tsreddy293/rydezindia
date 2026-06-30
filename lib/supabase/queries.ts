@@ -90,7 +90,6 @@ import {
   resolveDailyFare,
   resolveSecurityDeposit,
   resolveVehicleCity,
-  SELF_DRIVE_SEARCH_SQL,
 } from "@/lib/vehicles/search";
 import {
   applyVehicleCategoryDbFilter,
@@ -106,15 +105,6 @@ import {
   resolveTripTypeKeyFromSearchLabel,
   vehicleSupportsSearchTrip,
 } from "@/lib/vehicles/trip-types";
-import {
-  logFetchApprovedMarketplaceVehicleChecks,
-  logSearchSelfDrivePostFilters,
-  logSelfDriveSearchFetchChecks,
-  logSelfDriveDebugVehicleHeader,
-  SELF_DRIVE_DEBUG_REGISTRATION,
-  vehicleMatchesSelfDriveDebug,
-  type OwnerEligibilityDebug,
-} from "@/lib/vehicles/self-drive-search-debug";
 
 const db = () => createAdminClient();
 
@@ -478,43 +468,6 @@ async function resolveOwnerMobiles(ownerIds: string[]): Promise<Map<string, stri
   return mobileMap;
 }
 
-async function loadSelfDriveDebugVehicleRow(fetchedRows: Row[]): Promise<Row | null> {
-  const inBatch = fetchedRows.find(vehicleMatchesSelfDriveDebug);
-  if (inBatch) return inBatch;
-
-  const client = db();
-  for (const column of ["registration_number", "vehicle_number"] as const) {
-    const { data, error } = await client
-      .from("vehicles")
-      .select("*")
-      .ilike(column, `%${SELF_DRIVE_DEBUG_REGISTRATION}%`)
-      .limit(1)
-      .maybeSingle();
-
-    if (!error && data) {
-      return data as Row;
-    }
-  }
-
-  console.warn(
-    `[search-self-drive DEBUG] Vehicle ${SELF_DRIVE_DEBUG_REGISTRATION} not found in public.vehicles`
-  );
-  return null;
-}
-
-function ownerEligibilityDebug(
-  ownerId: string,
-  eligibilityMap: Map<string, ReturnType<typeof ownerMarketplaceEligibilityFromRow>>
-): OwnerEligibilityDebug {
-  const eligibility = eligibilityMap.get(ownerId) ?? ownerMarketplaceEligibilityFromRow({});
-  return {
-    ownerStatus: eligibility.ownerStatus,
-    kycStatus: eligibility.kycStatus,
-    ownerApproved: eligibility.ownerApproved,
-    kycApproved: eligibility.kycApproved,
-  };
-}
-
 async function mergeApprovedSelfDriveListings(
   primary: Row[],
   vehicleType?: string
@@ -589,19 +542,6 @@ async function fetchSelfDriveSearchVehicles(
 
   rows = await mergeApprovedSelfDriveListings(rows, vehicleType);
 
-  const debugRow = await loadSelfDriveDebugVehicleRow(rows);
-  if (debugRow) {
-    const included = rows.some((row) => String(row.id) === String(debugRow.id));
-    logSelfDriveSearchFetchChecks({
-      row: debugRow,
-      approvedInVehiclesTable: isVehicleMarketplaceApproved(debugRow),
-      activeOk: isVehicleSearchActive(debugRow),
-      selfDriveServiceOk: passesSelfDriveService(debugRow),
-      included,
-    });
-  }
-
-  console.log(`[fetchSelfDriveSearchVehicles] results: ${rows.length}`);
   return { rows, error: null };
 }
 
@@ -609,7 +549,6 @@ async function fetchApprovedMarketplaceVehicles(
   service?: VehicleServiceKey,
   vehicleType?: string
 ): Promise<{ rows: Row[]; error: string | null }> {
-  const usedIsActiveFilter = true;
   let query = db()
     .from("vehicles")
     .select("*")
@@ -631,18 +570,10 @@ async function fetchApprovedMarketplaceVehicles(
       isVehicleMarketplaceApproved(row) &&
       isVehicleAvailableForSearch(row)
   );
-  const debugRow = await loadSelfDriveDebugVehicleRow(rawRows);
-  const debugInApprovedBatch = debugRow
-    ? rawRows.some((row) => String(row.id) === String(debugRow.id))
-    : false;
 
   let rows = rawRows;
   const ownerIds = rows.map((row) => getString(row, "owner_id")).filter(Boolean);
-  const debugOwnerId = debugRow ? getString(debugRow, "owner_id") : "";
-  const eligibilityOwnerIds = debugOwnerId && !ownerIds.includes(debugOwnerId)
-    ? [...ownerIds, debugOwnerId]
-    : ownerIds;
-  const eligibilityMap = await getOwnerMarketplaceEligibilityMap(eligibilityOwnerIds);
+  const eligibilityMap = await getOwnerMarketplaceEligibilityMap(ownerIds);
 
   const rowsAfterOwnerGate: Row[] = [];
   for (const row of rows) {
@@ -683,29 +614,6 @@ async function fetchApprovedMarketplaceVehicles(
       }
     }
     rows = rowsAfterServiceGate;
-    console.log(`[fetchApprovedMarketplaceVehicles] service "${service}": ${before} → ${rows.length}`);
-  }
-
-  if (debugRow) {
-    const ownerId = getString(debugRow, "owner_id");
-    const eligibility = ownerEligibilityDebug(ownerId, eligibilityMap);
-    const includedAfterOwnerGate = rowsAfterOwnerGate.some(
-      (row) => String(row.id) === String(debugRow.id)
-    );
-    const includedAfterServiceGate = rowsAfterServiceGate.some(
-      (row) => String(row.id) === String(debugRow.id)
-    );
-
-    logFetchApprovedMarketplaceVehicleChecks({
-      row: debugRow,
-      ownerId,
-      eligibility,
-      usedIsActiveFilter,
-      inApprovedDbRows: debugInApprovedBatch,
-      service,
-      includedAfterOwnerGate,
-      includedAfterServiceGate,
-    });
   }
 
   return { rows, error: null };
@@ -900,6 +808,10 @@ function mapVehicleRowToSelfDriveResult(
     vehicle_name: buildVehicleDisplayName(row),
     vehicle_type: category,
     registration_number: maskRegistrationNumber(vehicle.registration_number),
+    fuel_type: String(row.fuel_type ?? "").trim() || undefined,
+    transmission: String(row.transmission ?? "").trim() || undefined,
+    vehicle_year: Number(row.vehicle_year ?? 0) || undefined,
+    has_ac: row.has_ac === undefined ? undefined : Boolean(row.has_ac),
     owner_name: ownerName || "Owner",
     owner_id: vehicle.owner_id ?? undefined,
     owner_city: pickupCity,
@@ -907,7 +819,7 @@ function mapVehicleRowToSelfDriveResult(
     drop_city: "",
     journey_date: "",
     journey_time: "",
-    available_seats: 4,
+    available_seats: Number(row.seating_capacity ?? row.seats ?? 4) || 4,
     price: dailyRent,
     status: "available",
     location: pickupCity,
@@ -915,7 +827,7 @@ function mapVehicleRowToSelfDriveResult(
     security_deposit: securityDeposit,
     availability: "available",
     photos,
-    seats: 4,
+    seats: Number(row.seating_capacity ?? row.seats ?? 4) || 4,
   };
 }
 
@@ -1455,16 +1367,10 @@ export async function searchSelfDriveVehicles(filters: {
   const configError = getSupabaseConfigError();
   if (configError) return { data: [], error: configError };
 
-  console.log("[searchSelfDriveVehicles] SQL equivalent:", SELF_DRIVE_SEARCH_SQL);
-  console.log("[searchSelfDriveVehicles] filters:", JSON.stringify(filters));
-
   const { rows, error } = await fetchSelfDriveSearchVehicles(filters.vehicleType);
   if (error) {
-    console.error("[searchSelfDriveVehicles] query error:", error);
     return { data: [], error };
   }
-
-  console.log("[searchSelfDriveVehicles] self-drive vehicles from DB:", rows.length);
 
   const ownerIds = rows.map((row) => getString(row, "owner_id"));
   const [ownerCityMap, ownerNameMap] = await Promise.all([
@@ -1473,18 +1379,11 @@ export async function searchSelfDriveVehicles(filters: {
   ]);
 
   const cityFilter = filters.pickupCity ?? filters.city;
-  const debugExclusions: string[] = [];
   const tripTypeKey = resolveTripTypeKeyFromSearchLabel(filters.tripType);
 
   const eligibleRows = rows.filter((row) => {
-    if (!isServiceEnabled(row, "service_self_drive")) {
-      debugExclusions.push(`${getString(row, "registration_number")}: service_self_drive disabled`);
-      return false;
-    }
-    if (!vehicleSupportsSearchTrip(row, tripTypeKey)) {
-      debugExclusions.push(`${getString(row, "registration_number")}: trip type mismatch`);
-      return false;
-    }
+    if (!isServiceEnabled(row, "service_self_drive")) return false;
+    if (!vehicleSupportsSearchTrip(row, tripTypeKey)) return false;
     return true;
   });
 
@@ -1495,54 +1394,15 @@ export async function searchSelfDriveVehicles(filters: {
     return mapVehicleRowToSelfDriveResult(row, ownerCity, ownerName);
   });
 
-  const debugSourceRow = eligibleRows.find(vehicleMatchesSelfDriveDebug) ?? null;
-  const debugMapped = debugSourceRow
-    ? results.find((result) => String(result.id) === String(debugSourceRow.id)) ?? null
-    : null;
-
   const strictEnvOnly = process.env.SEARCH_SELF_DRIVE_STRICT_FILTERS === "0";
 
   if (!strictEnvOnly && cityFilter) {
-    const before = results.length;
-    results = results.filter((result) => {
-      const match = matchesCity(result.pickup_city, cityFilter);
-      if (!match) {
-        debugExclusions.push(
-          `${result.vehicle_name}: city "${result.pickup_city}" does not match "${cityFilter}"`
-        );
-      }
-      return match;
-    });
-    console.log(`[searchSelfDriveVehicles] city filter "${cityFilter}": ${before} → ${results.length}`);
+    results = results.filter((result) => matchesCity(result.pickup_city, cityFilter));
   }
 
   if (!strictEnvOnly && filters.date) {
     results = results.filter((r) => !r.journey_date || r.journey_date === filters.date);
   }
-
-  if (debugSourceRow && debugMapped) {
-    const includedInFinal = results.some((result) => String(result.id) === String(debugMapped.id));
-    logSearchSelfDrivePostFilters({
-      row: debugSourceRow,
-      result: debugMapped,
-      filters,
-      includedInFinalResults: includedInFinal,
-    });
-  } else if (debugSourceRow) {
-    logSelfDriveDebugVehicleHeader(debugSourceRow);
-    console.log(
-      `[searchSelfDriveVehicles] ${SELF_DRIVE_DEBUG_REGISTRATION} passed marketplace gates but was not mapped to a result`
-    );
-  } else {
-    console.warn(
-      `[searchSelfDriveVehicles] ${SELF_DRIVE_DEBUG_REGISTRATION} not in marketplace rows — see fetchApprovedMarketplaceVehicles debug above`
-    );
-  }
-
-  if (debugExclusions.length > 0) {
-    console.log("[searchSelfDriveVehicles] excluded:", debugExclusions);
-  }
-  console.log("[searchSelfDriveVehicles] final results:", results.length);
 
   return { data: results, error: null };
 }
@@ -1879,6 +1739,13 @@ export async function getBookingConfirmationById(id: string): Promise<BookingCon
     ...protection,
     trip_fare_amount: getNumber(row, "trip_fare_amount") || undefined,
     security_deposit_amount: getNumber(row, "security_deposit_amount") || undefined,
+    special_instructions: getString(row, "special_instructions") || undefined,
+    advance_amount: getNumber(row, "advance_amount") || undefined,
+    balance_amount: getNumber(row, "balance_amount") || undefined,
+    amount_paid: getNumber(row, "amount_paid") || undefined,
+    amount_due: getNumber(row, "amount_due") || undefined,
+    deposit_refund_amount: getNumber(row, "deposit_refund_amount") || undefined,
+    deposit_refund_status: getString(row, "deposit_refund_status") || undefined,
     cancelled_at: getString(row, "cancelled_at") || undefined,
     refund_amount: getNumber(row, "refund_amount") || undefined,
     refund_status: getString(row, "refund_status") || undefined,

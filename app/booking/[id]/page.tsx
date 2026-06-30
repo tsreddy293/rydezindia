@@ -1,5 +1,5 @@
 import { notFound, redirect } from "next/navigation";
-import PageLayout from "@/components/layout/PageLayout";
+import BookingPageLayout from "@/components/layout/BookingPageLayout";
 import BookingForm from "@/components/forms/BookingForm";
 import UnifiedBookingForm from "@/components/forms/UnifiedBookingForm";
 import SelfDriveBookingForm from "@/components/booking/SelfDriveBookingForm";
@@ -91,23 +91,13 @@ export default async function BookingPage({ params, searchParams }: Props) {
       vehicleId: listing.vehicle_id ?? id,
       ownerIdHint: listing.owner_id,
     });
-    const approval = await fetchBookingOwnerProfileState(
+    await fetchBookingOwnerProfileState(
       listing.vehicle_id ?? id,
       ownerCtx.rawOwnerId || listing.owner_id
     );
 
-    console.log("Vehicle ID:", listing.vehicle_id ?? id);
-    console.log("Owner ID:", approval.ownerId || ownerCtx.rawOwnerId || listing.owner_id || "—");
-    console.log("Owner Status:", approval.ownerStatus);
-    console.log("KYC Status:", approval.kycStatus);
-    console.log("[booking page] owner_profiles", {
-      profileFound: approval.profileFound,
-      owner_status: approval.ownerStatus,
-      kyc_status: approval.kycStatus,
-    });
-
     return (
-      <PageLayout>
+      <BookingPageLayout>
         <div className="mx-auto max-w-5xl px-4 py-12 md:px-6">
           <h1 className="text-3xl font-bold text-secondary mb-2">Book Self Drive Vehicle</h1>
           <p className="text-gray-600 mb-8">Review your trip details and confirm your booking</p>
@@ -117,7 +107,7 @@ export default async function BookingPage({ params, searchParams }: Props) {
             searchPrefill={searchPrefill}
           />
         </div>
-      </PageLayout>
+      </BookingPageLayout>
     );
   }
 
@@ -137,7 +127,7 @@ export default async function BookingPage({ params, searchParams }: Props) {
     const extraKm = Number(sp.extraKm ?? 0) || 0;
 
     return (
-      <PageLayout>
+      <BookingPageLayout>
         <div className="mx-auto max-w-5xl px-4 py-12 md:px-6">
           <h1 className="text-3xl font-bold text-secondary mb-2">
             {tripTypeParam?.toLowerCase() === "local rental"
@@ -155,7 +145,7 @@ export default async function BookingPage({ params, searchParams }: Props) {
             extraKm={extraKm}
           />
         </div>
-      </PageLayout>
+      </BookingPageLayout>
     );
   }
 
@@ -178,7 +168,7 @@ export default async function BookingPage({ params, searchParams }: Props) {
   const seats = await getReturnJourneySeats(String(journey.id));
 
   return (
-    <PageLayout>
+    <BookingPageLayout>
       <div className="mx-auto max-w-5xl px-4 py-12 md:px-6">
         <h1 className="text-3xl font-bold text-secondary mb-2">Book Your Ride</h1>
         <p className="text-gray-600 mb-8">Complete your booking details below</p>
@@ -207,6 +197,6 @@ export default async function BookingPage({ params, searchParams }: Props) {
           }))}
         />
       </div>
-    </PageLayout>
+    </BookingPageLayout>
   );
 }

@@ -29,7 +29,8 @@ export const BOOKING_ABSENT_COLUMNS = [
 export const BOOKING_OPTIONAL_REFUND =
   "refund_amount, refund_status, refund_processed_at, refund_trip_fare_amount, refund_deposit_amount";
 
-export const BOOKING_OPTIONAL_FARE = "trip_fare_amount, security_deposit_amount";
+export const BOOKING_OPTIONAL_FARE =
+  "trip_fare_amount, security_deposit_amount, advance_amount, balance_amount, amount_paid, amount_due, deposit_refund_amount, deposit_refund_status";
 
 export const BOOKING_OPTIONAL_PROTECTION =
   "protection_selected, protection_fee, protection_plan_name, protection_purchase_date, protection_status";

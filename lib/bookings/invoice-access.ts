@@ -1,6 +1,6 @@
 export function isPaymentCompleted(paymentStatus?: string | null) {
   const value = String(paymentStatus ?? "").toLowerCase();
-  return value === "paid";
+  return value === "paid" || value === "refunded";
 }
 
 export function isInvoiceEligibleStatus(bookingStatus?: string | null) {

@@ -21,6 +21,7 @@ export async function createRazorpayOrder(input: {
   currency?: string;
   userId?: string;
   ownerId?: string;
+  paymentPhase?: string;
 }) {
   const { keyId, keySecret } = getRazorpayConfig();
   const currency = input.currency || "INR";
@@ -45,7 +46,7 @@ export async function createRazorpayOrder(input: {
 
   const { data: existingOpen } = await db
     .from("payments")
-    .select("id, razorpay_order_id, amount, metadata, status")
+    .select("id, razorpay_order_id, amount, metadata, status, payment_type")
     .eq("booking_id", input.bookingId)
     .eq("status", "created")
     .eq("amount", input.amount)
@@ -79,7 +80,8 @@ export async function createRazorpayOrder(input: {
       amount: input.amount,
       currency,
       status: "created",
-      metadata: payload,
+      payment_type: input.paymentPhase ?? "full",
+      metadata: { ...payload, payment_phase: input.paymentPhase ?? "full" },
     })
     .select("id")
     .single();
@@ -94,6 +96,7 @@ export async function verifyRazorpayPayment(input: {
   razorpayPaymentId: string;
   razorpaySignature: string;
   paymentType?: "advance" | "full";
+  paymentPhase?: string;
 }) {
   const { keySecret } = getRazorpayConfig();
   const expected = createHmac("sha256", keySecret)
@@ -106,11 +109,15 @@ export async function verifyRazorpayPayment(input: {
 
   const { data: paymentRow } = await db
     .from("payments")
-    .select("id, amount, owner_id, user_id, booking_id, status")
+    .select("id, amount, owner_id, user_id, booking_id, status, payment_type")
     .eq("razorpay_order_id", input.razorpayOrderId)
     .maybeSingle();
 
   if (!paymentRow) throw new Error("Payment record not found");
+
+  if (String((paymentRow as { status?: string }).status ?? "").toLowerCase() === "paid") {
+    return { verified: true };
+  }
 
   const paymentBookingId = String((paymentRow as { booking_id?: string }).booking_id ?? "").trim();
   if (paymentBookingId && paymentBookingId !== input.bookingId) {
@@ -121,32 +128,29 @@ export async function verifyRazorpayPayment(input: {
 
   const { data: existingBooking } = await db
     .from("bookings")
-    .select("owner_id, amount, platform_fee, booking_status, payment_status, user_id")
+    .select(
+      "owner_id, amount, platform_fee, booking_status, payment_status, user_id, booking_type, special_instructions, trip_fare_amount, security_deposit_amount, advance_amount, balance_amount, amount_paid, amount_due, deposit_refund_status"
+    )
     .eq("id", resolvedBookingId)
     .maybeSingle();
 
   if (!existingBooking) throw new Error("Booking not found");
 
-  const booking = existingBooking as {
-    owner_id?: string;
-    amount?: number;
-    platform_fee?: number;
-    booking_status?: string;
-    payment_status?: string;
-    user_id?: string | null;
-  };
+  const booking = existingBooking as Record<string, unknown>;
 
   if (
-    isBookingCancelledStatus(booking.booking_status) ||
+    isBookingCancelledStatus(String(booking.booking_status ?? "")) ||
     String(booking.booking_status ?? "").toLowerCase() === "refunded"
   ) {
     throw new Error("Cannot verify payment for a cancelled or refunded booking");
   }
 
-  const currentPayment = String(booking.payment_status ?? "").toLowerCase();
-  if (currentPayment === "paid" || currentPayment === "partial") {
-    return { verified: true };
-  }
+  const paidAmount = Number((paymentRow as { amount?: number }).amount ?? 0);
+  const phase =
+    input.paymentPhase ??
+    String((paymentRow as { payment_type?: string }).payment_type ?? input.paymentType ?? "full");
+
+  const isSelfDrive = String(booking.booking_type ?? "").toLowerCase() === "self_drive";
 
   await db
     .from("payments")
@@ -154,29 +158,65 @@ export async function verifyRazorpayPayment(input: {
       razorpay_payment_id: input.razorpayPaymentId,
       razorpay_signature: input.razorpaySignature,
       status: "paid",
-      payment_type: input.paymentType ?? "full",
+      payment_type: phase,
       updated_at: new Date().toISOString(),
     })
     .eq("razorpay_order_id", input.razorpayOrderId);
 
   const paymentUserId = (paymentRow as { user_id?: string }).user_id;
-  const bookingUpdate: Record<string, unknown> = {
-    payment_status: input.paymentType === "advance" ? "partial" : "paid",
-    booking_status: "confirmed",
-  };
+  const bookingUpdate: Record<string, unknown> = {};
+
+  if (isSelfDrive) {
+    const { deriveSelfDrivePaymentSnapshot, appendSelfDrivePaymentMarker } = await import(
+      "@/lib/bookings/self-drive-payment"
+    );
+    const snapshot = deriveSelfDrivePaymentSnapshot(booking);
+    if (!snapshot) throw new Error("Self-drive payment snapshot missing");
+
+    const newAmountPaid = snapshot.amountPaid + paidAmount;
+
+    if (phase === "self_drive_balance") {
+      bookingUpdate.payment_status = "paid";
+      bookingUpdate.booking_status = "confirmed";
+      bookingUpdate.amount_paid = newAmountPaid;
+      bookingUpdate.amount_due = 0;
+      bookingUpdate.balance_amount = snapshot.balanceAmount;
+    } else {
+      const balanceRemaining = Math.max(0, snapshot.balanceAmount);
+      bookingUpdate.payment_status = "partial";
+      bookingUpdate.booking_status = "confirmed";
+      bookingUpdate.amount_paid = newAmountPaid;
+      bookingUpdate.amount_due = balanceRemaining;
+      bookingUpdate.advance_amount = snapshot.advanceAmount;
+      bookingUpdate.balance_amount = snapshot.balanceAmount;
+      bookingUpdate.deposit_refund_amount = 0;
+    }
+
+    const updatedSnapshot = {
+      ...snapshot,
+      amountPaid: Number(bookingUpdate.amount_paid),
+      amountDue: Number(bookingUpdate.amount_due ?? snapshot.amountDue),
+    };
+    bookingUpdate.special_instructions = appendSelfDrivePaymentMarker(
+      String(booking.special_instructions ?? ""),
+      updatedSnapshot
+    );
+  } else {
+    bookingUpdate.payment_status = input.paymentType === "advance" ? "partial" : "paid";
+    bookingUpdate.booking_status = "confirmed";
+  }
+
   if (paymentUserId && !booking.user_id) {
     bookingUpdate.user_id = paymentUserId;
   }
 
   await db.from("bookings").update(bookingUpdate).eq("id", resolvedBookingId);
 
-  const gross = Number(
-    (paymentRow as { amount?: number }).amount ?? booking.amount ?? 0
-  );
+  const gross = paidAmount;
   const platformFee = Number(booking.platform_fee ?? Math.round(gross * 0.05));
-  const ownerId = booking.owner_id ?? (paymentRow as { owner_id?: string }).owner_id;
+  const ownerId = (booking.owner_id as string) ?? (paymentRow as { owner_id?: string }).owner_id;
 
-  if (ownerId) {
+  if (ownerId && phase !== "self_drive_balance") {
     const { data: existingEarning } = await db
       .from("owner_earnings")
       .select("id")

@@ -6,6 +6,10 @@ import { createClient } from "@/lib/supabase/server";
 import { getRoleForUser } from "@/lib/auth/get-role-for-user";
 import { createNotification } from "@/lib/services/notifications";
 import { isBookingCancelledStatus } from "@/lib/bookings/cancellation-eligibility";
+import {
+  deriveSelfDrivePaymentSnapshot,
+  selfDriveIsFullyPaid,
+} from "@/lib/bookings/self-drive-payment";
 import type { ActionResult } from "@/types/database";
 
 async function requireOwnerId(): Promise<string | null> {
@@ -25,6 +29,14 @@ type OwnerBookingRow = {
   payment_status?: string;
   booking_reference?: string | null;
   passenger_name?: string | null;
+  booking_type?: string | null;
+  special_instructions?: string | null;
+  trip_fare_amount?: number | null;
+  security_deposit_amount?: number | null;
+  advance_amount?: number | null;
+  balance_amount?: number | null;
+  amount_paid?: number | null;
+  amount_due?: number | null;
 };
 
 async function loadOwnerBooking(
@@ -34,11 +46,17 @@ async function loadOwnerBooking(
   const db = createAdminClient();
   const { data } = await db
     .from("bookings")
-    .select("id, owner_id, user_id, booking_status, payment_status, booking_reference, passenger_name")
+    .select(
+      "id, owner_id, user_id, booking_status, payment_status, booking_reference, passenger_name, booking_type, special_instructions, trip_fare_amount, security_deposit_amount, advance_amount, balance_amount, amount_paid, amount_due"
+    )
     .eq("id", bookingId)
     .maybeSingle();
   if (!data || String((data as OwnerBookingRow).owner_id) !== ownerId) return null;
   return data as OwnerBookingRow;
+}
+
+function isSelfDriveBooking(booking: OwnerBookingRow): boolean {
+  return String(booking.booking_type ?? "").toLowerCase() === "self_drive";
 }
 
 async function notifyRider(
@@ -72,6 +90,17 @@ export async function ownerApproveBooking(bookingId: string): Promise<ActionResu
   }
   if (!["pending", "confirmed"].includes(status)) {
     return { success: false, error: "Booking cannot be approved in its current status" };
+  }
+
+  if (isSelfDriveBooking(booking)) {
+    const snapshot = deriveSelfDrivePaymentSnapshot(booking as Record<string, unknown>);
+    const paymentStatus = String(booking.payment_status ?? "");
+    if (!snapshot || !selfDriveIsFullyPaid(paymentStatus, snapshot)) {
+      return {
+        success: false,
+        error: "Customer must complete full payment before owner approval",
+      };
+    }
   }
 
   const db = createAdminClient();
@@ -140,6 +169,11 @@ export async function ownerStartTrip(bookingId: string): Promise<ActionResult> {
   const booking = await loadOwnerBooking(bookingId, ownerId);
   if (!booking) return { success: false, error: "Booking not found" };
 
+  if (isSelfDriveBooking(booking)) {
+    const { ownerStartSelfDriveTrip } = await import("@/server/actions/selfDrivePayment");
+    return ownerStartSelfDriveTrip(bookingId);
+  }
+
   const status = String(booking.booking_status ?? "").toLowerCase();
   if (!["confirmed", "owner_confirmed", "pending"].includes(status)) {
     return { success: false, error: "Trip cannot be started in its current status" };
@@ -164,6 +198,11 @@ export async function ownerCompleteTrip(bookingId: string): Promise<ActionResult
 
   const booking = await loadOwnerBooking(bookingId, ownerId);
   if (!booking) return { success: false, error: "Booking not found" };
+
+  if (isSelfDriveBooking(booking)) {
+    const { ownerCompleteSelfDriveTrip } = await import("@/server/actions/selfDrivePayment");
+    return ownerCompleteSelfDriveTrip(bookingId);
+  }
 
   const status = String(booking.booking_status ?? "").toLowerCase();
   if (!["active", "confirmed", "owner_confirmed"].includes(status)) {

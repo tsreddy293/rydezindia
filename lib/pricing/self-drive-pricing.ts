@@ -5,6 +5,20 @@ import {
   getTier2DepositRange,
 } from "@/lib/vehicles/search";
 import { getAdvancePaymentAmount } from "@/lib/pricing/ai-pricing-engine";
+import {
+  formatLongDurationDiscountLabel,
+  resolveLongDurationDiscountPercent,
+  type LongDurationDiscountOptions,
+} from "@/lib/pricing/self-drive-long-duration-discount";
+
+export { formatLongDurationDiscountLabel };
+
+export function getLongDurationDiscountPercent(
+  rentalDays: number,
+  options?: LongDurationDiscountOptions
+): number {
+  return resolveLongDurationDiscountPercent(rentalDays, options);
+}
 
 export const SELF_DRIVE_PLATFORM_FEE_PERCENT = 5;
 /** GST applied on the platform fee (18% × ₹75 = ₹14 for a ₹1500 daily rent). */
@@ -55,21 +69,6 @@ export interface SelfDrivePricingResult {
   deposit: SelfDriveDepositInfo;
   /** @deprecated Use deposit.amount — kept for legacy callers. */
   securityDeposit: number;
-}
-
-/** Long-duration rental discount tiers (self-drive). */
-export function getLongDurationDiscountPercent(rentalDays: number): number {
-  const days = Math.max(1, Math.round(rentalDays));
-  if (days <= 3) return 0;
-  if (days <= 7) return 5;
-  if (days <= 15) return 10;
-  if (days <= 30) return 15;
-  return 20;
-}
-
-export function formatLongDurationDiscountLabel(percent: number): string {
-  if (percent <= 0) return "Long Duration Discount";
-  return `Long Duration Discount (${percent}%)`;
 }
 
 export function formatSelfDriveRentalDays(days: number): string {
@@ -141,12 +140,13 @@ export function resolveSelfDriveSecurityDeposit(listing: {
 export function calculateSelfDrivePricing(
   dailyRent: number,
   depositInfo: SelfDriveDepositInfo,
-  rentalDays = 1
+  rentalDays = 1,
+  discountOptions?: LongDurationDiscountOptions
 ): SelfDrivePricingResult {
   const days = Math.max(1, Math.round(rentalDays));
   const normalizedRent = Math.max(0, Math.round(dailyRent));
   const vehicleRentTotal = normalizedRent * days;
-  const longDurationDiscountPercent = getLongDurationDiscountPercent(days);
+  const longDurationDiscountPercent = resolveLongDurationDiscountPercent(days, discountOptions);
   const longDurationDiscountAmount = Math.floor(
     (vehicleRentTotal * longDurationDiscountPercent) / 100
   );
@@ -176,13 +176,31 @@ export function calculateSelfDrivePricing(
 export function calculateSelfDrivePricingForSchedule(
   dailyRent: number,
   depositInfo: SelfDriveDepositInfo,
-  schedule: SelfDriveRentalSchedule
+  schedule: SelfDriveRentalSchedule,
+  discountOptions?: LongDurationDiscountOptions
 ): SelfDrivePricingResult {
   return calculateSelfDrivePricing(
     dailyRent,
     depositInfo,
-    computeSelfDriveRentalDays(schedule)
+    computeSelfDriveRentalDays(schedule),
+    discountOptions
   );
+}
+
+/** Trip fare before long-duration discount (rent + platform fee + GST on gross rent). */
+export function computeTripFareBeforeLongDurationDiscount(
+  pricing: SelfDrivePricingResult
+): number {
+  const platformFee = Math.round(
+    pricing.vehicleRentTotal * (SELF_DRIVE_PLATFORM_FEE_PERCENT / 100)
+  );
+  const gst = Math.round(platformFee * (SELF_DRIVE_GST_ON_PLATFORM_FEE_PERCENT / 100));
+  return pricing.vehicleRentTotal + platformFee + gst;
+}
+
+/** Total trip-fare savings from long-duration discount (includes platform/GST effect). */
+export function computeTripFareLongDurationSavings(pricing: SelfDrivePricingResult): number {
+  return Math.max(0, computeTripFareBeforeLongDurationDiscount(pricing) - pricing.payableAmount);
 }
 
 /** Trip fare (or advance) plus online deposit when applicable. */

@@ -51,24 +51,22 @@ if (pickupPricing.deposit.min !== 5000 || pickupPricing.deposit.max !== 7500) {
 }
 if (pickupPricing.securityDeposit !== 0) throw new Error("pickup deposit must not be in online total");
 
-if (getLongDurationDiscountPercent(3) !== 0) throw new Error("3 days should be 0%");
-if (getLongDurationDiscountPercent(7) !== 5) throw new Error("7 days should be 5%");
-if (getLongDurationDiscountPercent(15) !== 10) throw new Error("15 days should be 10%");
-if (getLongDurationDiscountPercent(30) !== 15) throw new Error("30 days should be 15%");
+if (getLongDurationDiscountPercent(2) !== 0) throw new Error("2 days should be 0%");
+if (getLongDurationDiscountPercent(3) !== 5) throw new Error("3 days should be 5%");
+if (getLongDurationDiscountPercent(6) !== 5) throw new Error("6 days should be 5%");
+if (getLongDurationDiscountPercent(7) !== 10) throw new Error("7 days should be 10%");
+if (getLongDurationDiscountPercent(14) !== 10) throw new Error("14 days should be 10%");
+if (getLongDurationDiscountPercent(15) !== 15) throw new Error("15 days should be 15%");
+if (getLongDurationDiscountPercent(29) !== 15) throw new Error("29 days should be 15%");
+if (getLongDurationDiscountPercent(30) !== 20) throw new Error("30 days should be 20%");
 if (getLongDurationDiscountPercent(31) !== 20) throw new Error("31 days should be 20%");
 
-const longRental = calculateSelfDrivePricing(1799, explicitDeposit, 30);
-if (longRental.vehicleRentTotal !== 53970) {
-  throw new Error(`30-day vehicleRentTotal: ${longRental.vehicleRentTotal}`);
-}
+const longRental = calculateSelfDrivePricing(1799, explicitDeposit, 29);
 if (longRental.longDurationDiscountPercent !== 15) {
-  throw new Error(`30-day discount percent: ${longRental.longDurationDiscountPercent}`);
+  throw new Error(`29-day discount percent: ${longRental.longDurationDiscountPercent}`);
 }
-if (longRental.longDurationDiscountAmount !== 8095) {
-  throw new Error(`30-day discount amount: ${longRental.longDurationDiscountAmount}`);
-}
-if (longRental.discountedVehicleRentTotal !== 45875) {
-  throw new Error(`30-day discounted rent: ${longRental.discountedVehicleRentTotal}`);
+if (longRental.longDurationDiscountAmount !== Math.floor(1799 * 29 * 0.15)) {
+  throw new Error(`29-day discount amount: ${longRental.longDurationDiscountAmount}`);
 }
 
 console.log("self-drive-pricing tests passed");

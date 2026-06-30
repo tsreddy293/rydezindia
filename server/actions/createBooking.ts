@@ -16,7 +16,12 @@ import { dispatchBookingEvent } from "@/lib/services/messaging";
 import { findOrCreateGuestUserByMobile } from "@/lib/users/guest-user";
 import { getProtectionFeeForVehicle } from "@/lib/services/flexible-cancellation-protection";
 import { applyBookingInsertWithColumnFallback } from "@/lib/bookings/apply-booking-insert";
+import { appendSelfDrivePaymentMarker } from "@/lib/bookings/self-drive-payment";
 import { appendProtectionToInstructions } from "@/lib/bookings/protection-instructions";
+import {
+  calculateSelfDrivePaymentWorkflow,
+  resolveSelfDriveBookingDeposit,
+} from "@/lib/pricing/self-drive-payment-workflow";
 import { findResumablePendingBooking } from "@/lib/bookings/duplicate-booking";
 import { calculateLocalRentalPricing } from "@/lib/pricing/local-rental-pricing";
 import {
@@ -388,6 +393,7 @@ export async function createUnifiedBooking(
     };
   }
 
+  const isSelfDriveBooking = input.booking_type === "self_drive";
   const isLocalRental = String(input.trip_type ?? "").toLowerCase() === "local rental";
   let resolvedAmount = input.amount;
   let resolvedBaseFare = input.base_fare ?? input.amount;
@@ -414,36 +420,84 @@ export async function createUnifiedBooking(
   let couponDiscount = 0;
   let couponId: string | null = null;
 
+  let selfDriveWorkflow: ReturnType<typeof calculateSelfDrivePaymentWorkflow> | null = null;
+  let tripFareForBooking = tripFareBase;
+
+  if (isSelfDriveBooking) {
+    const deposit = resolveSelfDriveBookingDeposit({
+      security_deposit: input.security_deposit_amount,
+      vehicle_type: input.vehicle_type,
+    });
+    selfDriveWorkflow = calculateSelfDrivePaymentWorkflow({
+      tripFare: tripFareBase,
+      securityDeposit: deposit,
+      protectionFee: 0,
+    });
+    tripFareForBooking = selfDriveWorkflow.tripFare;
+    finalAmount = selfDriveWorkflow.amountPayableNow;
+  }
+
   if (input.coupon_code?.trim()) {
-    const { validateCoupon, redeemCoupon } = await import("@/lib/services/coupons");
+    const { validateCoupon } = await import("@/lib/services/coupons");
+    const couponOrderAmount = isSelfDriveBooking && selfDriveWorkflow
+      ? selfDriveWorkflow.amountPayableNow
+      : resolvedAmount;
     const couponResult = await validateCoupon({
       code: input.coupon_code,
       userId,
-      orderAmount: resolvedAmount,
+      orderAmount: couponOrderAmount,
     });
     if (!couponResult.valid) {
       return { success: false, error: couponResult.error ?? "Invalid coupon" };
     }
     couponDiscount = couponResult.discountAmount;
     couponId = couponResult.couponId ?? null;
-    finalAmount = Math.max(0, resolvedAmount - couponDiscount);
+    if (!isSelfDriveBooking) {
+      finalAmount = Math.max(0, resolvedAmount - couponDiscount);
+    }
   }
 
   let walletUsed = 0;
   if (input.wallet_amount_used && input.wallet_amount_used > 0) {
-    const { getWalletBalance, debitWallet } = await import("@/lib/services/wallet");
+    const { getWalletBalance } = await import("@/lib/services/wallet");
     const balance = await getWalletBalance(userId);
-    walletUsed = Math.min(balance, input.wallet_amount_used, finalAmount);
-    if (walletUsed > 0) {
-      finalAmount -= walletUsed;
-    }
+    const walletCap = isSelfDriveBooking && selfDriveWorkflow
+      ? selfDriveWorkflow.amountPayableNow - couponDiscount
+      : finalAmount;
+    walletUsed = Math.min(balance, input.wallet_amount_used, walletCap);
   }
 
-  finalAmount += protectionFee;
+  if (isSelfDriveBooking && selfDriveWorkflow) {
+    selfDriveWorkflow = calculateSelfDrivePaymentWorkflow({
+      tripFare: tripFareForBooking,
+      securityDeposit: selfDriveWorkflow.securityDeposit,
+      protectionFee,
+    });
+    finalAmount = Math.max(
+      0,
+      selfDriveWorkflow.amountPayableNow - couponDiscount - walletUsed
+    );
+  } else {
+    finalAmount = Math.max(0, finalAmount - walletUsed + protectionFee);
+  }
 
   const instructionsWithProtection = protectionSelected
     ? appendProtectionToInstructions(input.special_instructions ?? null, protectionFee)
     : input.special_instructions ?? null;
+
+  let instructionsFinal = instructionsWithProtection;
+  if (isSelfDriveBooking && selfDriveWorkflow) {
+    instructionsFinal = appendSelfDrivePaymentMarker(instructionsWithProtection, {
+      tripFare: selfDriveWorkflow.tripFare,
+      advanceAmount: selfDriveWorkflow.advanceAmount,
+      balanceAmount: selfDriveWorkflow.balanceAmount,
+      securityDeposit: selfDriveWorkflow.securityDeposit,
+      amountPaid: 0,
+      amountDue: selfDriveWorkflow.balanceAmount,
+      depositRefundAmount: 0,
+      depositRefundStatus: "none",
+    });
+  }
 
   if (walletUsed > 0) {
     const { debitWallet } = await import("@/lib/services/wallet");
@@ -481,15 +535,27 @@ export async function createUnifiedBooking(
     pickup_time: input.pickup_time ?? null,
     trip_type: input.trip_type ?? null,
     driver_required: input.driver_required ?? true,
-    special_instructions: instructionsWithProtection,
+    special_instructions: instructionsFinal,
     base_fare: resolvedBaseFare,
     platform_fee: resolvedPlatformFee,
     discount_amount: (input.discount_amount ?? 0) + couponDiscount,
     coupon_id: couponId,
     wallet_amount_used: walletUsed,
     rural_pickup_point_id: input.rural_pickup_point_id ?? null,
-    trip_fare_amount: tripFareBase,
-    security_deposit_amount: input.security_deposit_amount ?? 0,
+    trip_fare_amount: isSelfDriveBooking && selfDriveWorkflow ? selfDriveWorkflow.tripFare : tripFareBase,
+    security_deposit_amount:
+      isSelfDriveBooking && selfDriveWorkflow
+        ? selfDriveWorkflow.securityDeposit
+        : input.security_deposit_amount ?? 0,
+    ...(isSelfDriveBooking && selfDriveWorkflow
+      ? {
+          advance_amount: selfDriveWorkflow.advanceAmount,
+          balance_amount: selfDriveWorkflow.balanceAmount,
+          amount_paid: 0,
+          amount_due: selfDriveWorkflow.balanceAmount,
+          deposit_refund_status: "none",
+        }
+      : {}),
   };
 
   const { data: booking, error } = await applyBookingInsertWithColumnFallback(db, bookingInsert);

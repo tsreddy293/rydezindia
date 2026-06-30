@@ -18,6 +18,8 @@ interface Props {
   customerMobile: string;
   customerEmail?: string;
   paymentType?: "advance" | "full";
+  paymentPhase?: string;
+  amountLabel?: string;
   onSuccess: (paymentId: string) => void;
   onError: (message: string) => void;
 }
@@ -29,6 +31,8 @@ export default function RazorpayCheckout({
   customerMobile,
   customerEmail,
   paymentType = "full",
+  paymentPhase,
+  amountLabel,
   onSuccess,
   onError,
 }: Props) {
@@ -54,7 +58,7 @@ export default function RazorpayCheckout({
       const orderRes = await fetch("/api/payments/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bookingId, amount, paymentType }),
+        body: JSON.stringify({ bookingId, amount, paymentType, paymentPhase }),
       });
       const orderData = await orderRes.json();
       if (!orderData.success) throw new Error(orderData.error || "Failed to create order");
@@ -88,6 +92,7 @@ export default function RazorpayCheckout({
               razorpayPaymentId: response.razorpay_payment_id,
               razorpaySignature: response.razorpay_signature,
               paymentType,
+              paymentPhase,
             }),
           });
           const verifyData = await verifyRes.json();
@@ -130,7 +135,14 @@ export default function RazorpayCheckout({
       </p>
       <div className="flex items-center justify-between rounded-xl bg-gray-50 p-4 mb-4">
         <span className="text-gray-600">
-          {paymentType === "advance" ? "Advance (30%)" : "Full Payment"}
+          {amountLabel ??
+            (paymentPhase === "self_drive_initial"
+              ? "Amount Payable Now"
+              : paymentPhase === "self_drive_balance"
+                ? "Remaining Balance"
+                : paymentType === "advance"
+                  ? "Advance Payment (30%)"
+                  : "Full Payment")}
         </span>
         <span className="text-xl font-bold text-primary">{formatINR(amount)}</span>
       </div>

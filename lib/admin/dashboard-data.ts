@@ -1,5 +1,6 @@
 import { PLATFORM_COMMISSION_RATE } from "@/lib/admin/admin-modules";
 import { isClosedBookingRow } from "@/lib/bookings/revenue-eligibility";
+import { deriveSelfDrivePaymentSnapshot } from "@/lib/bookings/self-drive-payment";
 import type {
   ActionCenterItem,
   ActionPriority,
@@ -193,6 +194,44 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
       })
   ).length;
 
+  let selfDriveAdvancePayments = 0;
+  let selfDrivePendingBalance = 0;
+  let selfDriveDepositHeld = 0;
+  let selfDriveDepositRefunded = 0;
+  let selfDriveRefundProcessing = 0;
+  let selfDriveOutstanding = 0;
+
+  for (const row of bookingRows) {
+    if (String(row.booking_type ?? "").toLowerCase() !== "self_drive") continue;
+    const snapshot = deriveSelfDrivePaymentSnapshot(row as Record<string, unknown>);
+    if (!snapshot) continue;
+    const payment = String(row.payment_status ?? "").toLowerCase();
+    if (["partial", "paid", "refunded"].includes(payment)) {
+      selfDriveAdvancePayments += snapshot.advanceAmount;
+    }
+    if (
+      payment === "partial" &&
+      snapshot.amountDue > 0 &&
+      !isClosedBookingRow({
+        booking_status: String(row.booking_status ?? ""),
+        payment_status: payment,
+        refund_status: String(row.refund_status ?? ""),
+      })
+    ) {
+      selfDrivePendingBalance += 1;
+      selfDriveOutstanding += snapshot.amountDue;
+    }
+    if (payment === "paid" && snapshot.depositRefundStatus === "none") {
+      selfDriveDepositHeld += snapshot.securityDeposit;
+    }
+    if (snapshot.depositRefundStatus === "processing" || snapshot.depositRefundStatus === "pending") {
+      selfDriveRefundProcessing += 1;
+    }
+    if (payment === "refunded" || snapshot.depositRefundStatus === "refunded") {
+      selfDriveDepositRefunded += snapshot.depositRefundAmount || snapshot.securityDeposit;
+    }
+  }
+
   const summary = {
     totalOwners: stats.vehicleOwners,
     totalCustomers: stats.users,
@@ -216,6 +255,12 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
     pendingPayments,
     protectionRevenue,
     commissionEarned: Math.round(totalRevenue * PLATFORM_COMMISSION_RATE),
+    selfDriveAdvancePayments,
+    selfDrivePendingBalance,
+    selfDriveDepositHeld,
+    selfDriveDepositRefunded,
+    selfDriveRefundProcessing,
+    selfDriveOutstanding,
   };
 
   const vehicleMap = new Map(vehicles.map((v) => [v.id, v]));

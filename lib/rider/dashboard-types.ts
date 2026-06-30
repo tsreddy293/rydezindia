@@ -33,6 +33,13 @@ export interface RiderDashboardBooking {
   cancelledAt?: string | null;
   cancelledByRole?: string | null;
   refundStatus?: string | null;
+  selfDrivePayment?: {
+    advancePaid: number;
+    balanceDue: number;
+    depositAmount: number;
+    depositRefundStatus: string;
+    amountPaid: number;
+  };
 }
 
 export interface RiderSavedVehicle {

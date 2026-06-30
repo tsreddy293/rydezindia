@@ -6,9 +6,12 @@ import Link from "next/link";
 import {
   Eye,
   FileText,
+  IndianRupee,
   MessageCircle,
   Phone,
+  Key,
   Play,
+  RotateCcw,
   Square,
   X,
 } from "lucide-react";
@@ -21,7 +24,9 @@ import {
   type BookingTab,
   type OwnerBookingRow,
   filterBookingsByTab,
-  tripStatusLabel,
+  getOwnerSelfDrivePaymentSummary,
+  ownerBookingStatusLabel,
+  ownerPaymentStatusLabel,
 } from "@/lib/owner/booking-utils";
 import { downloadCsv } from "@/lib/owner/export-utils";
 import { OWNER_STATUS_STYLES, resolveBookingStatusKind } from "@/lib/owner/owner-status-styles";
@@ -33,6 +38,13 @@ import {
   ownerRejectBooking,
   ownerStartTrip,
 } from "@/server/actions/ownerBookings";
+import {
+  ownerHandoverVehicle,
+  ownerStartSelfDriveTrip,
+  ownerCompleteSelfDriveTrip,
+  ownerCollectSelfDriveBalance,
+  processSelfDriveDepositRefund,
+} from "@/server/actions/selfDrivePayment";
 
 const TABS: Array<{ id: BookingTab; label: string }> = [
   { id: "upcoming", label: "Upcoming" },
@@ -108,6 +120,81 @@ export default function OwnerBookingsHub({ bookings, approvedVehicles }: Props) 
 
   function handleReject(b: OwnerBookingRow) {
     void runOwnerAction(() => ownerRejectBooking(b.id), "Booking rejected");
+  }
+
+  function handleSelfDriveRefund(b: OwnerBookingRow) {
+    const damage = window.prompt("Enter damage charges (₹) or leave empty for full refund:", "0");
+    if (damage === null) return;
+    const damageCharges = Math.max(0, Math.round(Number(damage) || 0));
+    void runOwnerAction(
+      () => processSelfDriveDepositRefund({ bookingId: b.id, damageCharges, approvedBy: "owner" }),
+      "Deposit refund processed"
+    );
+  }
+
+  function handleSelfDriveStart(b: OwnerBookingRow) {
+    void runOwnerAction(() => ownerStartSelfDriveTrip(b.id), "Trip started");
+  }
+
+  function handleSelfDriveComplete(b: OwnerBookingRow) {
+    void runOwnerAction(() => ownerCompleteSelfDriveTrip(b.id), "Trip marked complete");
+  }
+
+  function handleHandover(b: OwnerBookingRow) {
+    void runOwnerAction(() => ownerHandoverVehicle(b.id), "Vehicle handed over");
+  }
+
+  function handleCollectBalance(b: OwnerBookingRow) {
+    void runOwnerAction(
+      () => ownerCollectSelfDriveBalance(b.id),
+      "Remaining balance collected"
+    );
+  }
+
+  function isSelfDrive(b: OwnerBookingRow) {
+    return b.bookingType.toLowerCase() === "self_drive";
+  }
+
+  function canStartTrip(b: OwnerBookingRow) {
+    if (!isSelfDrive(b)) {
+      return ["confirmed", "owner_confirmed", "pending"].includes(b.bookingStatus.toLowerCase());
+    }
+    const summary = getOwnerSelfDrivePaymentSummary(b);
+    return (
+      summary?.fullyPaid &&
+      b.bookingStatus.toLowerCase() === "confirmed" &&
+      b.selfDriveSnapshot?.operationalStage === "handed_over"
+    );
+  }
+
+  function canCollectBalance(b: OwnerBookingRow) {
+    if (!isSelfDrive(b)) return false;
+    const summary = getOwnerSelfDrivePaymentSummary(b);
+    return (
+      b.bookingStatus.toLowerCase() === "confirmed" &&
+      b.paymentStatus.toLowerCase() === "partial" &&
+      Boolean(summary && summary.balancePending > 0 && summary.advanceReceived > 0)
+    );
+  }
+
+  function canHandover(b: OwnerBookingRow) {
+    if (!isSelfDrive(b)) return false;
+    const summary = getOwnerSelfDrivePaymentSummary(b);
+    return (
+      summary?.fullyPaid &&
+      b.paymentStatus.toLowerCase() === "paid" &&
+      b.bookingStatus.toLowerCase() === "confirmed" &&
+      (b.selfDriveSnapshot?.operationalStage ?? "none") === "none"
+    );
+  }
+
+  function canProcessRefund(b: OwnerBookingRow) {
+    return (
+      isSelfDrive(b) &&
+      b.selfDriveSnapshot?.operationalStage === "trip_completed" &&
+      b.selfDriveSnapshot?.depositRefundStatus === "none" &&
+      b.paymentStatus.toLowerCase() === "paid"
+    );
   }
 
   function passengerTel(mobile?: string) {
@@ -191,42 +278,87 @@ export default function OwnerBookingsHub({ bookings, approvedVehicles }: Props) 
               <tbody className="divide-y">
                 {paginated.map((b) => {
                   const kind = resolveBookingStatusKind(b.bookingStatus, b.paymentStatus);
+                  const sdPay = getOwnerSelfDrivePaymentSummary(b);
+                  const selfDrive = isSelfDrive(b);
                   return (
                     <tr key={b.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/50">
-                      <td className="px-4 py-3 font-medium">{b.bookingReference}</td>
+                      <td className="px-4 py-3 font-medium">
+                        {b.bookingReference}
+                        {selfDrive && sdPay && (
+                          <div className="mt-1 space-y-0.5 text-[10px] font-normal text-gray-500">
+                            <p>Advance {formatINR(sdPay.advanceReceived)} · Deposit {formatINR(sdPay.depositReceived)}</p>
+                            <p>
+                              {sdPay.balancePending > 0
+                                ? `Balance due ${formatINR(sdPay.balancePending)}`
+                                : `Balance received ${formatINR(sdPay.balanceReceived)}`}
+                            </p>
+                          </div>
+                        )}
+                      </td>
                       <td className="px-4 py-3">{b.passengerName}</td>
                       <td className="px-4 py-3 capitalize">{b.bookingType}</td>
                       <td className="max-w-[120px] truncate px-4 py-3 text-gray-600">{b.pickupLocation ?? "—"}</td>
                       <td className="max-w-[120px] truncate px-4 py-3 text-gray-600">{b.dropLocation ?? "—"}</td>
                       <td className="px-4 py-3 font-bold text-primary">{formatINR(b.amount)}</td>
-                      <td className="px-4 py-3 capitalize">{b.paymentStatus}</td>
+                      <td className="px-4 py-3 capitalize">{ownerPaymentStatusLabel(b)}</td>
                       <td className="px-4 py-3">
                         <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${OWNER_STATUS_STYLES[kind]}`}>
-                          {b.bookingStatus}
+                          {ownerBookingStatusLabel(b)}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-xs">{tripStatusLabel(b.bookingStatus)}</td>
+                      <td className="px-4 py-3 text-xs">{ownerBookingStatusLabel(b)}</td>
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap gap-1">
                           <button type="button" className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gray-100 text-gray-600 transition hover:bg-primary hover:text-white" title="View"><Eye className="h-3 w-3" /></button>
                           <a href={passengerTel(b.passengerMobile) ?? "#"} className={`inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gray-100 text-gray-600 transition hover:bg-primary hover:text-white ${passengerTel(b.passengerMobile) ? "" : "pointer-events-none opacity-40"}`} title="Call"><Phone className="h-3 w-3" /></a>
                           <a href={passengerWhatsApp(b.passengerMobile) ?? "#"} target="_blank" rel="noopener noreferrer" className={`inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gray-100 text-gray-600 transition hover:bg-primary hover:text-white ${passengerWhatsApp(b.passengerMobile) ? "" : "pointer-events-none opacity-40"}`} title="WhatsApp"><MessageCircle className="h-3 w-3" /></a>
-                          {tab === "upcoming" && b.bookingStatus.toLowerCase() === "pending" && (
+                          {!selfDrive && tab === "upcoming" && b.bookingStatus.toLowerCase() === "pending" && (
                             <button type="button" className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gray-100 text-emerald-600 transition hover:bg-emerald-600 hover:text-white" title="Approve" onClick={() => handleApprove(b)}>
                               <Play className="h-3 w-3" />
                             </button>
                           )}
-                          {tab === "active" && (
-                            <button type="button" className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gray-100 text-emerald-600 transition hover:bg-emerald-600 hover:text-white" title="Start" onClick={() => handleStartTrip(b)}>
+                          {selfDrive && canCollectBalance(b) && (
+                            <button
+                              type="button"
+                              className="inline-flex h-7 items-center gap-1 rounded-lg bg-amber-100 px-2 text-[10px] font-semibold text-amber-800 transition hover:bg-amber-600 hover:text-white"
+                              title="Collect Remaining Balance"
+                              onClick={() => handleCollectBalance(b)}
+                            >
+                              <IndianRupee className="h-3 w-3" />
+                              Collect Balance
+                            </button>
+                          )}
+                          {selfDrive && canHandover(b) && (
+                            <button type="button" className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gray-100 text-blue-600 transition hover:bg-blue-600 hover:text-white" title="Handover Vehicle" onClick={() => handleHandover(b)}>
+                              <Key className="h-3 w-3" />
+                            </button>
+                          )}
+                          {(tab === "active" || tab === "upcoming") && canStartTrip(b) && (
+                            <button
+                              type="button"
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gray-100 text-emerald-600 transition hover:bg-emerald-600 hover:text-white"
+                              title="Start Trip"
+                              onClick={() => (selfDrive ? handleSelfDriveStart(b) : handleStartTrip(b))}
+                            >
                               <Play className="h-3 w-3" />
                             </button>
                           )}
-                          {(tab === "active" || tab === "upcoming") && (
+                          {(tab === "active" || tab === "upcoming") && !selfDrive && (
                             <button type="button" className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gray-100 text-blue-600 transition hover:bg-blue-600 hover:text-white" title="Complete" onClick={() => handleCompleteTripAction(b)}>
                               <Square className="h-3 w-3" />
                             </button>
                           )}
-                          {(tab === "upcoming" && b.bookingStatus.toLowerCase() === "pending") && (
+                          {selfDrive && b.selfDriveSnapshot?.operationalStage === "trip_started" && (
+                            <button type="button" className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gray-100 text-blue-600 transition hover:bg-blue-600 hover:text-white" title="Complete Trip" onClick={() => handleSelfDriveComplete(b)}>
+                              <Square className="h-3 w-3" />
+                            </button>
+                          )}
+                          {selfDrive && canProcessRefund(b) && (
+                            <button type="button" className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gray-100 text-emerald-600 transition hover:bg-emerald-600 hover:text-white" title="Refund Deposit" onClick={() => handleSelfDriveRefund(b)}>
+                              <RotateCcw className="h-3 w-3" />
+                            </button>
+                          )}
+                          {(tab === "upcoming" && b.bookingStatus.toLowerCase() === "pending" && !selfDrive) && (
                             <button type="button" className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gray-100 text-red-500 transition hover:bg-red-600 hover:text-white" title="Reject" onClick={() => handleReject(b)}>
                               <X className="h-3 w-3" />
                             </button>

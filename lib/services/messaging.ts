@@ -10,6 +10,7 @@ export type MessageTemplate =
   | "trip_started"
   | "trip_completed"
   | "trip_reminder"
+  | "balance_due_reminder"
   | "kyc_verified"
   | "kyc_rejected"
   | "document_expiry"
@@ -52,6 +53,11 @@ const TEMPLATES: Record<MessageTemplate, { sms: string; email: string; whatsapp:
     sms: "Reminder: Your trip {{bookingRef}} is tomorrow at {{time}}.",
     email: "Trip reminder for {{bookingRef}}.",
     whatsapp: "⏰ Trip reminder: {{bookingRef}} tomorrow {{time}}",
+  },
+  balance_due_reminder: {
+    sms: "Your remaining trip balance of ₹{{amountDue}} is due before vehicle pickup. Ref: {{bookingReference}}",
+    email: "Your remaining trip balance of ₹{{amountDue}} is due before vehicle pickup for booking {{bookingReference}}.",
+    whatsapp: "⏳ *Balance Due*\nRemaining balance: ₹{{amountDue}}\nBooking: {{bookingReference}}\nPay before vehicle pickup on Rydez India.",
   },
   kyc_verified: {
     sms: "Your Rydez India KYC is verified. You can now book rides!",
@@ -202,7 +208,13 @@ export async function dispatchMessage(input: {
 }
 
 export async function dispatchBookingEvent(input: {
-  event: "booking_confirmed" | "booking_cancelled" | "payment_success" | "trip_started" | "trip_completed";
+  event:
+    | "booking_confirmed"
+    | "booking_cancelled"
+    | "payment_success"
+    | "trip_started"
+    | "trip_completed"
+    | "balance_due_reminder";
   customerMobile?: string;
   customerEmail?: string;
   ownerMobile?: string;

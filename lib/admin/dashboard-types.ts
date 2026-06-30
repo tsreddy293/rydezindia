@@ -71,6 +71,12 @@ export interface AdminDashboardData {
     pendingPayments: number;
     protectionRevenue: number;
     commissionEarned: number;
+    selfDriveAdvancePayments: number;
+    selfDrivePendingBalance: number;
+    selfDriveDepositHeld: number;
+    selfDriveDepositRefunded: number;
+    selfDriveRefundProcessing: number;
+    selfDriveOutstanding: number;
   };
   activity: ActivityItem[];
   pendingApprovals: PendingApprovalItem[];

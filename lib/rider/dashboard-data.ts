@@ -10,6 +10,7 @@ import type { MyBookingRecord } from "@/types/database";
 import { getSavedVehicles, getMyBookingsForUser } from "@/lib/supabase/queries";
 import { resolveCustomerKycStatus } from "@/lib/kyc/resolve-customer-kyc-status";
 import { requiresCustomerPaymentAction } from "@/lib/owner/booking-eligibility";
+import { deriveSelfDrivePaymentSnapshot, selfDriveProgressState } from "@/lib/bookings/self-drive-payment";
 import { fetchLoyaltyStatus, fetchReferralStats, fetchWalletData } from "@/server/actions/phase2";
 import { shouldShowRiderKyc } from "@/lib/services/customer-profile";
 import { getRiderBookingProfile, getRiderWelcomeProfile } from "@/lib/users/rider-profile";
@@ -22,6 +23,14 @@ function priorityFromCount(count: number): RiderActionItem["priority"] {
 }
 
 function mapBooking(b: MyBookingRecord): RiderDashboardBooking {
+  const selfDriveSnapshot =
+    b.booking_type === "self_drive"
+      ? deriveSelfDrivePaymentSnapshot(b as unknown as Record<string, unknown>)
+      : null;
+  const progress = selfDriveSnapshot
+    ? selfDriveProgressState(b.payment_status, selfDriveSnapshot)
+    : null;
+
   return {
     id: b.id,
     bookingReference: b.booking_reference ?? b.id.slice(0, 8),
@@ -40,6 +49,15 @@ function mapBooking(b: MyBookingRecord): RiderDashboardBooking {
     cancelledAt: b.cancelled_at,
     cancelledByRole: b.cancelled_by_role,
     refundStatus: b.refund_status,
+    selfDrivePayment: selfDriveSnapshot
+      ? {
+          advancePaid: progress?.advancePaid ? selfDriveSnapshot.advanceAmount : 0,
+          balanceDue: selfDriveSnapshot.amountDue,
+          depositAmount: selfDriveSnapshot.securityDeposit,
+          depositRefundStatus: selfDriveSnapshot.depositRefundStatus,
+          amountPaid: selfDriveSnapshot.amountPaid,
+        }
+      : undefined,
   };
 }
 
@@ -195,6 +213,21 @@ export async function getRiderDashboardData(user: User): Promise<RiderDashboardD
       message: `${refundAvailable} refund(s) are being processed or available.`,
       href: "/dashboard/bookings",
       urgent: false,
+    });
+  }
+
+  const selfDriveBalanceDue = bookings.filter(
+    (b) =>
+      b.bookingType === "self_drive" &&
+      b.selfDrivePayment &&
+      b.selfDrivePayment.balanceDue > 0
+  );
+  for (const b of selfDriveBalanceDue.slice(0, 3)) {
+    reminders.push({
+      id: `reminder-sd-balance-${b.id}`,
+      message: `Balance of ₹${b.selfDrivePayment!.balanceDue} due before pickup — ${b.bookingReference}.`,
+      href: `/booking/pay/${b.id}`,
+      urgent: true,
     });
   }
 

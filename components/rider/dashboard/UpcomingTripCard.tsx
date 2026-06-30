@@ -53,6 +53,28 @@ export default function UpcomingTripCard({ trip }: { trip: RiderDashboardBooking
               </div>
             )}
             <p className="text-lg font-bold text-primary">{formatINR(trip.amount)}</p>
+            {trip.bookingType === "self_drive" &&
+              trip.selfDrivePayment &&
+              trip.bookingStatus.toLowerCase() === "confirmed" &&
+              trip.selfDrivePayment.amountPaid > 0 && (
+              <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/80 p-3 text-sm">
+                <p className="font-semibold text-emerald-900">Booking Confirmed</p>
+                <p className="mt-1 text-gray-700">
+                  Amount Paid {formatINR(trip.selfDrivePayment.amountPaid)} · Remaining Balance{" "}
+                  <span className="font-semibold text-amber-700">
+                    {formatINR(trip.selfDrivePayment.balanceDue)}
+                  </span>
+                </p>
+                {trip.selfDrivePayment.balanceDue > 0 && (
+                  <Link
+                    href={`/booking/pay/${trip.id}`}
+                    className="mt-2 inline-flex text-xs font-semibold text-primary hover:underline"
+                  >
+                    Pay remaining balance before pickup →
+                  </Link>
+                )}
+              </div>
+            )}
           </div>
 
           {trip.vehicleImage && (

@@ -55,6 +55,7 @@ export async function POST(request: NextRequest) {
       razorpayPaymentId: requireString(body.razorpayPaymentId, "Razorpay payment ID"),
       razorpaySignature: requireString(body.razorpaySignature, "Razorpay signature"),
       paymentType: body.paymentType === "advance" ? "advance" : "full",
+      paymentPhase: typeof body.paymentPhase === "string" ? body.paymentPhase : undefined,
     });
     return NextResponse.json({ success: true, ...result });
   } catch (error) {

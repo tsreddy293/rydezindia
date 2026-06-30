@@ -1,14 +1,20 @@
 import { formatINR } from "@/lib/utils";
 import type { AdminDashboardData } from "@/lib/admin/dashboard-types";
 
-const FINANCE_ITEMS: Array<{ key: keyof AdminDashboardData["finance"]; label: string }> = [
+const FINANCE_ITEMS: Array<{ key: keyof AdminDashboardData["finance"]; label: string; isCount?: boolean }> = [
   { key: "todaysRevenue", label: "Today's Revenue" },
   { key: "monthlyRevenue", label: "Monthly Revenue" },
   { key: "totalRevenue", label: "Total Revenue" },
   { key: "refundAmount", label: "Refund Amount" },
-  { key: "pendingPayments", label: "Pending Payments" },
+  { key: "pendingPayments", label: "Pending Payments", isCount: true },
   { key: "protectionRevenue", label: "Protection Revenue" },
   { key: "commissionEarned", label: "Commission Earned" },
+  { key: "selfDriveAdvancePayments", label: "Self Drive Advance Payments" },
+  { key: "selfDrivePendingBalance", label: "Pending Balance Payments", isCount: true },
+  { key: "selfDriveDepositHeld", label: "Deposit Held" },
+  { key: "selfDriveDepositRefunded", label: "Refund Completed" },
+  { key: "selfDriveRefundProcessing", label: "Refund Processing", isCount: true },
+  { key: "selfDriveOutstanding", label: "Outstanding Amount" },
 ];
 
 export default function FinanceSection({ finance }: { finance: AdminDashboardData["finance"] }) {
@@ -21,9 +27,8 @@ export default function FinanceSection({ finance }: { finance: AdminDashboardDat
         </p>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {FINANCE_ITEMS.map(({ key, label }) => {
+        {FINANCE_ITEMS.map(({ key, label, isCount }) => {
           const value = finance[key];
-          const isCount = key === "pendingPayments";
           return (
             <div key={key} className="rounded-xl bg-gray-50 p-4">
               <p className="text-xs text-gray-500">{label}</p>

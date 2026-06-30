@@ -72,7 +72,12 @@ export function isRiderTripStartedOrCompleted(status: string): boolean {
 
 export function isRiderPaymentCompleted(paymentStatus?: string | null): boolean {
   const payment = String(paymentStatus ?? "").toLowerCase();
-  return payment === "paid" || payment === "partial" || payment === "payment_completed";
+  return (
+    payment === "paid" ||
+    payment === "partial" ||
+    payment === "payment_completed" ||
+    payment === "refunded"
+  );
 }
 
 export {

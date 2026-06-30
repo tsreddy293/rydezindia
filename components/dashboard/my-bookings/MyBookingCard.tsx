@@ -22,6 +22,10 @@ import PaymentStatusBadge from "@/components/dashboard/my-bookings/PaymentStatus
 import RefundTracker from "@/components/dashboard/my-bookings/RefundTracker";
 import RescheduleBookingButton from "@/components/dashboard/my-bookings/RescheduleBookingButton";
 import RefundStatusBadge from "@/components/booking/RefundStatusBadge";
+import SelfDrivePaymentProgressCard from "@/components/booking/SelfDrivePaymentProgressCard";
+import SelfDriveCustomerPaymentSummary from "@/components/booking/SelfDriveCustomerPaymentSummary";
+import { deriveSelfDrivePaymentSnapshot } from "@/lib/bookings/self-drive-payment";
+import { selfDriveNeedsPayment } from "@/lib/bookings/self-drive-payment-ui";
 import {
   canCustomerCancelBooking,
   formatBookingTypeLabel,
@@ -47,6 +51,14 @@ export default function MyBookingCard({ booking, onBookingCancelled }: Props) {
 
   const isCancelled = isBookingCancelledStatus(booking.booking_status);
 
+  const selfDriveSnapshot =
+    booking.booking_type === "self_drive"
+      ? deriveSelfDrivePaymentSnapshot(booking as unknown as Record<string, unknown>)
+      : null;
+  const needsSelfDrivePayment =
+    booking.booking_type === "self_drive" &&
+    selfDriveNeedsPayment(booking as unknown as Record<string, unknown>);
+
   const showCancel =
     !isCancelled &&
     canCustomerCancelBooking({
@@ -57,7 +69,7 @@ export default function MyBookingCard({ booking, onBookingCancelled }: Props) {
     });
 
   const bookingId = booking.booking_reference ?? booking.id.slice(0, 8).toUpperCase();
-  const paid = isPaymentCompleted(booking.payment_status);
+  const paid = isPaymentCompleted(booking.payment_status) && !needsSelfDrivePayment;
   const canDownloadInvoice = canGenerateTaxInvoice({
     paymentStatus: booking.payment_status,
     bookingStatus: booking.booking_status,
@@ -199,6 +211,19 @@ export default function MyBookingCard({ booking, onBookingCancelled }: Props) {
             />
           )}
 
+          {selfDriveSnapshot && !isCancelled && (
+            <div className="mt-4">
+              <SelfDriveCustomerPaymentSummary
+                bookingId={booking.id}
+                bookingStatus={booking.booking_status}
+                paymentStatus={booking.payment_status}
+                snapshot={selfDriveSnapshot}
+                pickupDate={booking.pickup_date}
+                compact
+              />
+            </div>
+          )}
+
           <div className="mt-4 flex flex-wrap gap-2 border-t border-gray-100 pt-4">
             <Button href={`/booking/confirmation/${booking.id}`} variant="primary" size="sm">
               <Eye className="h-4 w-4 mr-1.5" />
@@ -207,9 +232,11 @@ export default function MyBookingCard({ booking, onBookingCancelled }: Props) {
 
             {!isCancelled && (
               <>
-                {!paid && (
-                  <Button href={`/booking/confirmation/${booking.id}`} variant="outline" size="sm">
-                    Continue to Payment
+                {(!paid || needsSelfDrivePayment) && (
+                  <Button href={`/booking/pay/${booking.id}`} variant="outline" size="sm">
+                    {needsSelfDrivePayment && selfDriveSnapshot && selfDriveSnapshot.amountPaid > 0
+                      ? "Pay Balance"
+                      : "Continue to Payment"}
                   </Button>
                 )}
                 {showCancel && (
@@ -267,15 +294,28 @@ export default function MyBookingCard({ booking, onBookingCancelled }: Props) {
           </button>
 
           {expanded && (
-            <BookingTimeline
-              bookingStatus={booking.booking_status}
-              paymentStatus={booking.payment_status}
-              cancelledByRole={booking.cancelled_by_role}
-              refundStatus={booking.refund_status}
-              createdAt={booking.created_at}
-              cancelledAt={booking.cancelled_at}
-              className="mt-2 border-t border-gray-100 pt-4"
-            />
+            <>
+              {selfDriveSnapshot && (
+                <div className="mt-2">
+                  <SelfDrivePaymentProgressCard
+                    bookingStatus={booking.booking_status}
+                    paymentStatus={booking.payment_status}
+                    snapshot={selfDriveSnapshot}
+                    pickupDate={booking.pickup_date}
+                    compact
+                  />
+                </div>
+              )}
+              <BookingTimeline
+                bookingStatus={booking.booking_status}
+                paymentStatus={booking.payment_status}
+                cancelledByRole={booking.cancelled_by_role}
+                refundStatus={booking.refund_status}
+                createdAt={booking.created_at}
+                cancelledAt={booking.cancelled_at}
+                className="mt-2 border-t border-gray-100 pt-4"
+              />
+            </>
           )}
         </div>
       </div>

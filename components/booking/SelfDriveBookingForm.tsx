@@ -1,22 +1,25 @@
 "use client";
 
-import { useEffect, useMemo, useState, useId } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useId } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, Loader2, MapPin, Shield, User } from "lucide-react";
+import { CheckCircle2, Loader2 } from "lucide-react";
 import Button from "@/components/ui/Button";
-import FormField from "@/components/forms/FormField";
 import RazorpayCheckout from "@/components/payments/RazorpayCheckout";
-import KycVerifiedNotice from "@/components/booking/KycVerifiedNotice";
-import MobileVerifiedNotice from "@/components/booking/MobileVerifiedNotice";
-import SelfDriveFareSummary from "@/components/booking/SelfDriveFareSummary";
+import SelfDrivePaymentWorkflowSummary from "@/components/booking/SelfDrivePaymentWorkflowSummary";
+import SelfDriveTripSummary from "@/components/booking/SelfDriveTripSummary";
+import SelfDriveVehicleCard from "@/components/booking/SelfDriveVehicleCard";
+import SelfDriveCustomerDetails from "@/components/booking/SelfDriveCustomerDetails";
+import { SELF_DRIVE_CHECKOUT_FEATURES } from "@/lib/booking/self-drive-checkout-features";
+import {
+  calculateSelfDrivePaymentWorkflowFromPricing,
+  resolveSelfDriveBookingDeposit,
+} from "@/lib/pricing/self-drive-payment-workflow";
 import CancellationPolicyAccordion from "@/components/booking/CancellationPolicyAccordion";
 import FlexibleCancellationAddon from "@/components/booking/FlexibleCancellationAddon";
 import { createUnifiedBooking } from "@/server/actions/createBooking";
 import {
-  calculateSelfDriveCheckoutAmount,
   calculateSelfDrivePricingForSchedule,
   resolveSelfDriveDailyRent,
-  resolveSelfDriveDepositInfo,
 } from "@/lib/pricing/self-drive-pricing";
 import { getProtectionFeeForVehicle } from "@/lib/services/flexible-cancellation-protection";
 import { formatINR } from "@/lib/utils";
@@ -38,6 +41,14 @@ interface Props {
   searchPrefill?: SelfDriveSearchPrefill;
 }
 
+function firstNonEmpty(...values: (string | undefined | null)[]): string {
+  for (const value of values) {
+    const trimmed = String(value ?? "").trim();
+    if (trimmed) return trimmed;
+  }
+  return "";
+}
+
 function buildReturnScheduleNote(returnDate: string, returnTime: string): string {
   const parts: string[] = [];
   if (returnDate) parts.push(`Return date: ${returnDate}`);
@@ -53,64 +64,99 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
   const [error, setError] = useState("");
   const [bookingId, setBookingId] = useState("");
   const [bookingReference, setBookingReference] = useState("");
-  const [paymentType, setPaymentType] = useState<"advance" | "full">("advance");
   const [draftLoaded, setDraftLoaded] = useState(false);
+  const draftHydratedRef = useRef(false);
 
-  const [pickupCity, setPickupCity] = useState("");
-  const [pickupDate, setPickupDate] = useState("");
-  const [pickupTime, setPickupTime] = useState("");
-  const [returnDate, setReturnDate] = useState("");
-  const [returnTime, setReturnTime] = useState("");
+  const [pickupCity, setPickupCity] = useState(() =>
+    firstNonEmpty(searchPrefill?.pickupCity, listing.pickup_city, listing.owner_city)
+  );
+  const [pickupDate, setPickupDate] = useState(() =>
+    firstNonEmpty(searchPrefill?.pickupDate, listing.journey_date)
+  );
+  const [pickupTime, setPickupTime] = useState(() =>
+    firstNonEmpty(searchPrefill?.pickupTime, listing.journey_time)
+  );
+  const [returnDate, setReturnDate] = useState(() => firstNonEmpty(searchPrefill?.returnDate));
+  const [returnTime, setReturnTime] = useState(() => firstNonEmpty(searchPrefill?.returnTime));
   const [travelPlan, setTravelPlan] = useState("");
   const [couponCode, setCouponCode] = useState("");
   const [flexibleCancellation, setFlexibleCancellation] = useState(false);
   const [policyAgreed, setPolicyAgreed] = useState(false);
+  const [editingTrip, setEditingTrip] = useState(false);
+  const [walletAmount, setWalletAmount] = useState("");
 
   const pricing = useMemo(
     () =>
       calculateSelfDrivePricingForSchedule(
         resolveSelfDriveDailyRent(listing),
-        resolveSelfDriveDepositInfo(listing),
+        {
+          amount: resolveSelfDriveBookingDeposit(listing),
+          min: resolveSelfDriveBookingDeposit(listing),
+          max: resolveSelfDriveBookingDeposit(listing),
+          displayLabel: "",
+          collectedAtPickup: false,
+          isExplicit: true,
+        },
         { pickupDate, pickupTime, returnDate, returnTime }
       ),
     [listing, pickupDate, pickupTime, returnDate, returnTime]
   );
 
-  const totalFare = pricing.payableAmount;
   const protectionFee = getProtectionFeeForVehicle(listing.vehicle_type);
-  const payAmount =
-    calculateSelfDriveCheckoutAmount(pricing, paymentType) +
-    (flexibleCancellation ? protectionFee : 0);
+  const workflow = useMemo(
+    () =>
+      calculateSelfDrivePaymentWorkflowFromPricing(pricing, flexibleCancellation ? protectionFee : 0, listing),
+    [pricing, flexibleCancellation, protectionFee, listing]
+  );
+
+  const payAmount = workflow.amountPayableNow;
+
+  const handlePaymentError = useCallback((msg: string) => {
+    setError(msg);
+  }, []);
 
   useEffect(() => {
-    const draft = loadBookingSearchDraft();
-    const pickup =
-      searchPrefill?.pickupCity ||
-      draft.pickupLocation ||
-      listing.pickup_city ||
-      listing.owner_city ||
-      "";
-    const pDate = searchPrefill?.pickupDate || draft.pickupDate || listing.journey_date || "";
-    const pTime = searchPrefill?.pickupTime || draft.pickupTime || listing.journey_time || "";
-    const rDate = searchPrefill?.returnDate || draft.returnDate || "";
-    const rTime = searchPrefill?.returnTime || draft.returnTime || "";
+    if (draftHydratedRef.current) return;
+    draftHydratedRef.current = true;
 
-    setPickupCity(pickup);
-    setPickupDate(pDate);
-    setPickupTime(pTime);
-    setReturnDate(rDate);
-    setReturnTime(rTime);
+    let cancelled = false;
 
-    saveBookingSearchDraft({
-      pickupLocation: pickup,
-      pickupDate: pDate,
-      pickupTime: pTime,
-      returnDate: rDate,
-      returnTime: rTime,
-      serviceType: "self_drive",
+    queueMicrotask(() => {
+      if (cancelled) return;
+
+      const draft = loadBookingSearchDraft();
+      const pickup = firstNonEmpty(
+        searchPrefill?.pickupCity,
+        draft.pickupLocation,
+        listing.pickup_city,
+        listing.owner_city
+      );
+      const pDate = firstNonEmpty(searchPrefill?.pickupDate, draft.pickupDate, listing.journey_date);
+      const pTime = firstNonEmpty(searchPrefill?.pickupTime, draft.pickupTime, listing.journey_time);
+      const rDate = firstNonEmpty(searchPrefill?.returnDate, draft.returnDate);
+      const rTime = firstNonEmpty(searchPrefill?.returnTime, draft.returnTime);
+
+      setPickupCity(pickup);
+      setPickupDate(pDate);
+      setPickupTime(pTime);
+      setReturnDate(rDate);
+      setReturnTime(rTime);
+
+      saveBookingSearchDraft({
+        pickupLocation: pickup,
+        pickupDate: pDate,
+        pickupTime: pTime,
+        returnDate: rDate,
+        returnTime: rTime,
+        serviceType: "self_drive",
+      });
+
+      setDraftLoaded(true);
     });
 
-    setDraftLoaded(true);
+    return () => {
+      cancelled = true;
+    };
   }, [listing, searchPrefill]);
 
   useEffect(() => {
@@ -161,7 +207,7 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
       owner_id: listing.owner_id,
       passenger_name: customer.name,
       mobile: customer.mobile,
-      amount: totalFare,
+      amount: workflow.tripFare,
       pickup_location: pickupCity,
       pickup_date: pickupDate,
       pickup_time: pickupTime,
@@ -170,13 +216,15 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
       special_instructions: instructions || undefined,
       base_fare: pricing.discountedVehicleRentTotal,
       platform_fee: pricing.platformFee,
-      trip_fare_amount: totalFare,
-      security_deposit_amount: pricing.deposit.amount,
+      trip_fare_amount: workflow.tripFare,
+      security_deposit_amount: workflow.securityDeposit,
       protection_selected: flexibleCancellation,
       protection_fee: flexibleCancellation ? protectionFee : 0,
       vehicle_type: listing.vehicle_type,
-      coupon_code: couponCode.trim() || undefined,
-      wallet_amount_used: Number(new FormData(e.currentTarget).get("wallet_amount") ?? 0) || undefined,
+      coupon_code: SELF_DRIVE_CHECKOUT_FEATURES.couponCode ? couponCode.trim() || undefined : undefined,
+      wallet_amount_used: SELF_DRIVE_CHECKOUT_FEATURES.walletBalance
+        ? Number(walletAmount) || undefined
+        : undefined,
     });
 
     if (result.success) {
@@ -189,9 +237,27 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
     setLoading(false);
   }
 
+  const termsCheckbox = (
+    <label
+      htmlFor={policyCheckboxId}
+      className="flex cursor-pointer items-start gap-2.5 rounded-xl border border-gray-100 bg-gray-50/80 px-3 py-2.5"
+    >
+      <input
+        id={policyCheckboxId}
+        type="checkbox"
+        checked={policyAgreed}
+        onChange={(e) => setPolicyAgreed(e.target.checked)}
+        className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-primary focus:ring-primary"
+      />
+      <span className="text-xs leading-relaxed text-gray-600">
+        I agree to the Terms &amp; Conditions and Cancellation Policy.
+      </span>
+    </label>
+  );
+
   if (!draftLoaded) {
     return (
-      <div className="rounded-2xl bg-white border p-10 text-center text-gray-500 shadow-sm">
+      <div className="rounded-2xl border bg-white p-10 text-center text-gray-500 shadow-sm">
         Loading booking details...
       </div>
     );
@@ -199,10 +265,13 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
 
   if (step === "done") {
     return (
-      <div className="rounded-2xl bg-white border p-10 text-center shadow-sm">
-        <CheckCircle2 className="h-16 w-16 text-green-500 mx-auto mb-4" />
-        <h2 className="text-2xl font-bold text-secondary mb-2">Booking Confirmed!</h2>
-        <p className="text-gray-600 mb-2">Booking ID: {bookingReference}</p>
+      <div className="space-y-6 rounded-2xl border bg-white p-8 text-center shadow-sm sm:p-10">
+        <CheckCircle2 className="mx-auto h-16 w-16 text-green-500" />
+        <h2 className="text-2xl font-bold text-secondary">Booking Confirmed!</h2>
+        <p className="text-gray-600">Booking ID: {bookingReference}</p>
+        <p className="text-sm text-gray-500">
+          Owner contact details are available on your confirmation page after payment.
+        </p>
         <Button href={`/booking/confirmation/${bookingId}`} variant="primary">
           View Confirmation
         </Button>
@@ -212,47 +281,19 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
 
   if (step === "payment") {
     return (
-      <div className="grid gap-8 lg:grid-cols-2">
-        <div className="rounded-2xl bg-secondary text-white p-6 space-y-4">
-          <h2 className="text-xl font-bold">Payment Options</h2>
-          <SelfDriveFareSummary
-            pricing={pricing}
-            paymentType={paymentType}
-            showLineItems={false}
-            protectionSelected={flexibleCancellation}
-            protectionFee={protectionFee}
-          />
-          <div className="space-y-3 border-t border-white/15 pt-4">
-            <label className="flex items-center gap-3 rounded-xl bg-white/10 p-4 cursor-pointer">
-              <input
-                type="radio"
-                name="pay_type"
-                checked={paymentType === "advance"}
-                onChange={() => setPaymentType("advance")}
-              />
-              <div>
-                <p className="font-medium">Advance Payment (30% trip fare)</p>
-                <p className="text-sm text-white/70">
-                  {formatINR(calculateSelfDriveCheckoutAmount(pricing, "advance"))}
-                  {pricing.deposit.collectedAtPickup ? " · deposit at pickup" : " incl. deposit"}
-                </p>
-              </div>
-            </label>
-            <label className="flex items-center gap-3 rounded-xl bg-white/10 p-4 cursor-pointer">
-              <input
-                type="radio"
-                name="pay_type"
-                checked={paymentType === "full"}
-                onChange={() => setPaymentType("full")}
-              />
-              <div>
-                <p className="font-medium">Full Payment</p>
-                <p className="text-sm text-white/70">
-                  {formatINR(calculateSelfDriveCheckoutAmount(pricing, "full"))}
-                  {pricing.deposit.collectedAtPickup ? " · deposit at pickup" : " incl. deposit"}
-                </p>
-              </div>
-            </label>
+      <div className="grid gap-6 lg:grid-cols-2 lg:gap-8">
+        <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm md:p-6">
+          <h2 className="text-lg font-bold text-secondary">Pay to Confirm Booking</h2>
+          <p className="mt-1 text-xs text-gray-500">
+            30% trip advance + refundable security deposit due now.
+          </p>
+          <div className="mt-4">
+            <SelfDrivePaymentWorkflowSummary
+              workflow={workflow}
+              variant="light"
+              layout="checkout"
+              payableLabel="Amount Payable Today"
+            />
           </div>
         </div>
         <RazorpayCheckout
@@ -260,191 +301,135 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
           amount={payAmount}
           customerName={customer.name}
           customerMobile={customer.mobile}
-          paymentType={paymentType}
+          paymentType="advance"
+          paymentPhase="self_drive_initial"
+          amountLabel="Amount Payable Today"
           onSuccess={() => {
             setStep("done");
             router.refresh();
           }}
-          onError={(msg) => setError(msg)}
+          onError={handlePaymentError}
         />
-        {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
-        <Button
-          variant="outline"
-          className="lg:col-span-2"
-          onClick={() => router.push(`/booking/confirmation/${bookingId}`)}
-        >
-          Skip payment for now
-        </Button>
+        {error && <p className="text-sm text-red-500 lg:col-span-2">{error}</p>}
       </div>
     );
   }
 
   return (
-    <div className="grid gap-8 lg:grid-cols-5">
-      <div className="lg:col-span-2 rounded-2xl bg-secondary text-white p-6 space-y-4 h-fit">
-        <p className="text-xs font-semibold uppercase tracking-wide text-white/60">Vehicle Summary</p>
-        <h2 className="text-xl font-bold">{listing.vehicle_name}</h2>
-        <p className="text-white/70 text-sm">{listing.vehicle_type}</p>
-        <div className="space-y-3 text-sm">
-          <div className="flex items-center gap-2">
-            <MapPin className="h-4 w-4 text-accent shrink-0" />
-            {pickupCity || listing.pickup_city || listing.owner_city || "Pickup city"}
-          </div>
-          {(pickupDate || pickupTime) && (
-            <p className="text-white/80 pl-6">
-              Pickup: {pickupDate || "—"}
-              {pickupTime ? ` at ${pickupTime}` : ""}
-            </p>
+    <form
+      onSubmit={handleSubmit}
+      className="grid gap-6 pb-28 lg:grid-cols-5 lg:gap-8 lg:pb-0"
+    >
+      <div className="order-2 space-y-4 lg:order-1 lg:col-span-3">
+        <SelfDriveVehicleCard listing={listing} />
+
+        <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm md:p-6">
+          {error && (
+            <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+              {error}
+            </div>
           )}
-          {(returnDate || returnTime) && (
-            <p className="text-white/80 pl-6">
-              Return: {returnDate || "—"}
-              {returnTime ? ` at ${returnTime}` : ""}
-            </p>
-          )}
-          <div className="flex items-center gap-2">
-            <Shield className="h-4 w-4 text-accent shrink-0" />
-            Owner: {listing.owner_name}
-          </div>
-        </div>
-        <div className="border-t border-white/20 pt-4">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-white/60">Fare Summary</p>
-          <SelfDriveFareSummary
-            pricing={pricing}
-            paymentType="full"
-            protectionSelected={flexibleCancellation}
-            protectionFee={protectionFee}
+
+          <SelfDriveTripSummary
+            values={{ pickupCity, pickupDate, pickupTime, returnDate, returnTime, travelPlan }}
+            editing={editingTrip}
+            onEdit={() => setEditingTrip(true)}
+            onCancelEdit={() => setEditingTrip(false)}
+            onChange={(key, value) => {
+              if (key === "pickupCity") setPickupCity(value);
+              if (key === "pickupDate") setPickupDate(value);
+              if (key === "pickupTime") setPickupTime(value);
+              if (key === "returnDate") setReturnDate(value);
+              if (key === "returnTime") setReturnTime(value);
+              if (key === "travelPlan") setTravelPlan(value);
+            }}
           />
+
+          <div className="mt-4">
+            <SelfDriveCustomerDetails
+              name={customer.name}
+              mobile={customer.mobile}
+              email={customer.email}
+            />
+          </div>
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="lg:col-span-3 rounded-2xl bg-white border shadow-sm p-6 md:p-8 space-y-5">
-        <h2 className="text-xl font-bold text-secondary">Customer Details</h2>
-        <p className="text-sm text-gray-500">
-          Trip details from your search are pre-filled below. Edit dates or times if needed.
-        </p>
+      <aside className="order-1 lg:order-2 lg:col-span-2 lg:sticky lg:top-20 lg:z-10 lg:self-start">
+        <div className="space-y-3 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm ring-1 ring-gray-100 md:p-6">
+          <h2 className="text-lg font-bold text-secondary">Payment Summary</h2>
 
-        {error && (
-          <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-600">{error}</div>
-        )}
-
-        <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 text-sm text-gray-700 flex items-start gap-2">
-          <User className="h-4 w-4 text-primary mt-0.5 shrink-0" />
-          <div>
-            <p className="font-medium text-secondary">{customer.name}</p>
-            <p>{customer.mobile}{customer.email ? ` · ${customer.email}` : ""}</p>
-          </div>
-        </div>
-
-        <KycVerifiedNotice />
-        {customer.mobileVerified && customer.mobile ? (
-          <MobileVerifiedNotice mobile={customer.mobile} />
-        ) : null}
-
-        <FormField
-          label="Pickup City"
-          name="pickup_city"
-          required
-          value={pickupCity}
-          onChange={(e) => setPickupCity(e.target.value)}
-        />
-
-        <div className="grid gap-5 sm:grid-cols-2">
-          <FormField
-            label="Pickup Date"
-            name="pickup_date"
-            type="date"
-            required
-            value={pickupDate}
-            onChange={(e) => setPickupDate(e.target.value)}
+          <SelfDrivePaymentWorkflowSummary
+            workflow={workflow}
+            variant="light"
+            layout="checkout"
+            payableLabel="Amount Payable Today"
           />
-          <FormField
-            label="Pickup Time"
-            name="pickup_time"
-            type="time"
-            value={pickupTime}
-            onChange={(e) => setPickupTime(e.target.value)}
-          />
-        </div>
-
-        <div className="grid gap-5 sm:grid-cols-2">
-          <FormField
-            label="Return Date"
-            name="return_date"
-            type="date"
-            value={returnDate}
-            onChange={(e) => setReturnDate(e.target.value)}
-          />
-          <FormField
-            label="Return Time"
-            name="return_time"
-            type="time"
-            value={returnTime}
-            onChange={(e) => setReturnTime(e.target.value)}
-          />
-        </div>
-
-        <FormField
-          label="Travel Plan / Tour Program"
-          name="travel_plan"
-          as="textarea"
-          placeholder="Describe your route, cities, or tour program..."
-          value={travelPlan}
-          onChange={(e) => setTravelPlan(e.target.value)}
-          rows={4}
-        />
-
-        <section className="space-y-4 rounded-xl border border-gray-100 bg-gray-50/80 p-4">
-          <h3 className="text-sm font-semibold text-secondary">Payment Summary</h3>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Coupon Code</label>
-              <input
-                type="text"
-                value={couponCode}
-                onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
-                placeholder="WELCOME100"
-                className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm uppercase"
-              />
-            </div>
-            <FormField label="Use Wallet (₹)" name="wallet_amount" type="number" placeholder="0" />
-          </div>
 
           <FlexibleCancellationAddon
             vehicleType={listing.vehicle_type}
             checked={flexibleCancellation}
             onChange={setFlexibleCancellation}
+            variant="compact"
           />
-        </section>
 
-        <CancellationPolicyAccordion bookingType="self_drive" />
+          <CancellationPolicyAccordion bookingType="self_drive" />
 
-        <label
-          htmlFor={policyCheckboxId}
-          className="flex cursor-pointer items-start gap-3 rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-3"
-        >
-          <input
-            id={policyCheckboxId}
-            type="checkbox"
-            checked={policyAgreed}
-            onChange={(e) => setPolicyAgreed(e.target.checked)}
-            className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-primary focus:ring-primary"
-          />
-          <span className="text-sm text-gray-700">
-            I agree to the Terms &amp; Conditions and Cancellation Policy.
-          </span>
-        </label>
+          <div className="hidden space-y-3 border-t border-gray-100 pt-3 lg:block">
+            {termsCheckbox}
+            <Button
+              type="submit"
+              variant="primary"
+              size="lg"
+              className="w-full"
+              disabled={loading || !policyAgreed}
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="h-5 w-5 animate-spin" /> Creating booking...
+                </>
+              ) : (
+                "Continue to Payment"
+              )}
+            </Button>
+            {!policyAgreed && (
+              <p className="text-center text-[11px] text-gray-400">
+                Accept terms to continue
+              </p>
+            )}
+          </div>
+        </div>
+      </aside>
 
-        <Button type="submit" variant="primary" size="lg" className="w-full" disabled={loading || !policyAgreed}>
-          {loading ? (
-            <>
-              <Loader2 className="h-5 w-5 animate-spin" /> Creating booking...
-            </>
-          ) : (
-            "Continue to Payment"
-          )}
-        </Button>
-      </form>
-    </div>
+      <div
+        className="fixed inset-x-0 bottom-0 z-50 border-t border-gray-200 bg-white/95 px-4 py-3 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] backdrop-blur-md lg:hidden"
+        style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
+      >
+        <div className="mx-auto mb-2 max-w-lg">{termsCheckbox}</div>
+        <div className="mx-auto flex max-w-lg items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">
+              Amount Payable Today
+            </p>
+            <p className="text-xl font-bold tabular-nums text-primary">
+              {formatINR(workflow.amountPayableNow)}
+            </p>
+          </div>
+          <Button
+            type="submit"
+            variant="primary"
+            size="md"
+            className="shrink-0 px-6"
+            disabled={loading || !policyAgreed}
+          >
+            {loading ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              "Continue to Payment"
+            )}
+          </Button>
+        </div>
+      </div>
+    </form>
   );
 }

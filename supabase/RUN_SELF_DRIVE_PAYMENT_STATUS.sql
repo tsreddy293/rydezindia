@@ -1,0 +1,2 @@
+-- Self-drive payment amount columns only (does NOT alter payment_status enum).
+-- Run supabase/RUN_SELF_DRIVE_PAYMENT_COLUMNS.sql for column additions.

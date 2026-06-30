@@ -147,6 +147,13 @@ export interface BookingConfirmation {
   protection_status?: string;
   trip_fare_amount?: number;
   security_deposit_amount?: number;
+  special_instructions?: string;
+  advance_amount?: number;
+  balance_amount?: number;
+  amount_paid?: number;
+  amount_due?: number;
+  deposit_refund_amount?: number;
+  deposit_refund_status?: string;
   cancelled_at?: string;
   refund_amount?: number;
   refund_status?: string;
@@ -280,6 +287,8 @@ export interface SelfDriveResult {
   availability: string;
   photos: string[];
   seats: number;
+  vehicle_year?: number;
+  transmission?: string;
 }
 
 export interface DriverVehicleResult {
