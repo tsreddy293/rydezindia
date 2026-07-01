@@ -11,6 +11,8 @@ import {
   formatSelfDriveRentalDays,
   type SelfDrivePricingResult,
 } from "@/lib/pricing/self-drive-pricing";
+import { INCLUSIVE_TRIP_FARE_LABEL } from "@/lib/booking/inclusive-fare-display";
+import { InclusiveFareNotes } from "@/components/booking/InclusiveFareDisplay";
 import { formatINR } from "@/lib/utils";
 
 interface SelfDriveFareSummaryProps {
@@ -134,14 +136,6 @@ export default function SelfDriveFareSummary({
           </span>
         </div>
       )}
-      <div className={rowClass}>
-        <span>Platform Fee</span>
-        <span className={`font-medium tabular-nums ${labelClass}`}>{formatINR(pricing.platformFee)}</span>
-      </div>
-      <div className={rowClass}>
-        <span>GST</span>
-        <span className={`font-medium tabular-nums ${labelClass}`}>{formatINR(pricing.gst)}</span>
-      </div>
     </div>
   );
 
@@ -157,11 +151,12 @@ export default function SelfDriveFareSummary({
         ) : null}
 
         <div className={`${rowClass} border-b pb-2.5 ${dividerClass}`}>
-          <span className={`text-xs font-semibold sm:text-sm ${labelClass}`}>Trip Fare</span>
+          <span className={`text-xs font-semibold sm:text-sm ${labelClass}`}>{INCLUSIVE_TRIP_FARE_LABEL}</span>
           <span className={`text-sm font-bold tabular-nums sm:text-base ${isDark ? "text-white" : "text-secondary"}`}>
             {formatINR(tripFare)}
           </span>
         </div>
+        <InclusiveFareNotes variant={variant} />
 
         {hasDiscount && (
           <p className={`text-[11px] sm:text-xs font-medium ${savingsClass}`}>

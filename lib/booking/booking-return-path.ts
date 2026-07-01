@@ -1,11 +1,14 @@
 /** Preserve booking URL (including search filters) for login/KYC redirects. */
 
+import { bookingLoginRedirectUrl } from "@/lib/auth/booking-route-guard";
+
 export interface BookingPageSearchParams {
   type?: string;
   tripType?: string;
   package?: string;
   extraHours?: string;
   extraKm?: string;
+  distanceKm?: string;
   pickupCity?: string;
   date?: string;
   time?: string;
@@ -20,6 +23,7 @@ export function buildBookingReturnPath(id: string, params: BookingPageSearchPara
   if (params.package?.trim()) qs.set("package", params.package.trim());
   if (params.extraHours?.trim()) qs.set("extraHours", params.extraHours.trim());
   if (params.extraKm?.trim()) qs.set("extraKm", params.extraKm.trim());
+  if (params.distanceKm?.trim()) qs.set("distanceKm", params.distanceKm.trim());
   if (params.pickupCity?.trim()) qs.set("pickupCity", params.pickupCity.trim());
   if (params.date?.trim()) qs.set("date", params.date.trim());
   if (params.time?.trim()) qs.set("time", params.time.trim());
@@ -31,5 +35,5 @@ export function buildBookingReturnPath(id: string, params: BookingPageSearchPara
 }
 
 export function bookingAuthLoginPath(returnPath: string): string {
-  return `/login?returnTo=${encodeURIComponent(returnPath)}`;
+  return bookingLoginRedirectUrl(returnPath);
 }

@@ -1,6 +1,10 @@
 import { createHash, randomInt } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireValidMobile } from "@/lib/services/validation";
+import {
+  isBookingOtpEnabled,
+  isOtpInfrastructureError,
+} from "@/lib/booking/booking-mobile-verification";
 
 const OTP_TTL_MS = 5 * 60 * 1000;
 
@@ -27,6 +31,10 @@ async function deliverOtp(mobile: string, otp: string) {
 }
 
 export async function sendOtp(input: { mobile: string; purpose?: string }) {
+  if (!isBookingOtpEnabled()) {
+    throw new Error("OTP verification is not enabled for bookings.");
+  }
+
   const mobile = requireValidMobile(input.mobile);
   const purpose = input.purpose || "signup";
   const otp = generateOtp();
@@ -38,7 +46,12 @@ export async function sendOtp(input: { mobile: string; purpose?: string }) {
     expires_at: new Date(Date.now() + OTP_TTL_MS).toISOString(),
   });
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    if (isOtpInfrastructureError(error.message)) {
+      throw new Error("OTP verification is not available yet. Please continue without OTP.");
+    }
+    throw new Error(error.message);
+  }
   await deliverOtp(mobile, otp);
 
   return {
@@ -49,6 +62,10 @@ export async function sendOtp(input: { mobile: string; purpose?: string }) {
 }
 
 export async function verifyOtp(input: { mobile: string; otp: string; purpose?: string }) {
+  if (!isBookingOtpEnabled() && (input.purpose ?? "signup") === "booking") {
+    throw new Error("OTP verification is not enabled for bookings.");
+  }
+
   const mobile = requireValidMobile(input.mobile);
   const purpose = input.purpose || "signup";
   const otp = String(input.otp ?? "").trim();
@@ -65,7 +82,12 @@ export async function verifyOtp(input: { mobile: string; otp: string; purpose?: 
     .limit(1)
     .maybeSingle();
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    if (isOtpInfrastructureError(error.message)) {
+      throw new Error("OTP verification is not available yet.");
+    }
+    throw new Error(error.message);
+  }
   if (!data) throw new Error("OTP not found. Please request a new OTP.");
 
   const row = data as { id: string; otp_hash: string; expires_at: string; attempts: number };
@@ -96,6 +118,10 @@ async function assertRecentVerifiedOtp(
   purpose: string,
   maxAgeMs: number
 ): Promise<string | null> {
+  if (!isBookingOtpEnabled() && purpose === "booking") {
+    return null;
+  }
+
   const normalized = requireValidMobile(mobile);
   const db = createAdminClient();
   const { data, error } = await db
@@ -108,10 +134,12 @@ async function assertRecentVerifiedOtp(
     .limit(1)
     .maybeSingle();
 
-  if (error?.message?.includes("does not exist")) {
-    return "OTP verification is not configured. Run migration 008_phase2_trust_growth.sql (auth_otps table).";
+  if (error) {
+    if (isOtpInfrastructureError(error.message)) {
+      return null;
+    }
+    throw new Error(error.message);
   }
-  if (error) throw new Error(error.message);
 
   const verifiedAt = (data as { verified_at?: string } | null)?.verified_at;
   if (!verifiedAt) {

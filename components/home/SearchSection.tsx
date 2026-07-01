@@ -173,6 +173,11 @@ export default function SearchSection() {
                     />
                   </div>
                 </div>
+
+                <p className="sm:col-span-2 text-xs leading-relaxed text-gray-500">
+                  Rental duration and fare are calculated automatically based on your Pickup &amp;
+                  Return dates.
+                </p>
               </>
             )}
           </div>

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createRazorpayOrder } from "@/lib/services/payments";
 import { assertSameOrigin, requireAmount, requireString } from "@/lib/services/validation";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient } from "@/lib/supabase/server";
+import { assertAuthenticatedRiderForBooking } from "@/lib/auth/customer-auth";
 import { isBookingCancelledStatus } from "@/lib/bookings/cancellation-eligibility";
 import { deriveSelfDrivePaymentSnapshot } from "@/lib/bookings/self-drive-payment";
 import { getAdvancePaymentAmount } from "@/lib/pricing/ai-pricing-engine";
@@ -13,11 +13,14 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const bookingId = requireString(body.bookingId, "Booking ID");
 
-    const supabase = await createClient();
-    const { data: authData } = await supabase.auth.getUser();
-    if (!authData.user?.id) {
-      return NextResponse.json({ success: false, error: "Authentication required" }, { status: 401 });
+    const authResult = await assertAuthenticatedRiderForBooking();
+    if (!authResult.success || !authResult.data) {
+      return NextResponse.json(
+        { success: false, error: authResult.error ?? "Authentication required" },
+        { status: 401 }
+      );
     }
+    const authUserId = authResult.data.user.id;
 
     const db = createAdminClient();
     const { data: booking } = await db
@@ -73,24 +76,8 @@ export async function POST(request: NextRequest) {
     const amount = requireAmount(body.amount);
 
     const bookingUserId = String(bookingRow.user_id ?? "").trim();
-    if (bookingUserId && bookingUserId !== authData.user.id) {
-      const bookingMobile = String(bookingRow.mobile ?? "").replace(/\s/g, "");
-      const { data: authProfile } = await db
-        .from("users")
-        .select("mobile")
-        .eq("id", authData.user.id)
-        .maybeSingle();
-      const authMobile = String((authProfile as { mobile?: string } | null)?.mobile ?? "").replace(
-        /\s/g,
-        ""
-      );
-      if (bookingMobile && authMobile && bookingMobile === authMobile) {
-        await db.from("bookings").update({ user_id: authData.user.id }).eq("id", bookingId);
-      } else {
-        return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 403 });
-      }
-    } else if (!bookingUserId) {
-      await db.from("bookings").update({ user_id: authData.user.id }).eq("id", bookingId);
+    if (!bookingUserId || bookingUserId !== authUserId) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 403 });
     }
 
     if (expectedAmount > 0) {
@@ -121,7 +108,7 @@ export async function POST(request: NextRequest) {
       bookingId,
       amount,
       currency: body.currency,
-      userId: authData.user.id,
+      userId: authUserId,
       ownerId: String(bookingRow.owner_id ?? "") || undefined,
       paymentPhase,
     });

@@ -14,6 +14,7 @@ import {
 } from "@/lib/bookings/self-drive-payment-ui";
 import type { SelfDrivePaymentSnapshot } from "@/lib/bookings/self-drive-payment";
 import { calculateSelfDrivePaymentWorkflow } from "@/lib/pricing/self-drive-payment-workflow";
+import { InclusiveFareNotes, InclusiveTripFareRow } from "@/components/booking/InclusiveFareDisplay";
 import { formatINR } from "@/lib/utils";
 
 interface Props {
@@ -173,9 +174,8 @@ export default function BookingPendingPayment({
       <div className="grid gap-8 lg:grid-cols-2">
         <div className="rounded-2xl bg-secondary text-white p-6 space-y-4">
           <h2 className="text-xl font-bold">Complete Payment</h2>
-          <p className="text-sm text-white/70">
-            Booking total: {formatINR(totalFare)}
-          </p>
+          <InclusiveTripFareRow amount={totalFare} variant="dark" showNotes={false} />
+          <InclusiveFareNotes variant="dark" />
           {!fullPaymentOnly && (
             <div className="space-y-3 border-t border-white/15 pt-4">
               <label className="flex items-center gap-3 rounded-xl bg-white/10 p-4 cursor-pointer">

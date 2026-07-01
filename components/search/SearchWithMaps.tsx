@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Calendar, Clock, Filter, Search } from "lucide-react";
 import Button from "@/components/ui/Button";
@@ -10,14 +10,22 @@ import RouteInsightsPanel from "@/components/maps/RouteInsightsPanel";
 import VehicleSearchResultCard from "@/components/vehicles/VehicleSearchResultCard";
 import ReturnJourneyDealCard from "@/components/return-journey/ReturnJourneyDealCard";
 import RouteMatchBanner from "@/components/return-journey/RouteMatchBanner";
-import { calculateAiPricing } from "@/lib/pricing/ai-pricing-engine";
 import { calculateLocalRentalPricing } from "@/lib/pricing/local-rental-pricing";
 import { scoreRouteMatch } from "@/lib/services/route-matching";
 import { mapDriverTripTypeLabel } from "@/lib/pricing/trip-pricing";
+import {
+  estimateWithDriverTripFare,
+  resolveTripDistanceKm,
+} from "@/lib/pricing/with-driver-trip-fare";
 import { LOCAL_RENTAL_PACKAGES } from "@/lib/maps/constants";
 import { appendPlaceToParams, buildPlaceFromParts } from "@/lib/maps/url-params";
 import { persistSearchDraftFromFilters, saveBookingSearchDraft } from "@/lib/booking/booking-draft";
+import { buildBookingReturnPath } from "@/lib/booking/booking-return-path";
 import { buildSelfDriveBookingHref } from "@/lib/booking/self-drive-booking-url";
+import {
+  INCLUSIVE_DAILY_FARE_LABEL,
+  INCLUSIVE_TRIP_FARE_SHORT_LABEL,
+} from "@/lib/booking/inclusive-fare-display";
 import type { DriverVehicleResult, SearchResult, SelfDriveResult } from "@/types/database";
 import type { PlaceLocation, SearchServiceMode } from "@/lib/maps/types";
 
@@ -183,11 +191,6 @@ function SearchWithMapsInner(props: SearchWithMapsProps) {
   );
   const [distanceKm, setDistanceKm] = useState(0);
 
-  const availableSeats = useMemo(() => {
-    if (props.mode !== "return_journey") return undefined;
-    return props.results.reduce((total, result) => total + (result.available_seats ?? 0), 0);
-  }, [props.mode, props.results]);
-
   const selectedPackage = LOCAL_RENTAL_PACKAGES.find((pkg) => pkg.key === packageKey);
 
   const selfDriveBookingHref = (listingId: string) =>
@@ -199,18 +202,29 @@ function SearchWithMapsInner(props: SearchWithMapsProps) {
       returnTime,
     });
 
-  const driverBookingHref = (listingId: string) => {
-    const qs = new URLSearchParams({ type: "with_driver" });
-    if (props.mode === "local_rental") {
-      qs.set("tripType", "Local Rental");
-      qs.set("package", packageKey);
-    } else if (tripType) {
-      qs.set("tripType", tripType);
+  const driverBookingHref = (listingId: string) =>
+    buildBookingReturnPath(listingId, {
+      type: "with_driver",
+      tripType:
+        props.mode === "local_rental"
+          ? "Local Rental"
+          : tripType || undefined,
+      package: props.mode === "local_rental" ? packageKey : undefined,
+      pickupCity: pickup?.label ?? "",
+      date,
+      time,
+      distanceKm:
+        distanceKm > 0 ? String(Math.round(distanceKm * 100) / 100) : undefined,
+    });
+
+  const driverDetailHref = (listingId: string) => {
+    const qs = new URLSearchParams();
+    if (tripType) qs.set("tripType", tripType);
+    if (distanceKm > 0) {
+      qs.set("distanceKm", String(Math.round(distanceKm * 100) / 100));
     }
-    if (pickup?.label) qs.set("pickupCity", pickup.label);
-    if (date) qs.set("date", date);
-    if (time) qs.set("time", time);
-    return `/booking/${listingId}?${qs.toString()}`;
+    const query = qs.toString();
+    return query ? `/vehicle/${listingId}?${query}` : `/vehicle/${listingId}`;
   };
 
   const routePath =
@@ -308,10 +322,6 @@ function SearchWithMapsInner(props: SearchWithMapsProps) {
       if ("cities" in props.initialFilters && props.initialFilters.cities) {
         params.set("cities", props.initialFilters.cities);
       }
-    }
-
-    if (props.mode === "self_drive" && "duration" in props.initialFilters && props.initialFilters.duration) {
-      params.set("duration", props.initialFilters.duration);
     }
 
     if (props.mode === "local_rental") {
@@ -425,6 +435,11 @@ function SearchWithMapsInner(props: SearchWithMapsProps) {
                       />
                     </div>
                   </label>
+
+                  <p className="sm:col-span-2 text-xs leading-relaxed text-gray-500">
+                    Rental duration and fare are calculated automatically based on your Pickup &amp;
+                    Return dates.
+                  </p>
                 </>
               ) : null}
 
@@ -496,7 +511,6 @@ function SearchWithMapsInner(props: SearchWithMapsProps) {
             destination={showDrop ? drop : pickup}
             mode={props.mode}
             variant="light"
-            availableSeats={availableSeats}
             localPackagePrice={selectedPackage?.basePrice}
             tripTypeLabel={props.mode === "with_driver" ? tripType : undefined}
             driverTripType={
@@ -515,16 +529,16 @@ function SearchWithMapsInner(props: SearchWithMapsProps) {
                 ? props.initialFilters.cities.split(",")
                 : [pickup?.label ?? "", drop?.label ?? ""].filter(Boolean)
             }
-            ratePerKm={
-              props.mode === "with_driver" && props.results[0]
-                ? props.results[0].rate_per_km
-                : undefined
-            }
-            returnJourneyDiscountPercent={30}
             onRouteUpdate={(data) => setDistanceKm(data.distanceKm)}
           />
         </div>
       </form>
+
+      {props.mode === "self_drive" && (
+        <p className="mb-8 text-center text-sm text-emerald-700">
+          Book longer and unlock automatic discounts.
+        </p>
+      )}
 
       {props.mode === "return_journey" && pickup?.label && drop?.label && (
         <RouteMatchBanner
@@ -601,7 +615,7 @@ function SearchWithMapsInner(props: SearchWithMapsProps) {
                       vehicle_type: result.vehicle_type,
                       photos: result.photos,
                       price: result.daily_rent || result.price,
-                      priceLabel: "/ day",
+                      priceLabel: INCLUSIVE_DAILY_FARE_LABEL,
                       bookingType: "self_drive",
                       owner_city: result.owner_city ?? result.pickup_city,
                       pickup_city: result.pickup_city,
@@ -611,18 +625,22 @@ function SearchWithMapsInner(props: SearchWithMapsProps) {
                 ))
               : props.results.map((result) => {
                   const tripPricingType = mapDriverTripTypeLabel(tripType) ?? "one_way";
-                  const pricing = calculateAiPricing({
-                    distanceKm: distanceKm || 100,
-                    tripType: tripPricingType,
-                    vehicleType: result.vehicle_type,
-                    fuelType: result.fuel_type,
-                    driverRequired: true,
-                    ratePerKm: result.rate_per_km,
-                  });
+                  const effectiveDistanceKm = resolveTripDistanceKm(distanceKm);
+                  const pricing =
+                    effectiveDistanceKm > 0
+                      ? estimateWithDriverTripFare({
+                          distanceKm: effectiveDistanceKm,
+                          tripType: tripPricingType,
+                          vehicleType: result.vehicle_type,
+                          fuelType: result.fuel_type,
+                          ratePerKm: result.rate_per_km,
+                        })
+                      : null;
                   return (
                     <VehicleSearchResultCard
                       key={result.id}
                       bookingHref={driverBookingHref(result.id)}
+                      detailHref={driverDetailHref(result.id)}
                       result={{
                         id: result.id,
                         vehicle_id: result.vehicle_id,
@@ -635,13 +653,13 @@ function SearchWithMapsInner(props: SearchWithMapsProps) {
                         seats: result.seats,
                         photos: result.photos,
                         price: result.price,
-                        priceLabel: "Est. Fare",
+                        priceLabel: pricing ? INCLUSIVE_TRIP_FARE_SHORT_LABEL : `₹${result.rate_per_km}/km`,
                         bookingType: "with_driver",
                         pickup_city: result.pickup_city,
                         drop_city: result.drop_city,
                       }}
                       distanceKm={distanceKm}
-                      estimatedFare={pricing.finalFare}
+                      estimatedFare={pricing?.finalFare}
                     />
                   );
                 })}

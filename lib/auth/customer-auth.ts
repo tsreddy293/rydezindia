@@ -7,6 +7,7 @@ import { homePathForRole, RIDER_DASHBOARD_PATH } from "@/lib/auth/rbac-paths";
 import { safeRiderRedirectPath } from "@/lib/kyc/self-drive-nav";
 import { bookingAuthLoginPath } from "@/lib/booking/booking-return-path";
 import { createClient } from "@/lib/supabase/server";
+import type { ActionResult } from "@/types/database";
 
 /** Redirect to rider login — never sends customers to /admin. */
 export function redirectToCustomerLogin(returnPath?: string | null): never {
@@ -42,6 +43,32 @@ export async function requireRiderForBooking(returnPath?: string): Promise<{
   }
 
   return { user: data.user, role: "rider" };
+}
+
+/** Server actions / APIs — authenticated rider required (no guest bookings). */
+export async function assertAuthenticatedRiderForBooking(): Promise<
+  ActionResult<{ user: User }>
+> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.auth.getUser();
+
+  if (error || !data.user) {
+    return { success: false, error: "Please sign in to continue your booking." };
+  }
+
+  const currentRole =
+    (await getRoleForUser(data.user.id)) ??
+    normalizeRole(data.user.user_metadata?.role) ??
+    "rider";
+
+  if (currentRole !== "rider") {
+    return {
+      success: false,
+      error: "Please sign in with a rider account to complete your booking.",
+    };
+  }
+
+  return { success: true, data: { user: data.user } };
 }
 
 /**

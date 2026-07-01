@@ -9,7 +9,13 @@ import type {
 import type { MyBookingRecord } from "@/types/database";
 import { getSavedVehicles, getMyBookingsForUser } from "@/lib/supabase/queries";
 import { resolveCustomerKycStatus } from "@/lib/kyc/resolve-customer-kyc-status";
-import { requiresCustomerPaymentAction } from "@/lib/owner/booking-eligibility";
+import {
+  hasActiveRefundReminder,
+  isActiveRiderDashboardBooking,
+  isExcludedFromRiderDashboardAlerts,
+  isUpcomingRiderTripBooking,
+  requiresRiderPaymentReminder,
+} from "@/lib/rider/dashboard-booking-eligibility";
 import { deriveSelfDrivePaymentSnapshot, selfDriveProgressState } from "@/lib/bookings/self-drive-payment";
 import { fetchLoyaltyStatus, fetchReferralStats, fetchWalletData } from "@/server/actions/phase2";
 import { shouldShowRiderKyc } from "@/lib/services/customer-profile";
@@ -62,10 +68,7 @@ function mapBooking(b: MyBookingRecord): RiderDashboardBooking {
 }
 
 function findUpcomingTrip(bookings: RiderDashboardBooking[]): RiderDashboardBooking | null {
-  const candidates = bookings.filter((b) => {
-    const s = b.bookingStatus.toLowerCase();
-    return s === "confirmed" || s === "pending";
-  });
+  const candidates = bookings.filter(isUpcomingRiderTripBooking);
 
   if (candidates.length === 0) return null;
 
@@ -74,6 +77,14 @@ function findUpcomingTrip(bookings: RiderDashboardBooking[]): RiderDashboardBook
     const db = b.pickupDate ? new Date(b.pickupDate).getTime() : new Date(b.createdAt).getTime();
     return da - db;
   })[0];
+}
+
+function findTimelineBooking(
+  bookings: RiderDashboardBooking[],
+  upcoming: RiderDashboardBooking | null
+): RiderDashboardBooking | null {
+  if (upcoming) return upcoming;
+  return bookings.find(isActiveRiderDashboardBooking) ?? null;
 }
 
 export async function getRiderDashboardData(user: User): Promise<RiderDashboardData> {
@@ -109,29 +120,25 @@ export async function getRiderDashboardData(user: User): Promise<RiderDashboardD
   });
 
   const bookings = bookingsRaw.map(mapBooking);
-  const activeTrips = bookings.filter((b) =>
-    ["confirmed", "pending", "active"].includes(b.bookingStatus.toLowerCase())
+  const activeTrips = bookings.filter(
+    (b) =>
+      isActiveRiderDashboardBooking(b) &&
+      ["confirmed", "pending", "active", "payment_pending"].includes(
+        b.bookingStatus.toLowerCase()
+      )
   );
   const completedTrips = bookings.filter((b) => b.bookingStatus.toLowerCase() === "completed");
 
-  const paymentPending = bookings.filter((b) =>
-    requiresCustomerPaymentAction({
-      bookingStatus: b.bookingStatus,
-      paymentStatus: b.paymentStatus,
-    })
-  ).length;
+  const paymentPending = bookings.filter(requiresRiderPaymentReminder).length;
 
-  const upcomingRide = activeTrips.filter((b) => b.bookingStatus.toLowerCase() === "confirmed").length;
+  const upcomingRide = bookings.filter(isUpcomingRiderTripBooking).length;
 
   const kycPending =
     showKycSection && (kyc.status === "pending" || kyc.status === "not_submitted" || kyc.status === "rejected")
       ? 1
       : 0;
 
-  const refundAvailable = bookings.filter((b) => {
-    const rs = String(b.refundStatus ?? "").toLowerCase();
-    return rs === "pending" || rs === "approved" || rs === "processing";
-  }).length;
+  const refundAvailable = bookings.filter(hasActiveRefundReminder).length;
 
   const profileComplete = Boolean(profile.mobile && profile.name && profile.email);
   const profileIncomplete = profileComplete ? 0 : 1;
@@ -218,9 +225,11 @@ export async function getRiderDashboardData(user: User): Promise<RiderDashboardD
 
   const selfDriveBalanceDue = bookings.filter(
     (b) =>
+      !isExcludedFromRiderDashboardAlerts(b) &&
       b.bookingType === "self_drive" &&
       b.selfDrivePayment &&
-      b.selfDrivePayment.balanceDue > 0
+      b.selfDrivePayment.balanceDue > 0 &&
+      requiresRiderPaymentReminder(b)
   );
   for (const b of selfDriveBalanceDue.slice(0, 3)) {
     reminders.push({
@@ -286,7 +295,7 @@ export async function getRiderDashboardData(user: User): Promise<RiderDashboardD
     reminders: reminders.slice(0, 6),
     upcomingTrip: upcoming,
     recentBookings: bookings.slice(0, 6),
-    timelineBooking: upcoming ?? bookings[0] ?? null,
+    timelineBooking: findTimelineBooking(bookings, upcoming),
     savedVehicles: savedVehicles.slice(0, 6),
     wallet: {
       balance: walletData.balance,

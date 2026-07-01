@@ -6,6 +6,8 @@ import {
   isCancelledStatus,
   isPaymentCompleted,
 } from "@/lib/bookings/invoice-access";
+import { INCLUSIVE_TRIP_FARE_LABEL } from "@/lib/booking/inclusive-fare-display";
+import { InclusiveFareNotes } from "@/components/booking/InclusiveFareDisplay";
 import { FLEXIBLE_PROTECTION_NAME } from "@/lib/services/flexible-cancellation-protection";
 import { formatDate, formatINR } from "@/lib/utils";
 import type { BookingConfirmation } from "@/types/database";
@@ -84,9 +86,10 @@ export default function BookingInvoiceCard({ booking }: Props) {
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Fare breakdown</p>
         </div>
         <div className="flex justify-between py-2">
-          <span className="text-gray-600">Trip fare</span>
+          <span className="text-gray-600">{INCLUSIVE_TRIP_FARE_LABEL}</span>
           <span className="font-medium">{formatINR(Math.max(0, tripFare))}</span>
         </div>
+        <InclusiveFareNotes className="pb-2" />
         {deposit > 0 && (
           <div className="flex justify-between py-2 text-gray-600">
             <span>Refundable deposit</span>

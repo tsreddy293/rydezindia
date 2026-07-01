@@ -14,17 +14,8 @@ import { saveBookingSearchDraft } from "@/lib/booking/booking-draft";
 import type { PlaceLocation } from "@/lib/maps/types";
 
 type ServiceType = ServiceTypeKey;
-type SelfDriveDuration = "1_day" | "2_days" | "3_days" | "weekly" | "monthly";
 type DriverTripType = "one_way" | "round_trip" | "multi_city";
 type LocalRentalPackageKey = (typeof LOCAL_RENTAL_PACKAGES)[number]["key"];
-
-const SELF_DRIVE_DURATIONS: { key: SelfDriveDuration; label: string }[] = [
-  { key: "1_day", label: "1 Day" },
-  { key: "2_days", label: "2 Days" },
-  { key: "3_days", label: "3 Days" },
-  { key: "weekly", label: "Weekly" },
-  { key: "monthly", label: "Monthly" },
-];
 
 const DRIVER_TRIP_TYPES: { key: DriverTripType; label: string }[] = [
   { key: "one_way", label: "One Way" },
@@ -48,7 +39,6 @@ const COMPACT_FIELD_CLASS = "!py-2 text-sm md:!py-2.5";
 export default function HeroSearchForm() {
   const router = useRouter();
   const [serviceType, setServiceType] = useState<ServiceType>("with_driver");
-  const [selfDriveDuration, setSelfDriveDuration] = useState<SelfDriveDuration>("1_day");
   const [driverTripType, setDriverTripType] = useState<DriverTripType>("one_way");
   const [fromPlace, setFromPlace] = useState<PlaceLocation | null>(null);
   const [toPlace, setToPlace] = useState<PlaceLocation | null>(null);
@@ -135,7 +125,6 @@ export default function HeroSearchForm() {
 
     switch (serviceType) {
       case "self_drive":
-        params.set("duration", selfDriveDuration);
         router.push(`/search-self-drive?${params.toString()}`);
         break;
       case "with_driver": {
@@ -360,25 +349,10 @@ export default function HeroSearchForm() {
           className="mt-2 empty:hidden md:mt-2.5"
         >
           {serviceType === "self_drive" && (
-            <div>
-              <p className="mb-1.5 text-[11px] font-medium text-white/90 sm:text-xs md:text-sm">Rental Duration</p>
-              <div className="flex flex-wrap gap-1 sm:gap-1.5 md:gap-2">
-                {SELF_DRIVE_DURATIONS.map((option) => (
-                  <button
-                    key={option.key}
-                    type="button"
-                    onClick={() => setSelfDriveDuration(option.key)}
-                    className={`rounded-full px-2.5 py-1 text-[10px] font-semibold transition sm:px-3 sm:py-1.5 sm:text-[11px] md:px-4 md:py-2 md:text-sm ${
-                      selfDriveDuration === option.key
-                        ? "bg-primary text-white shadow-md shadow-primary/30"
-                        : "border border-white/20 bg-white/10 text-white/80 hover:bg-white/15"
-                    }`}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <p className="text-[10px] leading-relaxed text-white/70 sm:text-[11px] md:text-xs">
+              Rental duration and fare are calculated automatically based on your Pickup &amp; Return
+              dates.
+            </p>
           )}
 
           {serviceType === "return_journey" && (

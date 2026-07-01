@@ -3,6 +3,8 @@
 import { ShieldCheck } from "lucide-react";
 import type { SelfDrivePaymentWorkflowResult } from "@/lib/pricing/self-drive-payment-workflow";
 import { formatLongDurationDiscountLabel } from "@/lib/pricing/self-drive-long-duration-discount";
+import { INCLUSIVE_TRIP_FARE_LABEL } from "@/lib/booking/inclusive-fare-display";
+import { InclusiveFareNotes } from "@/components/booking/InclusiveFareDisplay";
 import { formatINR } from "@/lib/utils";
 
 interface Props {
@@ -36,20 +38,30 @@ export default function SelfDrivePaymentWorkflowSummary({
   const lineItems = (
     <div className={`space-y-2.5 ${isCheckout ? "" : `border-b pb-3 ${divider}`}`}>
       <div className={row}>
-        <span className={muted}>Trip Fare</span>
+        <span className={muted}>{INCLUSIVE_TRIP_FARE_LABEL}</span>
         <span className={`font-semibold tabular-nums ${label}`}>
           {formatINR(hasDiscount ? workflow.tripFareBeforeDiscount : workflow.tripFare)}
         </span>
       </div>
+      <InclusiveFareNotes variant={variant} className="pb-1" />
       {hasDiscount && (
-        <div className={row}>
-          <span className={`${muted} text-emerald-700`}>
-            {formatLongDurationDiscountLabel(workflow.longDurationDiscountPercent)}
-          </span>
-          <span className="font-semibold tabular-nums text-emerald-700">
-            -{formatINR(workflow.longDurationDiscountAmount)}
-          </span>
-        </div>
+        <>
+          <div className={row}>
+            <span className={`${muted} text-emerald-700`}>
+              {formatLongDurationDiscountLabel(workflow.longDurationDiscountPercent)}
+            </span>
+            <span className="font-semibold tabular-nums text-emerald-700">
+              -{formatINR(workflow.longDurationDiscountAmount)}
+            </span>
+          </div>
+          <p
+            className={`text-xs font-semibold ${
+              isDark ? "text-emerald-300" : "text-emerald-700"
+            }`}
+          >
+            You Saved {formatINR(workflow.longDurationDiscountAmount)} 🎉
+          </p>
+        </>
       )}
       <div className={row}>
         <span className={muted}>Advance Payment (30%)</span>

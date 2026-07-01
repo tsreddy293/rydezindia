@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyRazorpayPayment } from "@/lib/services/payments";
 import { assertSameOrigin, requireString } from "@/lib/services/validation";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { assertAuthenticatedRiderForBooking } from "@/lib/auth/customer-auth";
 
 export async function POST(request: NextRequest) {
   try {
@@ -11,11 +11,14 @@ export async function POST(request: NextRequest) {
     const bookingId = requireString(body.bookingId, "Booking ID");
     const razorpayOrderId = requireString(body.razorpayOrderId, "Razorpay order ID");
 
-    const supabase = await createClient();
-    const { data: authData } = await supabase.auth.getUser();
-    if (!authData.user?.id) {
-      return NextResponse.json({ success: false, error: "Authentication required" }, { status: 401 });
+    const authResult = await assertAuthenticatedRiderForBooking();
+    if (!authResult.success || !authResult.data) {
+      return NextResponse.json(
+        { success: false, error: authResult.error ?? "Authentication required" },
+        { status: 401 }
+      );
     }
+    const authUserId = authResult.data.user.id;
 
     const db = createAdminClient();
     const { data: paymentRow } = await db
@@ -34,7 +37,7 @@ export async function POST(request: NextRequest) {
     }
 
     const paymentUserId = String((paymentRow as { user_id?: string }).user_id ?? "");
-    if (paymentUserId && paymentUserId !== authData.user.id) {
+    if (paymentUserId && paymentUserId !== authUserId) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 403 });
     }
 
@@ -45,7 +48,7 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
 
     const bookingUserId = String((booking as { user_id?: string } | null)?.user_id ?? "");
-    if (bookingUserId && bookingUserId !== authData.user.id) {
+    if (!bookingUserId || bookingUserId !== authUserId) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 403 });
     }
 

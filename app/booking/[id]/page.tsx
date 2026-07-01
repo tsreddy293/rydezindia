@@ -1,8 +1,8 @@
 import { notFound, redirect } from "next/navigation";
 import BookingPageLayout from "@/components/layout/BookingPageLayout";
 import BookingForm from "@/components/forms/BookingForm";
-import UnifiedBookingForm from "@/components/forms/UnifiedBookingForm";
 import SelfDriveBookingForm from "@/components/booking/SelfDriveBookingForm";
+import WithDriverBookingForm from "@/components/booking/WithDriverBookingForm";
 import {
   getDriverListingById,
   getJourneyById,
@@ -115,7 +115,7 @@ export default async function BookingPage({ params, searchParams }: Props) {
     const listing = await getDriverListingById(id);
     if (!listing) notFound();
 
-    const customerPrefill = await getRiderBookingProfile(user.id, {
+    const customer = await getRiderBookingProfile(user.id, {
       email: user.email,
       name: String(user.user_metadata?.name ?? ""),
       mobile: String(user.user_metadata?.mobile ?? ""),
@@ -125,6 +125,7 @@ export default async function BookingPage({ params, searchParams }: Props) {
     const packageParam = sp.package?.trim() || undefined;
     const extraHours = Number(sp.extraHours ?? 0) || 0;
     const extraKm = Number(sp.extraKm ?? 0) || 0;
+    const distanceKm = Number(sp.distanceKm ?? 0) || 0;
 
     return (
       <BookingPageLayout>
@@ -134,15 +135,15 @@ export default async function BookingPage({ params, searchParams }: Props) {
               ? "Book Local Rental"
               : "Book Vehicle With Driver"}
           </h1>
-          <p className="text-gray-600 mb-8">Submit your trip request below</p>
-          <UnifiedBookingForm
-            type="with_driver"
+          <p className="text-gray-600 mb-8">Review your trip details and confirm your booking</p>
+          <WithDriverBookingForm
             listing={listing}
-            customerPrefill={customerPrefill}
+            customer={customer}
             tripType={tripTypeParam}
             localRentalPackage={packageParam}
             extraHours={extraHours}
             extraKm={extraKm}
+            distanceKm={distanceKm}
           />
         </div>
       </BookingPageLayout>
@@ -158,6 +159,12 @@ export default async function BookingPage({ params, searchParams }: Props) {
   }
 
   if (!journey) notFound();
+
+  const customerPrefill = await getRiderBookingProfile(user.id, {
+    email: user.email,
+    name: String(user.user_metadata?.name ?? ""),
+    mobile: String(user.user_metadata?.mobile ?? ""),
+  });
 
   const vehicle = journey.vehicle as {
     vehicle_model?: string;
@@ -195,6 +202,7 @@ export default async function BookingPage({ params, searchParams }: Props) {
             seat_number: Number((s as { seat_number: number }).seat_number),
             status: String((s as { status: string }).status),
           }))}
+          customerPrefill={customerPrefill}
         />
       </div>
     </BookingPageLayout>

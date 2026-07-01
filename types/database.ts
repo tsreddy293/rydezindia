@@ -147,6 +147,9 @@ export interface BookingConfirmation {
   protection_status?: string;
   trip_fare_amount?: number;
   security_deposit_amount?: number;
+  base_fare?: number;
+  platform_fee?: number;
+  discount_amount?: number;
   special_instructions?: string;
   advance_amount?: number;
   balance_amount?: number;

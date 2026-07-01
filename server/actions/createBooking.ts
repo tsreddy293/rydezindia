@@ -9,11 +9,11 @@ import { createNotification } from "@/lib/services/notifications";
 import { assertOwnerCanReceiveBookings, assertCustomerCanBookSelfDrive } from "@/lib/services/verification";
 import { resolveBookingOwnerContext } from "@/lib/services/owner-approval-sync";
 import { assertRecentBookingOtp } from "@/lib/services/otp";
-import { getOptionalRiderUser } from "@/server/actions/auth";
+import { shouldRequireBookingOtp } from "@/lib/booking/booking-mobile-verification";
+import { assertAuthenticatedRiderForBooking } from "@/lib/auth/customer-auth";
 import { markSelfDriveInterest } from "@/lib/services/customer-profile";
 import { bookReturnJourneySeats, initializeReturnJourneySeats } from "@/lib/services/return-journey-seats";
 import { dispatchBookingEvent } from "@/lib/services/messaging";
-import { findOrCreateGuestUserByMobile } from "@/lib/users/guest-user";
 import { getProtectionFeeForVehicle } from "@/lib/services/flexible-cancellation-protection";
 import { applyBookingInsertWithColumnFallback } from "@/lib/bookings/apply-booking-insert";
 import { appendSelfDrivePaymentMarker } from "@/lib/bookings/self-drive-payment";
@@ -132,8 +132,20 @@ export async function createBooking(
   }
 
   const mobile = input.mobile.replace(/\s/g, "");
-  const otpError = await assertRecentBookingOtp(mobile);
-  if (otpError) return { success: false, error: otpError };
+
+  const authResult = await assertAuthenticatedRiderForBooking();
+  if (!authResult.success || !authResult.data) {
+    return {
+      success: false,
+      error: authResult.error ?? "Please sign in to continue your booking.",
+    };
+  }
+
+  const loggedInRider = authResult.data;
+  if (shouldRequireBookingOtp({ loggedInUserId: loggedInRider.user.id })) {
+    const otpError = await assertRecentBookingOtp(mobile);
+    if (otpError) return { success: false, error: otpError };
+  }
 
   const ownerKycError = await assertOwnerCanReceiveBookings(
     ownerId,
@@ -143,19 +155,7 @@ export async function createBooking(
 
   const db = createAdminClient();
 
-  const loggedInRider = await getOptionalRiderUser();
-  let userId: string;
-  if (loggedInRider) {
-    userId = loggedInRider.user.id;
-  } else {
-    const guestUser = await findOrCreateGuestUserByMobile(db, input.passenger_name, mobile, {
-      failOnError: true,
-    });
-    if (!guestUser.userId) {
-      return { success: false, error: guestUser.error ?? "Failed to create user profile" };
-    }
-    userId = guestUser.userId;
-  }
+  const userId = loggedInRider.user.id;
 
   const resumable = await findResumablePendingBooking({
     userId,
@@ -308,13 +308,17 @@ export async function createUnifiedBooking(
   const db = createAdminClient();
   const mobile = input.mobile.replace(/\s/g, "");
 
-  const loggedInRider = await getOptionalRiderUser();
-  const skipBookingOtp =
-    input.booking_type === "self_drive" &&
-    Boolean(loggedInRider) &&
-    !(await assertCustomerCanBookSelfDrive(loggedInRider!.user.id));
+  const authResult = await assertAuthenticatedRiderForBooking();
+  if (!authResult.success || !authResult.data) {
+    return {
+      success: false,
+      error: authResult.error ?? "Please sign in to continue your booking.",
+    };
+  }
 
-  if (!skipBookingOtp) {
+  const loggedInRider = authResult.data;
+
+  if (shouldRequireBookingOtp({ loggedInUserId: loggedInRider.user.id })) {
     const otpError = await assertRecentBookingOtp(mobile);
     if (otpError) return { success: false, error: otpError };
   }
@@ -357,18 +361,7 @@ export async function createUnifiedBooking(
 
   const bookingReference = await generateBookingReference();
 
-  let userId: string;
-  if (loggedInRider) {
-    userId = loggedInRider.user.id;
-  } else {
-    const guestUser = await findOrCreateGuestUserByMobile(db, input.passenger_name, mobile, {
-      failOnError: true,
-    });
-    if (!guestUser.userId) {
-      return { success: false, error: guestUser.error ?? "Failed to create user profile" };
-    }
-    userId = guestUser.userId;
-  }
+  const userId = loggedInRider.user.id;
 
   if (input.booking_type === "self_drive") {
     await markSelfDriveInterest(userId);

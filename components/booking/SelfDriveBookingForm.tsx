@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useId } from "react";
+import { useCallback, useEffect, useMemo, useState, useId } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, Loader2 } from "lucide-react";
 import Button from "@/components/ui/Button";
@@ -9,6 +9,7 @@ import SelfDrivePaymentWorkflowSummary from "@/components/booking/SelfDrivePayme
 import SelfDriveTripSummary from "@/components/booking/SelfDriveTripSummary";
 import SelfDriveVehicleCard from "@/components/booking/SelfDriveVehicleCard";
 import SelfDriveCustomerDetails from "@/components/booking/SelfDriveCustomerDetails";
+import { useBookingAuthReady } from "@/components/booking/BookingAuthContext";
 import { SELF_DRIVE_CHECKOUT_FEATURES } from "@/lib/booking/self-drive-checkout-features";
 import {
   calculateSelfDrivePaymentWorkflowFromPricing,
@@ -65,7 +66,7 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
   const [bookingId, setBookingId] = useState("");
   const [bookingReference, setBookingReference] = useState("");
   const [draftLoaded, setDraftLoaded] = useState(false);
-  const draftHydratedRef = useRef(false);
+  const authReady = useBookingAuthReady();
 
   const [pickupCity, setPickupCity] = useState(() =>
     firstNonEmpty(searchPrefill?.pickupCity, listing.pickup_city, listing.owner_city)
@@ -116,8 +117,7 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
   }, []);
 
   useEffect(() => {
-    if (draftHydratedRef.current) return;
-    draftHydratedRef.current = true;
+    if (!authReady) return;
 
     let cancelled = false;
 
@@ -157,7 +157,7 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
     return () => {
       cancelled = true;
     };
-  }, [listing, searchPrefill]);
+  }, [authReady, listing, searchPrefill]);
 
   useEffect(() => {
     if (!draftLoaded) return;
@@ -254,6 +254,8 @@ export default function SelfDriveBookingForm({ listing, customer, searchPrefill 
       </span>
     </label>
   );
+
+  if (!authReady) return null;
 
   if (!draftLoaded) {
     return (

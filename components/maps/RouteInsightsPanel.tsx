@@ -3,11 +3,9 @@
 import RouteMapView from "@/components/maps/RouteMapView";
 import TripPricingCard from "@/components/maps/TripPricingCard";
 import { useRouteDirections } from "@/hooks/useRouteDirections";
-import { DEFAULT_DRIVER_RATE_PER_KM } from "@/lib/maps/constants";
-import { formatIndianCurrency } from "@/lib/maps/format";
 import type { PlaceLocation, SearchServiceMode } from "@/lib/maps/types";
+import { formatIndianCurrency } from "@/lib/maps/format";
 import {
-  calculateTripPricing,
   detectTripType,
   mapDriverTripTypeLabel,
   type TripPricingType,
@@ -22,15 +20,12 @@ interface RouteInsightsPanelProps {
   waypoints?: PlaceLocation[];
   mode: SearchServiceMode;
   variant?: "dark" | "light";
-  ratePerKm?: number;
-  availableSeats?: number;
   localPackagePrice?: number;
   driverTripType?: DriverTripTypeKey;
   tripTypeLabel?: string;
   cityNames?: string[];
-  returnJourneyDiscountPercent?: number;
   className?: string;
-  onRouteUpdate?: (data: { distanceKm: number; finalFare?: number }) => void;
+  onRouteUpdate?: (data: { distanceKm: number }) => void;
 }
 
 function resolveTripPricingType(
@@ -55,13 +50,10 @@ export default function RouteInsightsPanel({
   waypoints = [],
   mode,
   variant = "dark",
-  ratePerKm = DEFAULT_DRIVER_RATE_PER_KM,
-  availableSeats,
   localPackagePrice,
   driverTripType,
   tripTypeLabel,
   cityNames = [],
-  returnJourneyDiscountPercent = 30,
   className = "",
   onRouteUpdate,
 }: RouteInsightsPanelProps) {
@@ -78,24 +70,11 @@ export default function RouteInsightsPanel({
     [cityNames, driverTripType, mode, tripTypeLabel]
   );
 
-  const pricing = useMemo(() => {
-    if (!route) return null;
-    return calculateTripPricing({
-      tripType: pricingType,
-      distanceKm: route.distanceKm,
-      ratePerKm,
-      returnJourneyDiscountPercent,
-    });
-  }, [pricingType, ratePerKm, returnJourneyDiscountPercent, route]);
-
   useEffect(() => {
     if (route && onRouteUpdate) {
-      onRouteUpdate({
-        distanceKm: route.distanceKm,
-        finalFare: pricing?.finalFare,
-      });
+      onRouteUpdate({ distanceKm: route.distanceKm });
     }
-  }, [route, pricing, onRouteUpdate]);
+  }, [route, onRouteUpdate]);
 
   if (!canFetch && mode !== "local_rental") {
     return null;
@@ -114,6 +93,10 @@ export default function RouteInsightsPanel({
     variant === "dark"
       ? "text-[10px] uppercase tracking-wide text-white/55"
       : "text-[10px] uppercase tracking-wide text-gray-500";
+
+  const oneWayDistanceKm = route?.distanceKm ?? 0;
+  const totalDistanceKm =
+    pricingType === "round_trip" ? oneWayDistanceKm * 2 : oneWayDistanceKm;
 
   return (
     <div className={`space-y-3 ${className}`}>
@@ -140,12 +123,13 @@ export default function RouteInsightsPanel({
                 </p>
               </div>
             </div>
-          ) : route && pricing ? (
+          ) : route ? (
             <TripPricingCard
-              pricing={pricing}
+              tripType={pricingType}
+              oneWayDistanceKm={oneWayDistanceKm}
+              totalDistanceKm={totalDistanceKm}
               durationMinutes={route.durationMinutes}
               variant={variant}
-              availableSeats={mode === "return_journey" ? availableSeats : undefined}
             />
           ) : null}
         </>

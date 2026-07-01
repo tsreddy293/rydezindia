@@ -8,6 +8,8 @@ const OWNER_CLOSED_BOOKING_STATUSES = new Set([
   "expired",
   "rejected",
   "failed",
+  "completed",
+  "trip_completed",
 ]);
 
 /** Statuses where customer payment verification may still be required. */
@@ -52,7 +54,13 @@ export function isOwnerClosedBooking(booking: OwnerBookingEligibilityInput): boo
   if (paymentStatus === "refunded" || paymentStatus === "failed") return true;
 
   const refundStatus = normalize(booking.refundStatus);
-  if (refundStatus === "refunded" || refundStatus === "rejected") return true;
+  if (
+    refundStatus === "refunded" ||
+    refundStatus === "rejected" ||
+    refundStatus === "refund_completed"
+  ) {
+    return true;
+  }
 
   return false;
 }

@@ -1,17 +1,10 @@
 "use client";
 
 import { useCallback, useState, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
 import Button from "@/components/ui/Button";
 import { createClient } from "@/lib/supabase/client";
 import { bookingAuthLoginPath } from "@/lib/booking/booking-return-path";
-
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
-  return Promise.race([
-    promise,
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
-  ]);
-}
+import { verifyBookingSession } from "@/lib/booking/booking-client-auth";
 
 interface Props {
   href: string;
@@ -21,7 +14,10 @@ interface Props {
   className?: string;
 }
 
-/** Self-drive Book Now — guests go to login with returnTo; riders continue to booking. */
+/**
+ * Book Now — verifies Supabase session before navigation.
+ * Guests go straight to login; riders use a full page load so middleware + server auth run.
+ */
 export default function AuthAwareBookNowLink({
   href,
   variant = "primary",
@@ -29,30 +25,26 @@ export default function AuthAwareBookNowLink({
   children,
   className,
 }: Props) {
-  const router = useRouter();
   const [loading, setLoading] = useState(false);
 
   const handleClick = useCallback(async () => {
-      if (loading) return;
+    if (loading) return;
 
-      setLoading(true);
-      try {
-        const supabase = createClient();
-        const result = await withTimeout(supabase.auth.getSession(), 2500);
-        const session = result?.data?.session;
+    setLoading(true);
+    try {
+      const supabase = createClient();
+      const user = await verifyBookingSession(supabase);
 
-        if (!session?.user) {
-          window.location.href = bookingAuthLoginPath(href);
-          return;
-        }
-
-        router.push(href);
-      } finally {
-        setLoading(false);
+      if (!user) {
+        window.location.replace(bookingAuthLoginPath(href));
+        return;
       }
-    },
-    [href, loading, router]
-  );
+
+      window.location.assign(href);
+    } finally {
+      setLoading(false);
+    }
+  }, [href, loading]);
 
   return (
     <Button

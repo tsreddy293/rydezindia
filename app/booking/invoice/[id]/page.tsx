@@ -6,6 +6,7 @@ import { getBookingConfirmationById } from "@/lib/supabase/queries";
 import { FLEXIBLE_PROTECTION_NAME } from "@/lib/services/flexible-cancellation-protection";
 import { formatDate, formatINR } from "@/lib/utils";
 import BookingInvoicePrintButton from "@/components/booking/BookingInvoicePrintButton";
+import InvoiceTaxBreakdownTable from "@/components/booking/InvoiceTaxBreakdownTable";
 import {
   canGenerateTaxInvoice,
   isCancelledStatus,
@@ -38,7 +39,6 @@ export default async function BookingInvoicePage({ params }: Props) {
   }
 
   const protectionFee = booking.protection_fee ?? 0;
-  const tripFare = booking.trip_fare_amount ?? Math.max(0, booking.amount - protectionFee);
   const deposit = booking.security_deposit_amount ?? 0;
   const protected_ = Boolean(booking.protection_selected);
   const refundableDeposit = booking.refund_deposit_amount ?? 0;
@@ -99,13 +99,31 @@ export default async function BookingInvoicePage({ params }: Props) {
                 <td className="py-2 text-right font-medium">{booking.mobile}</td>
               </tr>
               <tr className="border-b border-gray-100">
-                <td className="py-2 text-gray-500">Trip fare</td>
-                <td className="py-2 text-right font-medium">{formatINR(tripFare)}</td>
+                <td className="py-2 text-gray-500">Booking type</td>
+                <td className="py-2 text-right font-medium capitalize">
+                  {String(booking.booking_type).replace(/_/g, " ")}
+                </td>
               </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <InvoiceTaxBreakdownTable booking={booking} />
+
+        <div className="mb-6 rounded-xl border border-gray-200 p-5 print:border-gray-300">
+          <h2 className="text-lg font-bold mb-4">Payment Summary</h2>
+          <table className="w-full text-sm">
+            <tbody>
               {deposit > 0 && (
                 <tr className="border-b border-gray-100">
                   <td className="py-2 text-gray-500">Refundable deposit</td>
                   <td className="py-2 text-right font-medium">{formatINR(deposit)}</td>
+                </tr>
+              )}
+              {protected_ && protectionFee > 0 && (
+                <tr className="border-b border-gray-100">
+                  <td className="py-2 text-gray-500">{FLEXIBLE_PROTECTION_NAME}</td>
+                  <td className="py-2 text-right font-medium">{formatINR(protectionFee)}</td>
                 </tr>
               )}
               <tr className="border-b border-gray-100">

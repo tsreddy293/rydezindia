@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { Calendar, MapPin, Navigation } from "lucide-react";
+import { isExcludedFromRiderDashboardAlerts } from "@/lib/rider/dashboard-booking-eligibility";
 import type { RiderDashboardBooking } from "@/lib/rider/dashboard-types";
 import RiderStatusBadge from "@/components/rider/dashboard/RiderStatusBadge";
 import { formatDate, formatINR } from "@/lib/utils";
 
 export default function UpcomingTripCard({ trip }: { trip: RiderDashboardBooking | null }) {
-  if (!trip) {
+  if (!trip || isExcludedFromRiderDashboardAlerts(trip)) {
     return (
       <section className="rounded-3xl border border-dashed border-gray-200 bg-white p-8 text-center shadow-sm">
         <Navigation className="mx-auto h-10 w-10 text-gray-300" />
@@ -55,6 +56,7 @@ export default function UpcomingTripCard({ trip }: { trip: RiderDashboardBooking
             <p className="text-lg font-bold text-primary">{formatINR(trip.amount)}</p>
             {trip.bookingType === "self_drive" &&
               trip.selfDrivePayment &&
+              !isExcludedFromRiderDashboardAlerts(trip) &&
               trip.bookingStatus.toLowerCase() === "confirmed" &&
               trip.selfDrivePayment.amountPaid > 0 && (
               <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/80 p-3 text-sm">

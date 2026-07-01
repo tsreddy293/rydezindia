@@ -6,12 +6,17 @@ import { Loader2, CheckCircle2, MapPin, Calendar, Users } from "lucide-react";
 import FormField from "@/components/forms/FormField";
 import Button from "@/components/ui/Button";
 import SeatSelector from "@/components/booking/SeatSelector";
-import BookingOtpVerification from "@/components/booking/BookingOtpVerification";
+import MobileVerifiedNotice from "@/components/booking/MobileVerifiedNotice";
 import CancellationPolicyCard from "@/components/booking/CancellationPolicyCard";
 import BookingPendingPayment from "@/components/booking/BookingPendingPayment";
 import { createBooking } from "@/server/actions/createBooking";
 import { calculateReturnJourneyPricing } from "@/lib/pricing/return-journey-pricing";
+import {
+  isLoggedInRiderMobileTrusted,
+  isValidBookingMobile,
+} from "@/lib/booking/booking-mobile-verification";
 import { formatDate, formatINR } from "@/lib/utils";
+import type { RiderBookingProfile } from "@/lib/users/rider-profile";
 
 interface JourneyInfo {
   id: string;
@@ -33,9 +38,18 @@ interface SeatRow {
 interface Props {
   journey: JourneyInfo;
   seats?: SeatRow[];
+  customerPrefill?: RiderBookingProfile | null;
 }
 
-export default function BookingForm({ journey, seats = [] }: Props) {
+function firstNonEmpty(...values: (string | undefined | null)[]): string {
+  for (const value of values) {
+    const trimmed = String(value ?? "").trim();
+    if (trimmed) return trimmed;
+  }
+  return "";
+}
+
+export default function BookingForm({ journey, seats = [], customerPrefill = null }: Props) {
   const router = useRouter();
   const [step, setStep] = useState<"form" | "payment" | "done">("form");
   const [loading, setLoading] = useState(false);
@@ -43,11 +57,16 @@ export default function BookingForm({ journey, seats = [] }: Props) {
   const [bookingId, setBookingId] = useState("");
   const [selectedSeats, setSelectedSeats] = useState<number[]>([]);
   const [seatsBookedCount, setSeatsBookedCount] = useState(1);
-  const [passengerName, setPassengerName] = useState("");
-  const [mobile, setMobile] = useState("");
-  const [mobileOtpVerified, setMobileOtpVerified] = useState(false);
+  const [passengerName, setPassengerName] = useState(() => firstNonEmpty(customerPrefill?.name));
+  const [mobile, setMobile] = useState(() => firstNonEmpty(customerPrefill?.mobile));
 
   const seatsBooked = selectedSeats.length > 0 ? selectedSeats.length : seatsBookedCount;
+  const mobileReady = isValidBookingMobile(mobile);
+  const trustedAccountMobile = isLoggedInRiderMobileTrusted({
+    enteredMobile: mobile,
+    profileMobile: customerPrefill?.mobile,
+  });
+  const accountLocked = Boolean(customerPrefill?.mobile);
 
   const pricing = useMemo(
     () =>
@@ -61,8 +80,8 @@ export default function BookingForm({ journey, seats = [] }: Props) {
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!mobileOtpVerified) {
-      setError("Please verify your mobile number with OTP before booking.");
+    if (!mobileReady) {
+      setError("Enter a valid 10-digit mobile number.");
       return;
     }
     setLoading(true);
@@ -183,12 +202,10 @@ export default function BookingForm({ journey, seats = [] }: Props) {
             required
             placeholder="9876543210"
             value={mobile}
-            onChange={(e) => {
-              setMobile(e.target.value);
-              setMobileOtpVerified(false);
-            }}
+            readOnly={accountLocked}
+            onChange={(e) => setMobile(e.target.value)}
           />
-          <BookingOtpVerification mobile={mobile} onVerified={() => setMobileOtpVerified(true)} />
+          {trustedAccountMobile && <MobileVerifiedNotice mobile={mobile} />}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Select Seats</label>
             <SeatSelector
@@ -219,7 +236,7 @@ export default function BookingForm({ journey, seats = [] }: Props) {
             variant="primary"
             size="lg"
             className="w-full"
-            disabled={loading || !mobileOtpVerified}
+            disabled={loading || !mobileReady}
           >
             {loading ? (
               <>

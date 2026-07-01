@@ -38,6 +38,7 @@ import {
   isPaymentCompleted,
 } from "@/lib/bookings/invoice-access";
 import { formatDate, formatINR } from "@/lib/utils";
+import { INCLUSIVE_FARE_NOTE_GST, INCLUSIVE_FARE_NOTE_NO_HIDDEN } from "@/lib/booking/inclusive-fare-display";
 import type { MyBookingRecord } from "@/types/database";
 
 interface Props {
@@ -155,7 +156,10 @@ export default function MyBookingCard({ booking, onBookingCancelled }: Props) {
               >
                 {formatINR(booking.amount)}
               </p>
-              <p className="text-[11px] text-gray-500 mt-0.5">Total</p>
+              <p className="text-[11px] text-gray-500 mt-0.5">Total Payable</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">
+                {INCLUSIVE_FARE_NOTE_GST} · {INCLUSIVE_FARE_NOTE_NO_HIDDEN}
+              </p>
               <p className="text-[10px] text-gray-400 mt-1">Booked {formatDate(booking.created_at)}</p>
             </div>
           </div>

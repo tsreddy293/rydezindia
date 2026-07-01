@@ -7,7 +7,11 @@ import Button from "@/components/ui/Button";
 import FormField from "@/components/forms/FormField";
 import RazorpayCheckout from "@/components/payments/RazorpayCheckout";
 import { createUnifiedBooking } from "@/server/actions/createBooking";
-import { calculateAiPricing, getAdvancePaymentAmount } from "@/lib/pricing/ai-pricing-engine";
+import { getAdvancePaymentAmount } from "@/lib/pricing/ai-pricing-engine";
+import {
+  estimateWithDriverTripFare,
+  resolveTripDistanceKm,
+} from "@/lib/pricing/with-driver-trip-fare";
 import { calculateLocalRentalPricing } from "@/lib/pricing/local-rental-pricing";
 import {
   calculateSelfDriveCheckoutAmount,
@@ -17,13 +21,17 @@ import {
 } from "@/lib/pricing/self-drive-pricing";
 import { mapDriverTripTypeLabel } from "@/lib/pricing/trip-pricing";
 import { formatINR } from "@/lib/utils";
-import BookingOtpVerification from "@/components/booking/BookingOtpVerification";
 import KycVerifiedNotice from "@/components/booking/KycVerifiedNotice";
 import MobileVerifiedNotice from "@/components/booking/MobileVerifiedNotice";
+import { InclusiveFareNotes, InclusiveTripFareRow } from "@/components/booking/InclusiveFareDisplay";
 import SelfDriveFareSummary from "@/components/booking/SelfDriveFareSummary";
 import CancellationPolicyCard from "@/components/booking/CancellationPolicyCard";
 import FlexibleCancellationAddon from "@/components/booking/FlexibleCancellationAddon";
 import { loadBookingSearchDraft } from "@/lib/booking/booking-draft";
+import {
+  isLoggedInRiderMobileTrusted,
+  isValidBookingMobile,
+} from "@/lib/booking/booking-mobile-verification";
 import { getProtectionFeeForVehicle } from "@/lib/services/flexible-cancellation-protection";
 import type { RiderBookingProfile } from "@/lib/users/rider-profile";
 import type { DriverVehicleResult, SelfDriveResult } from "@/types/database";
@@ -55,16 +63,10 @@ function firstNonEmpty(...values: (string | undefined | null)[]): string {
   return "";
 }
 
-function normalizeMobile(value: string): string {
-  return value.replace(/\s/g, "");
-}
-
 export default function UnifiedBookingForm(props: Props) {
   const { type, listing, distanceKm = 0, customerPrefill = null } = props;
   const profileKycApproved =
     customerPrefill?.kycApproved ?? (type === "self_drive" ? Boolean(props.kycApproved) : false);
-  const profileMobileVerified = customerPrefill?.mobileVerified ?? false;
-  const fullyVerified = profileKycApproved && profileMobileVerified;
   const tripType = type === "with_driver" ? props.tripType : undefined;
   const isLocalRental = String(tripType ?? "").toLowerCase() === "local rental";
   const localRentalPackage = type === "with_driver" ? props.localRentalPackage : undefined;
@@ -89,29 +91,26 @@ export default function UnifiedBookingForm(props: Props) {
   const [pickupTime, setPickupTime] = useState("");
   const [returnDate, setReturnDate] = useState("");
   const [returnTime, setReturnTime] = useState("");
-  const [mobileOtpVerified, setMobileOtpVerified] = useState(false);
-  const [baselineMobile, setBaselineMobile] = useState("");
   const [couponCode, setCouponCode] = useState("");
   const [flexibleCancellation, setFlexibleCancellation] = useState(false);
   const [policyAgreed, setPolicyAgreed] = useState(false);
 
   const accountLocked = Boolean(customerPrefill?.email || customerPrefill?.mobile);
-  const trustedMobile =
-    fullyVerified &&
-    Boolean(baselineMobile) &&
-    normalizeMobile(customerMobile) === baselineMobile;
+  const trustedAccountMobile = isLoggedInRiderMobileTrusted({
+    enteredMobile: customerMobile,
+    profileMobile: customerPrefill?.mobile,
+  });
+  const mobileReady = isValidBookingMobile(customerMobile);
 
   useEffect(() => {
     const draft = loadBookingSearchDraft();
     const listingPickupFallback =
       type === "self_drive" ? (listing as SelfDriveResult).owner_city : undefined;
     const prefilledMobile = firstNonEmpty(customerPrefill?.mobile);
-    const normalizedBaseline = normalizeMobile(prefilledMobile);
 
     setCustomerName(firstNonEmpty(customerPrefill?.name));
     setCustomerEmail(firstNonEmpty(customerPrefill?.email));
     setCustomerMobile(prefilledMobile);
-    setBaselineMobile(normalizedBaseline);
     setPickupLocation(
       firstNonEmpty(draft.pickupLocation, listing.pickup_city, listingPickupFallback)
     );
@@ -120,11 +119,8 @@ export default function UnifiedBookingForm(props: Props) {
     setPickupTime(firstNonEmpty(draft.pickupTime, listing.journey_time));
     setReturnDate(draft.returnDate);
     setReturnTime(draft.returnTime);
-    setMobileOtpVerified(
-      fullyVerified && Boolean(normalizedBaseline) && Boolean(prefilledMobile)
-    );
     setDraftLoaded(true);
-  }, [customerPrefill, listing, type, fullyVerified]);
+  }, [customerPrefill, listing, type]);
 
   const isSelfDrive = type === "self_drive";
   const pricingTripType = mapDriverTripTypeLabel(tripType) ?? "one_way";
@@ -152,12 +148,11 @@ export default function UnifiedBookingForm(props: Props) {
         vehicleType: listing.vehicle_type,
       });
     }
-    return calculateAiPricing({
-      distanceKm: distanceKm || 100,
+    return estimateWithDriverTripFare({
+      distanceKm: resolveTripDistanceKm(distanceKm),
       tripType: pricingTripType,
       vehicleType: listing.vehicle_type,
       fuelType: (listing as DriverVehicleResult).fuel_type,
-      driverRequired: true,
       ratePerKm: (listing as DriverVehicleResult).rate_per_km,
     });
   }, [
@@ -175,7 +170,7 @@ export default function UnifiedBookingForm(props: Props) {
     ? selfDrivePricing!.payableAmount
     : isLocalRental && driverPricing && "totalFare" in driverPricing
       ? driverPricing.totalFare
-      : (driverPricing as ReturnType<typeof calculateAiPricing>).finalFare;
+      : (driverPricing as ReturnType<typeof estimateWithDriverTripFare>).finalFare;
   const protectionFee = isSelfDrive ? getProtectionFeeForVehicle(listing.vehicle_type) : 0;
   const payAmount =
     isSelfDrive && selfDrivePricing
@@ -187,8 +182,8 @@ export default function UnifiedBookingForm(props: Props) {
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!mobileOtpVerified) {
-      setError("Please verify your mobile number with OTP before continuing.");
+    if (!mobileReady) {
+      setError("Enter a valid 10-digit mobile number.");
       return;
     }
     if (!policyAgreed) {
@@ -217,13 +212,13 @@ export default function UnifiedBookingForm(props: Props) {
         ? selfDrivePricing!.discountedVehicleRentTotal
         : isLocalRental && driverPricing && "adjustedBasePrice" in driverPricing
           ? driverPricing.adjustedBasePrice + driverPricing.extraHourCharge + driverPricing.extraKmCharge
-          : (driverPricing as ReturnType<typeof calculateAiPricing>).baseFare,
+          : (driverPricing as ReturnType<typeof estimateWithDriverTripFare>).baseFare,
       platform_fee: isSelfDrive
         ? selfDrivePricing!.platformFee
         : isLocalRental && driverPricing && "platformFee" in driverPricing
           ? driverPricing.platformFee
-          : (driverPricing as ReturnType<typeof calculateAiPricing>).platformFee,
-      discount_amount: isSelfDrive ? 0 : (driverPricing as ReturnType<typeof calculateAiPricing>).discountAmount ?? 0,
+          : (driverPricing as ReturnType<typeof estimateWithDriverTripFare>).platformFee,
+      discount_amount: isSelfDrive ? 0 : (driverPricing as ReturnType<typeof estimateWithDriverTripFare>).discountAmount ?? 0,
       trip_fare_amount: totalFare,
       local_rental_package: isLocalRental ? localRentalPackage : undefined,
       extra_hours: isLocalRental ? extraHours : undefined,
@@ -344,7 +339,9 @@ export default function UnifiedBookingForm(props: Props) {
                   </div>
                 </label>
               </div>
-              <p className="text-sm text-white/60">Total fare: {formatINR(totalFare)}</p>
+              <InclusiveTripFareRow amount={totalFare} variant="dark" showNotes={false} />
+              <InclusiveFareNotes variant="dark" />
+              <p className="text-sm text-white/60">Choose advance or full payment below.</p>
             </>
           )}
         </div>
@@ -400,55 +397,34 @@ export default function UnifiedBookingForm(props: Props) {
               protectionFee={protectionFee}
             />
           ) : driverPricing ? (
-            <div className="space-y-1 text-sm">
+            <div className="space-y-3 text-sm">
               {isLocalRental && "packageLabel" in driverPricing && (
-                <div className="flex justify-between">
+                <div className="flex justify-between text-white/80">
                   <span>Package</span>
                   <span>{driverPricing.packageLabel}</span>
                 </div>
               )}
-              <div className="flex justify-between">
-                <span>{isLocalRental ? "Package fare" : "Base Fare"}</span>
-                <span>
-                  {formatINR(
-                    isLocalRental && "adjustedBasePrice" in driverPricing
-                      ? driverPricing.adjustedBasePrice
-                      : (driverPricing as ReturnType<typeof calculateAiPricing>).baseFare
-                  )}
-                </span>
-              </div>
               {isLocalRental && "extraHourCharge" in driverPricing && driverPricing.extraHourCharge > 0 && (
-                <div className="flex justify-between">
+                <div className="flex justify-between text-white/80">
                   <span>Extra hours ({driverPricing.extraHours})</span>
                   <span>{formatINR(driverPricing.extraHourCharge)}</span>
                 </div>
               )}
               {isLocalRental && "extraKmCharge" in driverPricing && driverPricing.extraKmCharge > 0 && (
-                <div className="flex justify-between">
+                <div className="flex justify-between text-white/80">
                   <span>Extra km ({driverPricing.extraKm})</span>
                   <span>{formatINR(driverPricing.extraKmCharge)}</span>
                 </div>
               )}
-              <div className="flex justify-between">
-                <span>Platform Fee</span>
-                <span>
-                  {formatINR(
-                    isLocalRental && "platformFee" in driverPricing
-                      ? driverPricing.platformFee
-                      : (driverPricing as ReturnType<typeof calculateAiPricing>).platformFee
-                  )}
-                </span>
-              </div>
-              {!isLocalRental && (driverPricing as ReturnType<typeof calculateAiPricing>).discountAmount > 0 && (
+              {!isLocalRental && (driverPricing as ReturnType<typeof estimateWithDriverTripFare>).discountAmount > 0 && (
                 <div className="flex justify-between text-green-300">
                   <span>Discount</span>
-                  <span>-{formatINR((driverPricing as ReturnType<typeof calculateAiPricing>).discountAmount)}</span>
+                  <span>
+                    -{formatINR((driverPricing as ReturnType<typeof estimateWithDriverTripFare>).discountAmount)}
+                  </span>
                 </div>
               )}
-              <div className="flex justify-between font-bold text-accent text-lg pt-2">
-                <span>Final Fare</span>
-                <span>{formatINR(totalFare)}</span>
-              </div>
+              <InclusiveTripFareRow amount={totalFare} variant="dark" size="large" />
             </div>
           ) : null}
         </div>
@@ -485,22 +461,11 @@ export default function UnifiedBookingForm(props: Props) {
           required
           placeholder="9876543210"
           value={customerMobile}
-          onChange={(e) => {
-            const next = e.target.value;
-            setCustomerMobile(next);
-            const matchesBaseline =
-              fullyVerified &&
-              Boolean(baselineMobile) &&
-              normalizeMobile(next) === baselineMobile;
-            setMobileOtpVerified(matchesBaseline);
-          }}
+          readOnly={accountLocked && Boolean(customerPrefill?.mobile)}
+          onChange={(e) => setCustomerMobile(e.target.value)}
         />
         {profileKycApproved && <KycVerifiedNotice />}
-        {trustedMobile ? (
-          <MobileVerifiedNotice mobile={customerMobile} />
-        ) : (
-          <BookingOtpVerification mobile={customerMobile} onVerified={() => setMobileOtpVerified(true)} />
-        )}
+        {trustedAccountMobile && <MobileVerifiedNotice mobile={customerMobile} />}
         <FormField
           label="Pickup Location"
           name="pickup_location"
@@ -640,7 +605,7 @@ export default function UnifiedBookingForm(props: Props) {
           variant="primary"
           size="lg"
           className="w-full"
-          disabled={loading || !mobileOtpVerified || !policyAgreed}
+          disabled={loading || !mobileReady || !policyAgreed}
         >
           {loading ? (
             <>

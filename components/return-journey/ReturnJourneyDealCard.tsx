@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import AuthAwareBookingLink from "@/components/booking/AuthAwareBookingLink";
 import { Calendar, MapPin, Users } from "lucide-react";
 import VehicleSearchResultCard from "@/components/vehicles/VehicleSearchResultCard";
 import { resolveReturnJourneyPricePerSeat } from "@/lib/pricing/return-journey-pricing";
@@ -77,12 +77,9 @@ export default function ReturnJourneyDealCard({ journey, distanceKm = 0 }: Props
         {journey.driver_name && (
           <p className="text-gray-500">Driver: {journey.driver_name}</p>
         )}
-        <Link
-          href={`/booking/${journey.id}`}
-          className="inline-block text-primary font-medium hover:underline"
-        >
+        <AuthAwareBookingLink href={`/booking/${journey.id}`}>
           Book return deal →
-        </Link>
+        </AuthAwareBookingLink>
       </div>
     </div>
   );

@@ -1,60 +1,44 @@
 "use client";
 
-import { useCallback, useState, type MouseEvent, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useState, type ReactNode } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { bookingAuthLoginPath } from "@/lib/booking/booking-return-path";
-
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
-  return Promise.race([
-    promise,
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
-  ]);
-}
+import { verifyBookingSession } from "@/lib/booking/booking-client-auth";
 
 interface Props {
   href: string;
-  className?: string;
   children: ReactNode;
+  className?: string;
 }
 
-/** Card/link wrapper — guests redirect to login before opening a booking URL. */
-export default function AuthAwareBookingLink({ href, className, children }: Props) {
-  const router = useRouter();
+/** Text-style booking link with the same auth gate as Book Now buttons. */
+export default function AuthAwareBookingLink({ href, children, className = "" }: Props) {
   const [loading, setLoading] = useState(false);
 
-  const handleClick = useCallback(
-    async (event: MouseEvent<HTMLAnchorElement>) => {
-      event.preventDefault();
-      if (loading) return;
-
-      setLoading(true);
-      try {
-        const supabase = createClient();
-        const result = await withTimeout(supabase.auth.getSession(), 2500);
-        const session = result?.data?.session;
-
-        if (!session?.user) {
-          window.location.href = bookingAuthLoginPath(href);
-          return;
-        }
-
-        router.push(href);
-      } finally {
-        setLoading(false);
+  const handleClick = useCallback(async () => {
+    if (loading) return;
+    setLoading(true);
+    try {
+      const supabase = createClient();
+      const user = await verifyBookingSession(supabase);
+      if (!user) {
+        window.location.replace(bookingAuthLoginPath(href));
+        return;
       }
-    },
-    [href, loading, router]
-  );
+      window.location.assign(href);
+    } finally {
+      setLoading(false);
+    }
+  }, [href, loading]);
 
   return (
-    <a
-      href={href}
-      className={className}
+    <button
+      type="button"
       onClick={handleClick}
-      aria-busy={loading}
+      disabled={loading}
+      className={`text-left font-medium text-primary hover:underline disabled:opacity-60 ${className}`}
     >
-      {children}
-    </a>
+      {loading ? "Checking session…" : children}
+    </button>
   );
 }

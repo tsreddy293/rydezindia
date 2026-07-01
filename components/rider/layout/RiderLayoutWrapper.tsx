@@ -1,5 +1,10 @@
 import { listNotifications } from "@/lib/services/notifications";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { shouldShowRiderKyc } from "@/lib/services/customer-profile";
+import {
+  collectExcludedRiderBookingIds,
+  filterRiderPaymentNotifications,
+} from "@/lib/rider/dashboard-booking-eligibility";
 import { getCustomerKycStatus } from "@/server/actions/customerKyc";
 import { getRiderWelcomeProfile } from "@/lib/users/rider-profile";
 import { requireRiderDashboard } from "@/lib/auth/customer-auth";
@@ -20,18 +25,37 @@ function notificationHref(type: string): string {
 
 export default async function RiderLayoutWrapper({ children }: { children: React.ReactNode }) {
   const { user } = await requireRiderDashboard();
-  const [notificationsRaw, kyc, showKycLinks] = await Promise.all([
+  const [notificationsRaw, kyc, showKycLinks, bookingRows] = await Promise.all([
     listNotifications({ recipientId: user.id, recipientRole: "rider", limit: 20 }),
     getCustomerKycStatus(),
     shouldShowRiderKyc(user.id),
+    createAdminClient()
+      .from("bookings")
+      .select("id, booking_status, payment_status, refund_status, cancelled_at")
+      .eq("user_id", user.id),
   ]);
+
+  const excludedBookingIds = collectExcludedRiderBookingIds(
+    (bookingRows.data ?? []).map((row) => ({
+      id: String(row.id),
+      bookingStatus: String(row.booking_status ?? ""),
+      paymentStatus: String(row.payment_status ?? ""),
+      refundStatus: String(row.refund_status ?? ""),
+      cancelledAt: row.cancelled_at as string | null,
+    }))
+  );
+
+  const filteredNotifications = filterRiderPaymentNotifications(
+    notificationsRaw,
+    excludedBookingIds
+  );
 
   const welcome = await getRiderWelcomeProfile(user, {
     kycStatus: kyc.status,
     showKycSection: showKycLinks,
   });
 
-  const notifications: RiderNotificationItem[] = notificationsRaw.map((n) => ({
+  const notifications: RiderNotificationItem[] = filteredNotifications.map((n) => ({
     id: String(n.id),
     title: String(n.title ?? "Notification"),
     message: String(n.message ?? ""),

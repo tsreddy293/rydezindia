@@ -189,9 +189,9 @@ export default function HeaderClient() {
         <span aria-hidden>🔐</span>
         Login
       </button>
-      <button type="button" onClick={() => openAuth("signup")} className={SIGNUP_BTN}>
-        🚀 Get Started
-      </button>
+      <Link href="/signup/owner" className={SIGNUP_BTN}>
+        Register Vehicle
+      </Link>
     </>
   ) : accountLink ? (
     <>
@@ -296,13 +296,13 @@ export default function HeaderClient() {
                     <span aria-hidden>🔐</span>
                     Login
                   </button>
-                  <button
-                    type="button"
+                  <Link
+                    href="/signup/owner"
                     className={`${SIGNUP_BTN} w-full py-3`}
-                    onClick={() => openAuth("signup")}
+                    onClick={closeMobile}
                   >
-                    🚀 Get Started
-                  </button>
+                    Register Vehicle
+                  </Link>
                 </>
               ) : accountLink ? (
                 <>

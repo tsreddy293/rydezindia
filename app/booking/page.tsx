@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { requireRiderForBooking } from "@/lib/auth/customer-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,9 @@ export default async function BookingIndexPage({
   searchParams: Promise<{ vehicle?: string }>;
 }) {
   const { vehicle } = await searchParams;
+  const returnPath = vehicle ? `/booking/${vehicle}` : "/booking";
+  await requireRiderForBooking(returnPath);
+
   if (vehicle) redirect(`/booking/${vehicle}`);
   redirect("/search");
 }

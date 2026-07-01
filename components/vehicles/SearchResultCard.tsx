@@ -1,8 +1,11 @@
 "use client";
 
-import Link from "next/link";
+import { useCallback, useState } from "react";
 import { MapPin, Calendar, Users, IndianRupee, ArrowRight } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 import { formatDate, formatINR } from "@/lib/utils";
+import { bookingAuthLoginPath } from "@/lib/booking/booking-return-path";
+import { verifyBookingSession } from "@/lib/booking/booking-client-auth";
 import type { SearchResult } from "@/types/database";
 
 interface Props {
@@ -10,10 +13,31 @@ interface Props {
 }
 
 export default function SearchResultCard({ result }: Props) {
+  const [loading, setLoading] = useState(false);
+  const bookingHref = `/booking/${result.id}`;
+
+  const handleClick = useCallback(async () => {
+    if (loading) return;
+    setLoading(true);
+    try {
+      const supabase = createClient();
+      const user = await verifyBookingSession(supabase);
+      if (!user) {
+        window.location.replace(bookingAuthLoginPath(bookingHref));
+        return;
+      }
+      window.location.assign(bookingHref);
+    } finally {
+      setLoading(false);
+    }
+  }, [bookingHref, loading]);
+
   return (
-    <Link
-      href={`/booking/${result.id}`}
-      className="card-hover group block rounded-2xl bg-white border border-gray-100 overflow-hidden shadow-sm"
+    <button
+      type="button"
+      onClick={handleClick}
+      disabled={loading}
+      className="card-hover group block w-full rounded-2xl bg-white border border-gray-100 overflow-hidden shadow-sm text-left"
     >
       <div className="bg-gradient-to-r from-secondary to-primary p-5 text-white">
         <div className="flex items-start justify-between gap-3">
@@ -30,7 +54,9 @@ export default function SearchResultCard({ result }: Props) {
       <div className="p-5 space-y-3">
         <div className="flex items-center gap-2 text-sm text-gray-600">
           <MapPin className="h-4 w-4 text-primary shrink-0" />
-          <span>{result.from_city} → {result.to_city}</span>
+          <span>
+            {result.from_city} → {result.to_city}
+          </span>
         </div>
         <div className="flex items-center gap-2 text-sm text-gray-600">
           <Calendar className="h-4 w-4 text-primary shrink-0" />
@@ -48,10 +74,10 @@ export default function SearchResultCard({ result }: Props) {
             <span className="text-sm text-gray-500">/ seat</span>
           </div>
           <span className="flex items-center gap-1 text-sm font-medium text-primary group-hover:gap-2 transition-all">
-            Book Now <ArrowRight className="h-4 w-4" />
+            {loading ? "Checking…" : "Book Now"} <ArrowRight className="h-4 w-4" />
           </span>
         </div>
       </div>
-    </Link>
+    </button>
   );
 }

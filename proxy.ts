@@ -12,6 +12,11 @@ import {
   redirectPathForWrongAdminAccess,
   homePathForRole,
 } from "@/lib/auth/rbac-paths";
+import {
+  bookingLoginRedirectUrl,
+  isBookingRoute,
+  normalizeBookingReturnPath,
+} from "@/lib/auth/booking-route-guard";
 import type { UserRole } from "@/types/database";
 
 async function resolveRoleSafe(
@@ -60,8 +65,10 @@ export async function proxy(request: NextRequest) {
 
   const redirectToLoginWithReturnTo = (returnPath: string) => {
     const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    url.search = `returnTo=${encodeURIComponent(returnPath)}`;
+    const target = bookingLoginRedirectUrl(returnPath);
+    const [pathname, search = ""] = target.split("?");
+    url.pathname = pathname;
+    url.search = search ? `?${search}` : "";
     return NextResponse.redirect(url);
   };
 
@@ -139,14 +146,20 @@ export async function proxy(request: NextRequest) {
     return redirectTo(homePathForRole(role));
   }
 
-  // --- Booking routes — authenticated only (KYC checked on server) ---
-  const bookingDetailMatch = path.match(/^\/booking\/([^/]+)$/);
-  const bookingConfirmationMatch = path.match(/^\/booking\/confirmation\/([^/]+)$/);
-  const bookingInvoiceMatch = path.match(/^\/booking\/invoice\/([^/]+)$/);
+  // --- Booking routes — authenticated riders only (KYC checked on server) ---
+  if (isBookingRoute(path)) {
+    const returnPath = normalizeBookingReturnPath(path, request.nextUrl.search);
 
-  if ((bookingDetailMatch || bookingConfirmationMatch || bookingInvoiceMatch) && !data.user) {
-    const returnPath = `${path}${request.nextUrl.search}`;
-    return redirectToLoginWithReturnTo(returnPath);
+    if (!data.user) {
+      return redirectToLoginWithReturnTo(returnPath);
+    }
+
+    if (role !== "rider") {
+      return redirectTo(homePathForRole(role));
+    }
+
+    response.headers.set("x-booking-return-path", returnPath);
+    return response;
   }
 
   // Legacy login redirects (never point customer/owner flows to /admin)

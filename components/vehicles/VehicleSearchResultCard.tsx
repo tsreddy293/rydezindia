@@ -1,9 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import {
-  ArrowRight,
   Car,
   Fuel,
   IndianRupee,
@@ -16,6 +14,7 @@ import {
 import Button from "@/components/ui/Button";
 import AuthAwareBookNowLink from "@/components/booking/AuthAwareBookNowLink";
 import TrustBadgeDisplay from "@/components/trust/TrustBadgeDisplay";
+import { INCLUSIVE_TRIP_FARE_SHORT_LABEL, INCLUSIVE_DAILY_FARE_LABEL } from "@/lib/booking/inclusive-fare-display";
 import { formatINR } from "@/lib/utils";
 import type { TrustBadges } from "@/lib/services/trust-badges";
 
@@ -51,6 +50,8 @@ interface Props {
   trustBadges?: Partial<TrustBadges>;
   /** Overrides default /booking/{id} link — used to carry search params for self-drive. */
   bookingHref?: string;
+  /** Overrides default /vehicle/{id} link — used to carry trip context from search. */
+  detailHref?: string;
 }
 
 export default function VehicleSearchResultCard({
@@ -61,6 +62,7 @@ export default function VehicleSearchResultCard({
   discountPercent,
   trustBadges,
   bookingHref,
+  detailHref,
 }: Props) {
   const [imgError, setImgError] = useState(false);
   const imageUrl = result.photos?.[0];
@@ -69,6 +71,7 @@ export default function VehicleSearchResultCard({
   const fare = estimatedFare ?? result.price;
   const bookingQuery = result.bookingType ? `?type=${result.bookingType}` : "";
   const bookingLink = bookingHref ?? `/booking/${result.id}${bookingQuery}`;
+  const vehicleDetailLink = detailHref ?? `/vehicle/${result.id}${bookingQuery}`;
   const route =
     result.from_city && result.to_city
       ? `${result.from_city} → ${result.to_city}`
@@ -182,24 +185,23 @@ export default function VehicleSearchResultCard({
                 <span className="text-xl font-bold text-primary">{formatINR(fare)}</span>
               </div>
               <p className="text-xs text-gray-400">
-                {result.priceLabel ?? (isSelfDrive ? "Daily Fare" : showReturnDeal ? "Final Fare" : "Est. Fare")}
+                {result.priceLabel ??
+                  (isSelfDrive
+                    ? INCLUSIVE_DAILY_FARE_LABEL
+                    : showReturnDeal
+                      ? "Final Fare"
+                      : INCLUSIVE_TRIP_FARE_SHORT_LABEL)}
               </p>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">
               {!isSelfDrive && (
-                <Button href={`/vehicle/${result.id}${bookingQuery}`} variant="outline" size="sm">
+                <Button href={vehicleDetailLink} variant="outline" size="sm">
                   View Details
                 </Button>
               )}
-              {isSelfDrive ? (
-                <AuthAwareBookNowLink href={bookingLink} variant="primary" size="sm">
-                  Book Now
-                </AuthAwareBookNowLink>
-              ) : (
-                <Button href={bookingLink} variant="primary" size="sm">
-                  Book Now
-                </Button>
-              )}
+              <AuthAwareBookNowLink href={bookingLink} variant="primary" size="sm">
+                Book Now
+              </AuthAwareBookNowLink>
             </div>
           </div>
         </div>

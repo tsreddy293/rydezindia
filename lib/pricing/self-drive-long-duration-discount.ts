@@ -16,11 +16,10 @@ export interface LongDurationDiscountTier {
 
 /** Default Rydez marketplace long-duration discount tiers. */
 export const RYDEZ_DEFAULT_LONG_DURATION_DISCOUNT_TIERS: LongDurationDiscountTier[] = [
-  { minDays: 1, maxDays: 2, percent: 0 },
-  { minDays: 3, maxDays: 6, percent: 5 },
-  { minDays: 7, maxDays: 14, percent: 10 },
-  { minDays: 15, maxDays: 29, percent: 15 },
-  { minDays: 30, maxDays: null, percent: 20 },
+  { minDays: 1, maxDays: 6, percent: 0 },
+  { minDays: 7, maxDays: 13, percent: 5 },
+  { minDays: 14, maxDays: 29, percent: 10 },
+  { minDays: 30, maxDays: null, percent: 15 },
 ];
 
 export interface LongDurationDiscountOptions {

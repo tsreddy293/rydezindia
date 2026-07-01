@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { MapPin, Users, Calendar, Car, Shield, IndianRupee } from "lucide-react";
 import PageLayout from "@/components/layout/PageLayout";
-import Button from "@/components/ui/Button";
+import AuthAwareBookNowLink from "@/components/booking/AuthAwareBookNowLink";
 import { getJourneyById } from "@/lib/supabase/queries";
 
 export const dynamic = "force-dynamic";
@@ -74,9 +74,9 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
           </p>
         </div>
 
-        <Button href={`/booking/${journey.id}`} variant="primary" size="lg" className="w-full">
+        <AuthAwareBookNowLink href={`/booking/${journey.id}`} variant="primary" size="lg" className="w-full">
           Book Now
-        </Button>
+        </AuthAwareBookNowLink>
       </div>
     </PageLayout>
   );
